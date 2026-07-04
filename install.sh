@@ -1,16 +1,17 @@
 #!/bin/sh
 # =============================================================================
-#  install.sh — Prima installazione su Alpine Linux (Proxmox LXC)
+#  install.sh — Installazione/Reinstallazione Gestore Giacenze su Alpine Linux
 # =============================================================================
 # Utilizzo (come root):
 #   chmod +x install.sh && ./install.sh
 #
-# Prima di eseguire, aggiorna la variabile REPO_URL con il tuo repository.
+# Funziona sia per la prima installazione che in caso di reinstallazione:
+# se /opt/giac esiste già, esegue un aggiornamento (git pull) invece del clone.
 # =============================================================================
 
 set -e
 
-REPO_URL="https://github.com/TUO_USERNAME/giac.git"   # <-- cambia qui
+REPO_URL="https://github.com/iosonofra/giace.git"
 APP_DIR="/opt/giac"
 APP_USER="giac"
 APP_PORT=8000
@@ -36,32 +37,49 @@ echo "[2/6] Creazione utente '$APP_USER'..."
 if ! id "$APP_USER" >/dev/null 2>&1; then
     addgroup -S "$APP_USER"
     adduser -S -G "$APP_USER" -h "$APP_DIR" -s /sbin/nologin "$APP_USER"
+    echo "  Utente '$APP_USER' creato."
+else
+    echo "  Utente '$APP_USER' già presente."
 fi
 
-# ---------- 3. Clone repository ----------
-echo "[3/6] Clone del repository in $APP_DIR..."
-git clone "$REPO_URL" "$APP_DIR"
+# ---------- 3. Clone o aggiornamento repository ----------
+echo "[3/6] Codice sorgente..."
+if [ -d "$APP_DIR/.git" ]; then
+    echo "  Repository già presente — eseguo git pull..."
+    git -C "$APP_DIR" pull origin main
+else
+    if [ -d "$APP_DIR" ]; then
+        echo "  Cartella $APP_DIR esistente senza .git — rimozione e reclone..."
+        rm -rf "$APP_DIR"
+    fi
+    echo "  Clone del repository in $APP_DIR..."
+    git clone "$REPO_URL" "$APP_DIR"
+fi
+
+# Imposta permessi eseguibili sugli script (sicuro anche dopo clone da Windows)
+chmod +x "$APP_DIR/install.sh" "$APP_DIR/update.sh"
 chown -R "$APP_USER:$APP_USER" "$APP_DIR"
 
 # ---------- 4. Configurazione ambiente ----------
 echo "[4/6] Configurazione ambiente..."
-cd "$APP_DIR"
-if [ ! -f "backend/.env" ]; then
-    cp backend/.env.example backend/.env
+if [ ! -f "$APP_DIR/backend/.env" ]; then
+    cp "$APP_DIR/backend/.env.example" "$APP_DIR/backend/.env"
     echo "  File backend/.env creato (modalità simulazione attiva)."
-    echo "  Le impostazioni (URL PrestaShop, chiave API, ecc.) si configurano"
-    echo "  direttamente dalla pagina Impostazioni dell'interfaccia web."
+    echo "  Configura URL e chiave API PrestaShop dalla pagina Impostazioni."
+else
+    echo "  backend/.env già presente — lasciato invariato."
 fi
 
-# Crea cartella backups
 mkdir -p "$APP_DIR/backups"
 
 # ---------- 5. Dipendenze Python + Build frontend ----------
-echo "[5/6] Installazione dipendenze Python..."
-pip3 install --break-system-packages --no-cache-dir -r backend/requirements.txt
+echo "[5/6] Dipendenze Python e build frontend..."
+pip3 install --break-system-packages --no-cache-dir -r "$APP_DIR/backend/requirements.txt"
 
-echo "  Build frontend..."
-cd frontend && npm install && npm run build && cd ..
+cd "$APP_DIR/frontend"
+npm install
+npm run build
+cd "$APP_DIR"
 
 # ---------- 6. Servizio OpenRC ----------
 echo "[6/6] Creazione servizio OpenRC..."
@@ -92,17 +110,26 @@ start_pre() {
 INITEOF
 
 chmod +x "$SERVICE_FILE"
-rc-update add giac default
-rc-service giac start
+
+# Riavvia se già attivo, altrimenti avvia per la prima volta
+if rc-service giac status >/dev/null 2>&1; then
+    echo "  Servizio già presente — riavvio..."
+    rc-service giac restart
+else
+    rc-update add giac default 2>/dev/null || true
+    rc-service giac start
+fi
 
 echo ""
 echo "============================================================"
 echo "  Installazione completata!"
-echo "  Accedi su: http://$(hostname -i):$APP_PORT"
+echo "  Accedi su: http://$(hostname -i 2>/dev/null || echo '<IP-SERVER>'):$APP_PORT"
 echo ""
-echo "  All'avvio la webapp è in modalità simulazione (MOCK_MODE=True)."
-echo "  Vai su Impostazioni per inserire URL e chiave API PrestaShop:"
-echo "  le credenziali vengono salvate nel database e scritte"
-echo "  automaticamente in backend/.env."
+echo "  La webapp parte in modalità simulazione."
+echo "  Vai su Impostazioni per configurare PrestaShop:"
+echo "  le credenziali vengono scritte automaticamente in backend/.env"
+echo ""
+echo "  Aggiornamenti futuri:"
+echo "    cd $APP_DIR && ./update.sh"
 echo "============================================================"
 echo ""
