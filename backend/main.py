@@ -1,0 +1,1858 @@
+import os
+import json
+import logging
+import hashlib
+import requests
+import threading
+import time
+import re
+from typing import List, Optional
+from datetime import datetime, timezone
+from fastapi import FastAPI, Depends, UploadFile, File, Form, HTTPException, BackgroundTasks
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+from sqlalchemy.orm import Session
+from sqlalchemy import func, desc
+
+# Import our backend modules
+from backend.database import engine, Base, get_db
+from backend.models import (
+    ImportBatch, WarehouseStock, ProductComponent,
+    PrestashopOrder, PrestashopOrderLine, CalcRun,
+    SkuCommitment, ProductAvailability, ImportAnomaly,
+    AppSetting
+)
+from backend.excel_parser import parse_warehouse_excel, parse_associations_excel, get_excel_sheets
+from backend.prestashop_client import PrestaShopClient
+from backend.calculator import run_calculation
+
+# Initialize logger
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+logger = logging.getLogger(__name__)
+
+# Progress Tracker for PrestaShop Order Sincronizzazione
+class SyncProgress:
+    def __init__(self):
+        self.active = False
+        self.total_orders = 0
+        self.synced_orders = 0
+        self.phase = "idle"  # "idle", "fetching_orders", "fetching_customers", "saving", "calculating", "completed", "error"
+        self.error_message = ""
+
+    def start(self):
+        self.active = True
+        self.total_orders = 0
+        self.synced_orders = 0
+        self.phase = "fetching_orders"
+        self.error_message = ""
+
+    def update(self, phase=None, synced_orders=None, total_orders=None, error_message=None):
+        if phase:
+            self.phase = phase
+        if synced_orders is not None:
+            self.synced_orders = synced_orders
+        if total_orders is not None:
+            self.total_orders = total_orders
+        if error_message:
+            self.error_message = error_message
+            self.phase = "error"
+
+    def stop(self, success=True, error_msg=None):
+        self.active = False
+        if success:
+            self.phase = "completed"
+        else:
+            self.phase = "error"
+            self.error_message = error_msg or "Errore sconosciuto"
+
+sync_progress = SyncProgress()
+
+# Initialize DB Tables
+Base.metadata.create_all(bind=engine)
+
+app = FastAPI(title="PrestaShop Composite Inventory Manager API")
+
+# Enable CORS for frontend development
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # In development, allow Vite dev server
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Helper function to get PrestaShop Client
+def get_ps_client(db: Session = Depends(get_db)) -> PrestaShopClient:
+    url_setting = db.query(AppSetting).filter(AppSetting.key == "prestashop_url").first()
+    key_setting = db.query(AppSetting).filter(AppSetting.key == "prestashop_api_key").first()
+    mock_setting = db.query(AppSetting).filter(AppSetting.key == "prestashop_mock_mode").first()
+    
+    url = url_setting.value if url_setting else os.getenv("PRESTASHOP_URL", "")
+    key = key_setting.value if key_setting else os.getenv("PRESTASHOP_API_KEY", "")
+    
+    if mock_setting:
+        mock_env = mock_setting.value.lower() in ("true", "1", "yes")
+    else:
+        mock_env = os.getenv("MOCK_MODE", "True").lower() in ("true", "1", "yes")
+    
+    return PrestaShopClient(url=url, api_key=key, mock_mode=mock_env)
+
+from backend.database import SessionLocal
+
+def convert_google_sheets_url(url: str) -> str:
+    match = re.search(r'/spreadsheets/d/([a-zA-Z0-9-_]+)', url)
+    if not match:
+        raise ValueError("URL di Google Sheets non valido. Assicurati che contenga '/spreadsheets/d/{id}'.")
+    spreadsheet_id = match.group(1)
+    
+    gid_match = re.search(r'[#&]gid=([0-9]+)', url)
+    if gid_match:
+        gid = gid_match.group(1)
+        return f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/export?format=xlsx&gid={gid}"
+    
+    return f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/export?format=xlsx"
+
+def sync_stock_from_google_sheets(db: Session, force: bool = False) -> dict:
+    source_setting = db.query(AppSetting).filter(AppSetting.key == "stock_source").first()
+    url_setting = db.query(AppSetting).filter(AppSetting.key == "google_sheet_url").first()
+    sheet_name_setting = db.query(AppSetting).filter(AppSetting.key == "google_sheet_name").first()
+    hash_setting = db.query(AppSetting).filter(AppSetting.key == "google_sheet_hash").first()
+    
+    # Load mapping settings
+    m_sku_setting = db.query(AppSetting).filter(AppSetting.key == "mapping_sku").first()
+    m_qty_setting = db.query(AppSetting).filter(AppSetting.key == "mapping_qty").first()
+    m_desc_setting = db.query(AppSetting).filter(AppSetting.key == "mapping_desc").first()
+    m_lotto_setting = db.query(AppSetting).filter(AppSetting.key == "mapping_lotto").first()
+    
+    col_sku = m_sku_setting.value if m_sku_setting else "Sku"
+    col_qty = m_qty_setting.value if m_qty_setting else "Qta Tot."
+    col_desc = m_desc_setting.value if m_desc_setting else "Descrizione Sku"
+    col_lotto = m_lotto_setting.value if m_lotto_setting else "Lotto"
+    
+    source = source_setting.value if source_setting else "local_upload"
+    url = url_setting.value if url_setting else ""
+    sheet_name = sheet_name_setting.value if sheet_name_setting else "ROSATE"
+    old_hash = hash_setting.value if hash_setting else ""
+    
+    if not url:
+        raise ValueError("L'URL del Google Sheet non è impostato nelle impostazioni.")
+        
+    try:
+        export_url = convert_google_sheets_url(url)
+    except Exception as e:
+        raise ValueError(f"URL di Google Sheets non valido: {str(e)}")
+        
+    try:
+        response = requests.get(export_url, timeout=30)
+        if response.status_code != 200:
+            raise ValueError(f"HTTP {response.status_code} durante il download dal Google Sheet.")
+        file_content = response.content
+    except Exception as e:
+        raise ValueError(f"Errore nella connessione/scaricamento del Google Sheet: {str(e)}")
+        
+    new_hash = hashlib.md5(file_content).hexdigest()
+    
+    if new_hash == old_hash and not force:
+        return {
+            "status": "skipped",
+            "message": "Nessun cambiamento rilevato nel Google Sheet rispetto all'ultimo calcolo.",
+            "hash": new_hash
+        }
+        
+    try:
+        valid_rows, anomalies = parse_warehouse_excel(
+            file_content, 
+            sheet_name,
+            col_sku=col_sku,
+            col_qty=col_qty,
+            col_desc=col_desc,
+            col_lotto=col_lotto
+        )
+    except Exception as e:
+        raise ValueError(f"Errore nel parsing del Google Sheet: {str(e)}")
+        
+    db.query(ImportBatch).filter(ImportBatch.file_type == "warehouse").update({ImportBatch.is_active: False})
+    
+    batch = ImportBatch(
+        file_type="warehouse",
+        filename="Google Sheet Sincronizzato",
+        sheet_name=sheet_name,
+        record_count=len([r for r in valid_rows if not r["sku"].startswith("__spacer_")]),
+        is_active=True
+    )
+    db.add(batch)
+    db.commit()
+    db.refresh(batch)
+    
+    stock_items = []
+    for r in valid_rows:
+        stock_items.append(WarehouseStock(
+            import_batch_id=batch.id,
+            sku=r["sku"],
+            description=r["description"],
+            lotto=r["lotto"],
+            qty_total=r["qty_total"]
+        ))
+    
+    db.bulk_save_objects(stock_items)
+    
+    # Save anomalies
+    for an in anomalies:
+        db.add(ImportAnomaly(
+            source=an["source"],
+            record_key=an["record_key"],
+            anomaly_type=an["anomaly_type"],
+            message=an["message"]
+        ))
+        
+    for key, val in [
+        ("google_sheet_hash", new_hash),
+        ("google_sheet_last_sync", datetime.utcnow().isoformat() + "Z"),
+        ("google_sheet_last_error", "")
+    ]:
+        setting = db.query(AppSetting).filter(AppSetting.key == key).first()
+        if setting:
+            setting.value = val
+        else:
+            db.add(AppSetting(key=key, value=val))
+            
+    db.commit()
+    
+    try:
+        run_calculation(db, warehouse_batch_id=batch.id)
+    except Exception as calc_err:
+        logger.error(f"Errore nel calcolo automatico dopo sincronizzazione Google Sheet: {calc_err}")
+        
+    return {
+        "status": "success",
+        "batch_id": batch.id,
+        "records_imported": len([r for r in valid_rows if not r["sku"].startswith("__spacer_")]),
+        "hash": new_hash
+    }
+
+def google_sheets_polling_worker():
+    logger.info("Google Sheets polling worker avviato.")
+    while True:
+        time.sleep(60) # controlla ogni minuto
+        
+        db = SessionLocal()
+        try:
+            source_setting = db.query(AppSetting).filter(AppSetting.key == "stock_source").first()
+            if source_setting and source_setting.value == "google_sheets":
+                interval_setting = db.query(AppSetting).filter(AppSetting.key == "google_sheet_sync_interval").first()
+                last_sync_setting = db.query(AppSetting).filter(AppSetting.key == "google_sheet_last_sync").first()
+                
+                interval_mins = int(interval_setting.value) if (interval_setting and interval_setting.value.isdigit()) else 10
+                
+                should_sync = False
+                now_utc = datetime.now(timezone.utc)
+                if not last_sync_setting or not last_sync_setting.value:
+                    should_sync = True
+                else:
+                    try:
+                        last_sync = datetime.fromisoformat(last_sync_setting.value)
+                        if last_sync.tzinfo is None:
+                            last_sync = last_sync.replace(tzinfo=timezone.utc)
+                        elapsed = (now_utc - last_sync).total_seconds() / 60.0
+                        if elapsed >= interval_mins:
+                            should_sync = True
+                    except Exception:
+                        should_sync = True
+                        
+                if should_sync:
+                    logger.info("Avvio sincronizzazione automatica da Google Sheets...")
+                    try:
+                        res = sync_stock_from_google_sheets(db, force=False)
+                        logger.info(f"Sincronizzazione automatica completata: {res}")
+                    except Exception as sync_err:
+                        logger.error(f"Errore nella sincronizzazione automatica Google Sheets: {sync_err}")
+                        err_setting = db.query(AppSetting).filter(AppSetting.key == "google_sheet_last_error").first()
+                        if err_setting:
+                            err_setting.value = str(sync_err)
+                        else:
+                            db.add(AppSetting(key="google_sheet_last_error", value=str(sync_err)))
+                        db.commit()
+        except Exception as loop_err:
+            logger.error(f"Errore nel ciclo del worker Google Sheets: {loop_err}")
+        finally:
+            db.close()
+
+def prestashop_orders_polling_worker():
+    logger.info("PrestaShop orders polling worker avviato.")
+    while True:
+        time.sleep(60) # controlla ogni minuto
+        
+        db = SessionLocal()
+        try:
+            interval_setting = db.query(AppSetting).filter(AppSetting.key == "prestashop_sync_interval").first()
+            last_sync_setting = db.query(AppSetting).filter(AppSetting.key == "prestashop_last_sync").first()
+            
+            interval_mins = int(interval_setting.value) if (interval_setting and interval_setting.value.isdigit()) else 10
+            
+            should_sync = False
+            now_utc = datetime.now(timezone.utc)
+            if not last_sync_setting or not last_sync_setting.value:
+                should_sync = True
+            else:
+                try:
+                    last_sync = datetime.fromisoformat(last_sync_setting.value)
+                    if last_sync.tzinfo is None:
+                        last_sync = last_sync.replace(tzinfo=timezone.utc)
+                    elapsed = (now_utc - last_sync).total_seconds() / 60.0
+                    if elapsed >= interval_mins:
+                        should_sync = True
+                except Exception:
+                    should_sync = True
+                    
+            if should_sync:
+                logger.info("Avvio sincronizzazione automatica ordini da PrestaShop...")
+                try:
+                    client = get_ps_client(db)
+                    res = sync_orders_internal(db, client)
+                    logger.info(f"Sincronizzazione automatica ordini completata: {res}")
+                except Exception as sync_err:
+                    logger.error(f"Errore nella sincronizzazione automatica ordini: {sync_err}")
+        except Exception as loop_err:
+            logger.error(f"Errore nel ciclo del worker PrestaShop: {loop_err}")
+        finally:
+            db.close()
+
+# Initialize default settings if they don't exist
+@app.on_event("startup")
+def setup_default_settings():
+    db = next(get_db())
+    try:
+        # Check if included_state_ids exists
+        state_setting = db.query(AppSetting).filter(AppSetting.key == "included_state_ids").first()
+        if not state_setting:
+            default_ids = os.getenv("DEFAULT_STATE_IDS", "12")
+            ids_list = [int(x.strip()) for x in default_ids.split(",") if x.strip().isdigit()]
+            if not ids_list:
+                ids_list = [12] # Default to magazzino rosate
+            
+            db.add(AppSetting(key="included_state_ids", value=json.dumps(ids_list)))
+            
+        # Check prestashop_url
+        url_setting = db.query(AppSetting).filter(AppSetting.key == "prestashop_url").first()
+        if not url_setting:
+            db.add(AppSetting(key="prestashop_url", value=os.getenv("PRESTASHOP_URL", "")))
+            
+        # Check prestashop_admin_url
+        admin_url_setting = db.query(AppSetting).filter(AppSetting.key == "prestashop_admin_url").first()
+        if not admin_url_setting:
+            db.add(AppSetting(key="prestashop_admin_url", value=""))
+            
+        # Check prestashop_api_key
+        key_setting = db.query(AppSetting).filter(AppSetting.key == "prestashop_api_key").first()
+        if not key_setting:
+            db.add(AppSetting(key="prestashop_api_key", value=os.getenv("PRESTASHOP_API_KEY", "")))
+            
+        # Check prestashop_mock_mode
+        mock_setting = db.query(AppSetting).filter(AppSetting.key == "prestashop_mock_mode").first()
+        if not mock_setting:
+            default_mock = os.getenv("MOCK_MODE", "True").lower() in ("true", "1", "yes")
+            db.add(AppSetting(key="prestashop_mock_mode", value="true" if default_mock else "false"))
+            
+        # Google Sheet Sync Settings initialization
+        if not db.query(AppSetting).filter(AppSetting.key == "stock_source").first():
+            db.add(AppSetting(key="stock_source", value="local_upload"))
+            
+        if not db.query(AppSetting).filter(AppSetting.key == "google_sheet_url").first():
+            db.add(AppSetting(key="google_sheet_url", value="https://docs.google.com/spreadsheets/d/1F0I-N5IRe7aH0EBsBJK0XT8N0h-R9Gg6/"))
+            
+        if not db.query(AppSetting).filter(AppSetting.key == "google_sheet_name").first():
+            db.add(AppSetting(key="google_sheet_name", value="ROSATE"))
+            
+        if not db.query(AppSetting).filter(AppSetting.key == "google_sheet_sync_interval").first():
+            db.add(AppSetting(key="google_sheet_sync_interval", value="10"))
+
+        # PrestaShop Sync Settings initialization
+        if not db.query(AppSetting).filter(AppSetting.key == "prestashop_sync_interval").first():
+            db.add(AppSetting(key="prestashop_sync_interval", value="10"))
+            
+        if not db.query(AppSetting).filter(AppSetting.key == "prestashop_last_sync").first():
+            db.add(AppSetting(key="prestashop_last_sync", value=""))
+            
+        if not db.query(AppSetting).filter(AppSetting.key == "prestashop_last_error").first():
+            db.add(AppSetting(key="prestashop_last_error", value=""))
+
+        # Column Mapping Settings initialization
+        if not db.query(AppSetting).filter(AppSetting.key == "mapping_sku").first():
+            db.add(AppSetting(key="mapping_sku", value="Sku"))
+
+        if not db.query(AppSetting).filter(AppSetting.key == "mapping_qty").first():
+            db.add(AppSetting(key="mapping_qty", value="Qta Tot."))
+
+        if not db.query(AppSetting).filter(AppSetting.key == "mapping_desc").first():
+            db.add(AppSetting(key="mapping_desc", value="Descrizione Sku"))
+
+        if not db.query(AppSetting).filter(AppSetting.key == "mapping_lotto").first():
+            db.add(AppSetting(key="mapping_lotto", value="Lotto"))
+
+        db.commit()
+        logger.info("Impostazioni inizializzate con successo nel database.")
+        
+        # Start background worker threads
+        t = threading.Thread(target=google_sheets_polling_worker, daemon=True)
+        t.start()
+        logger.info("Thread di polling Google Sheets avviato.")
+        
+        t_ps = threading.Thread(target=prestashop_orders_polling_worker, daemon=True)
+        t_ps.start()
+        logger.info("Thread di polling PrestaShop avviato.")
+    except Exception as e:
+        logger.error(f"Errore nell'inizializzazione delle impostazioni: {e}")
+    finally:
+        db.close()
+
+# ----------------- STATUS & SETTINGS ENDPOINTS -----------------
+
+@app.get("/api/status")
+def get_status(db: Session = Depends(get_db), client: PrestaShopClient = Depends(get_ps_client)):
+    # Get active batches
+    active_w = db.query(ImportBatch).filter(ImportBatch.file_type == "warehouse", ImportBatch.is_active == True).first()
+    active_a = db.query(ImportBatch).filter(ImportBatch.file_type == "associations", ImportBatch.is_active == True).first()
+    
+    latest_calc = db.query(CalcRun).filter(CalcRun.status == "completed").order_by(CalcRun.completed_at.desc()).first()
+    
+    # Get last orders sync from PrestashopOrder
+    latest_order = db.query(PrestashopOrder).order_by(PrestashopOrder.synced_at.desc()).first()
+    last_orders_sync = latest_order.synced_at.isoformat() + "Z" if latest_order and latest_order.synced_at else None
+    
+    # Check local files presence in working directory
+    workspace_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    giacenza_local = os.path.exists(os.path.join(workspace_dir, "giacenza.xlsx"))
+    associazione_local = os.path.exists(os.path.join(workspace_dir, "associazione.xlsx"))
+    
+    # Count prestashop orders in cache
+    orders_count = db.query(PrestashopOrder).count()
+    
+    return {
+        "mock_mode": client.mock_mode,
+        "prestashop_url": client.url if not client.mock_mode else "Simulato (Mock Mode)",
+        "database": "SQLite (attivo)",
+        "last_orders_sync": last_orders_sync,
+        "prestashop_orders_count": orders_count,
+        "active_warehouse_batch": {
+            "id": active_w.id if active_w else None,
+            "filename": active_w.filename if active_w else None,
+            "sheet_name": active_w.sheet_name if active_w else None,
+            "imported_at": active_w.imported_at.isoformat() + "Z" if active_w and active_w.imported_at else None,
+            "record_count": active_w.record_count if active_w else 0
+        } if active_w else None,
+        "active_associations_batch": {
+            "id": active_a.id if active_a else None,
+            "filename": active_a.filename if active_a else None,
+            "imported_at": active_a.imported_at.isoformat() + "Z" if active_a and active_a.imported_at else None,
+            "record_count": active_a.record_count if active_a else 0
+        } if active_a else None,
+        "latest_calculation": {
+            "id": latest_calc.id,
+            "completed_at": latest_calc.completed_at.isoformat() + "Z" if latest_calc and latest_calc.completed_at else None,
+            "status": latest_calc.status
+        } if latest_calc else None,
+        "local_files": {
+            "giacenza_exists": giacenza_local,
+            "associazione_exists": associazione_local,
+            "workspace_path": workspace_dir
+        }
+    }
+
+@app.get("/api/order-states")
+def get_order_states(client: PrestaShopClient = Depends(get_ps_client)):
+    return client.get_order_states()
+
+@app.get("/api/settings")
+def get_settings(db: Session = Depends(get_db)):
+    state_setting = db.query(AppSetting).filter(AppSetting.key == "included_state_ids").first()
+    url_setting = db.query(AppSetting).filter(AppSetting.key == "prestashop_url").first()
+    admin_url_setting = db.query(AppSetting).filter(AppSetting.key == "prestashop_admin_url").first()
+    key_setting = db.query(AppSetting).filter(AppSetting.key == "prestashop_api_key").first()
+    mock_setting = db.query(AppSetting).filter(AppSetting.key == "prestashop_mock_mode").first()
+    
+    # Google Sheets settings
+    source_setting = db.query(AppSetting).filter(AppSetting.key == "stock_source").first()
+    g_url_setting = db.query(AppSetting).filter(AppSetting.key == "google_sheet_url").first()
+    g_name_setting = db.query(AppSetting).filter(AppSetting.key == "google_sheet_name").first()
+    g_interval_setting = db.query(AppSetting).filter(AppSetting.key == "google_sheet_sync_interval").first()
+    g_last_sync_setting = db.query(AppSetting).filter(AppSetting.key == "google_sheet_last_sync").first()
+    g_last_err_setting = db.query(AppSetting).filter(AppSetting.key == "google_sheet_last_error").first()
+    
+    # PrestaShop Sync settings
+    p_interval_setting = db.query(AppSetting).filter(AppSetting.key == "prestashop_sync_interval").first()
+    p_last_sync_setting = db.query(AppSetting).filter(AppSetting.key == "prestashop_last_sync").first()
+    p_last_err_setting = db.query(AppSetting).filter(AppSetting.key == "prestashop_last_error").first()
+
+    # Column mapping settings
+    m_sku = db.query(AppSetting).filter(AppSetting.key == "mapping_sku").first()
+    m_qty = db.query(AppSetting).filter(AppSetting.key == "mapping_qty").first()
+    m_desc = db.query(AppSetting).filter(AppSetting.key == "mapping_desc").first()
+    m_lotto = db.query(AppSetting).filter(AppSetting.key == "mapping_lotto").first()
+    
+    included_state_ids = json.loads(state_setting.value) if state_setting else [12]
+    prestashop_url = url_setting.value if url_setting else os.getenv("PRESTASHOP_URL", "")
+    prestashop_admin_url = admin_url_setting.value if admin_url_setting else ""
+    prestashop_api_key = key_setting.value if key_setting else os.getenv("PRESTASHOP_API_KEY", "")
+    
+    if mock_setting:
+        prestashop_mock_mode = mock_setting.value.lower() in ("true", "1", "yes")
+    else:
+        prestashop_mock_mode = os.getenv("MOCK_MODE", "True").lower() in ("true", "1", "yes")
+        
+    return {
+        "included_state_ids": included_state_ids,
+        "prestashop_url": prestashop_url,
+        "prestashop_admin_url": prestashop_admin_url,
+        "prestashop_api_key": prestashop_api_key,
+        "prestashop_mock_mode": prestashop_mock_mode,
+        # Google Sheets
+        "stock_source": source_setting.value if source_setting else "local_upload",
+        "google_sheet_url": g_url_setting.value if g_url_setting else "",
+        "google_sheet_name": g_name_setting.value if g_name_setting else "ROSATE",
+        "google_sheet_sync_interval": int(g_interval_setting.value) if (g_interval_setting and g_interval_setting.value.isdigit()) else 10,
+        "google_sheet_last_sync": g_last_sync_setting.value if g_last_sync_setting else "",
+        "google_sheet_last_error": g_last_err_setting.value if g_last_err_setting else "",
+        # PrestaShop Sync
+        "prestashop_sync_interval": int(p_interval_setting.value) if (p_interval_setting and p_interval_setting.value.isdigit()) else 10,
+        "prestashop_last_sync": p_last_sync_setting.value if p_last_sync_setting else "",
+        "prestashop_last_error": p_last_err_setting.value if p_last_err_setting else "",
+        # Column mappings
+        "mapping_sku": m_sku.value if m_sku else "Sku",
+        "mapping_qty": m_qty.value if m_qty else "Qta Tot.",
+        "mapping_desc": m_desc.value if m_desc else "Descrizione Sku",
+        "mapping_lotto": m_lotto.value if m_lotto else "Lotto"
+    }
+
+
+def _sync_env_file(db: Session):
+    """
+    Riscrive backend/.env con i valori correnti del database.
+    Viene chiamata automaticamente ad ogni salvataggio delle Impostazioni
+    così il file rimane sempre allineato — utile al riavvio a freddo del server.
+    Valori non presenti nel DB vengono lasciati invariati nel file esistente.
+    """
+    env_path = os.path.join(os.path.dirname(__file__), ".env")
+    example_path = os.path.join(os.path.dirname(__file__), ".env.example")
+
+    # Leggi le righe esistenti (o usa il template se il file non esiste)
+    source_path = env_path if os.path.exists(env_path) else example_path
+    try:
+        with open(source_path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+    except Exception:
+        lines = []
+
+    # Recupera i valori correnti dal database
+    def _db_val(key: str, fallback: str = "") -> str:
+        row = db.query(AppSetting).filter(AppSetting.key == key).first()
+        return row.value if row else fallback
+
+    db_values = {
+        "PRESTASHOP_URL":     _db_val("prestashop_url"),
+        "PRESTASHOP_API_KEY": _db_val("prestashop_api_key"),
+        "MOCK_MODE":          _db_val("prestashop_mock_mode", "True"),
+        "DATABASE_URL":       os.getenv("DATABASE_URL", "sqlite:///./inventory.db"),
+        "DEFAULT_STATE_IDS":  _db_val("included_state_ids", ""),
+    }
+
+    # Normalizza: MOCK_MODE → "True"/"False"
+    mock_raw = db_values["MOCK_MODE"].lower()
+    db_values["MOCK_MODE"] = "True" if mock_raw in ("true", "1", "yes") else "False"
+
+    # Normalizza DEFAULT_STATE_IDS: potrebbe essere JSON list "[12, 13]"
+    try:
+        state_ids_parsed = json.loads(db_values["DEFAULT_STATE_IDS"])
+        if isinstance(state_ids_parsed, list):
+            db_values["DEFAULT_STATE_IDS"] = ",".join(str(i) for i in state_ids_parsed)
+    except Exception:
+        pass  # già stringa semplice
+
+    # Riscrivi le righe aggiornando le chiavi trovate
+    written_keys = set()
+    new_lines = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("#") or "=" not in stripped:
+            new_lines.append(line)
+            continue
+        key_part = stripped.split("=", 1)[0].strip()
+        if key_part in db_values:
+            new_lines.append(f"{key_part}={db_values[key_part]}\n")
+            written_keys.add(key_part)
+        else:
+            new_lines.append(line)
+
+    # Aggiungi le chiavi mancanti in fondo (presenti nel DB ma non nel file)
+    for key, val in db_values.items():
+        if key not in written_keys and val:
+            new_lines.append(f"{key}={val}\n")
+
+    # Scrivi il file
+    try:
+        with open(env_path, "w", encoding="utf-8") as f:
+            f.writelines(new_lines)
+        logger.info(f"backend/.env aggiornato con le impostazioni correnti.")
+    except Exception as e:
+        logger.warning(f"Impossibile aggiornare backend/.env: {e}")
+
+
+@app.post("/api/settings")
+def update_settings(payload: dict, db: Session = Depends(get_db)):
+    state_ids = payload.get("included_state_ids")
+    url = payload.get("prestashop_url")
+    admin_url = payload.get("prestashop_admin_url")
+    key = payload.get("prestashop_api_key")
+    mock_mode = payload.get("prestashop_mock_mode")
+    # Google Sheets
+    stock_source = payload.get("stock_source")
+    google_sheet_url = payload.get("google_sheet_url")
+    google_sheet_name = payload.get("google_sheet_name")
+    google_sheet_sync_interval = payload.get("google_sheet_sync_interval")
+    # PrestaShop
+    prestashop_sync_interval = payload.get("prestashop_sync_interval")
+    # Column mapping settings
+    mapping_sku = payload.get("mapping_sku")
+    mapping_qty = payload.get("mapping_qty")
+    mapping_desc = payload.get("mapping_desc")
+    mapping_lotto = payload.get("mapping_lotto")
+    
+    # 1. Resolve values to perform validation check
+    target_mock = mock_mode
+    if target_mock is None:
+        mock_setting = db.query(AppSetting).filter(AppSetting.key == "prestashop_mock_mode").first()
+        if mock_setting:
+            target_mock = mock_setting.value.lower() in ("true", "1", "yes")
+        else:
+            target_mock = os.getenv("MOCK_MODE", "True").lower() in ("true", "1", "yes")
+            
+    target_url = url
+    if target_url is None:
+        url_setting = db.query(AppSetting).filter(AppSetting.key == "prestashop_url").first()
+        target_url = url_setting.value if url_setting else os.getenv("PRESTASHOP_URL", "")
+        
+    target_key = key
+    if target_key is None:
+        key_setting = db.query(AppSetting).filter(AppSetting.key == "prestashop_api_key").first()
+        target_key = key_setting.value if key_setting else os.getenv("PRESTASHOP_API_KEY", "")
+
+    # 2. Perform connection validation if mock_mode is set to False
+    if not target_mock:
+        if not target_url or not target_key:
+            raise HTTPException(
+                status_code=400,
+                detail="Per disattivare la modalità simulazione, devi configurare l'URL del sito e la chiave API di PrestaShop."
+            )
+        
+        # Test connection by fetching states
+        clean_url = target_url.rstrip('/') + '/'
+        try:
+            test_response = requests.get(
+                f"{clean_url}order_states",
+                params={"display": "[id]", "output_format": "JSON", "ws_key": target_key},
+                timeout=8
+            )
+            test_response.raise_for_status()
+        except Exception as conn_err:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Errore di connessione a PrestaShop: {str(conn_err)}. Controlla l'URL (es: https://mio-sito.com/api) e la Chiave API."
+            )
+
+    # 3. Save to database
+    # State IDs
+    if state_ids is not None:
+        if not isinstance(state_ids, list):
+            raise HTTPException(status_code=400, detail="Formato non valido. 'included_state_ids' deve essere una lista di interi.")
+        try:
+            state_ids_parsed = [int(sid) for sid in state_ids]
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Tutti gli ID degli stati devono essere numeri interi.")
+        
+        setting = db.query(AppSetting).filter(AppSetting.key == "included_state_ids").first()
+        if not setting:
+            db.add(AppSetting(key="included_state_ids", value=json.dumps(state_ids_parsed)))
+        else:
+            setting.value = json.dumps(state_ids_parsed)
+
+    # URL
+    if url is not None:
+        if not isinstance(url, str):
+            raise HTTPException(status_code=400, detail="L'URL deve essere una stringa.")
+        setting = db.query(AppSetting).filter(AppSetting.key == "prestashop_url").first()
+        if not setting:
+            db.add(AppSetting(key="prestashop_url", value=url.strip()))
+        else:
+            setting.value = url.strip()
+
+    # Admin URL
+    if admin_url is not None:
+        if not isinstance(admin_url, str):
+            raise HTTPException(status_code=400, detail="L'URL del pannello di amministrazione deve essere una stringa.")
+        setting = db.query(AppSetting).filter(AppSetting.key == "prestashop_admin_url").first()
+        if not setting:
+            db.add(AppSetting(key="prestashop_admin_url", value=admin_url.strip()))
+        else:
+            setting.value = admin_url.strip()
+
+    # Key
+    if key is not None:
+        if not isinstance(key, str):
+            raise HTTPException(status_code=400, detail="La chiave API deve essere una stringa.")
+        setting = db.query(AppSetting).filter(AppSetting.key == "prestashop_api_key").first()
+        if not setting:
+            db.add(AppSetting(key="prestashop_api_key", value=key.strip()))
+        else:
+            setting.value = key.strip()
+
+    # Mock Mode
+    if mock_mode is not None:
+        if not isinstance(mock_mode, bool):
+            raise HTTPException(status_code=400, detail="prestashop_mock_mode deve essere un booleano.")
+        setting = db.query(AppSetting).filter(AppSetting.key == "prestashop_mock_mode").first()
+        val_str = "true" if mock_mode else "false"
+        if not setting:
+            db.add(AppSetting(key="prestashop_mock_mode", value=val_str))
+        else:
+            setting.value = val_str
+
+    # Google Sheets settings save
+    if stock_source is not None:
+        if stock_source not in ("local_upload", "google_sheets"):
+            raise HTTPException(status_code=400, detail="Sorgente stock non valida.")
+        setting = db.query(AppSetting).filter(AppSetting.key == "stock_source").first()
+        if not setting:
+            db.add(AppSetting(key="stock_source", value=stock_source))
+        else:
+            setting.value = stock_source
+
+    if google_sheet_url is not None:
+        if not isinstance(google_sheet_url, str):
+            raise HTTPException(status_code=400, detail="L'URL del foglio deve essere una stringa.")
+        setting = db.query(AppSetting).filter(AppSetting.key == "google_sheet_url").first()
+        if not setting:
+            db.add(AppSetting(key="google_sheet_url", value=google_sheet_url.strip()))
+        else:
+            setting.value = google_sheet_url.strip()
+
+    if google_sheet_name is not None:
+        if not isinstance(google_sheet_name, str):
+            raise HTTPException(status_code=400, detail="Il nome del foglio deve essere una stringa.")
+        setting = db.query(AppSetting).filter(AppSetting.key == "google_sheet_name").first()
+        if not setting:
+            db.add(AppSetting(key="google_sheet_name", value=google_sheet_name.strip()))
+        else:
+            setting.value = google_sheet_name.strip()
+
+    if google_sheet_sync_interval is not None:
+        try:
+            val_int = int(google_sheet_sync_interval)
+            if val_int < 1:
+                raise ValueError()
+        except ValueError:
+            raise HTTPException(status_code=400, detail="L'intervallo deve essere un intero >= 1.")
+        setting = db.query(AppSetting).filter(AppSetting.key == "google_sheet_sync_interval").first()
+        if not setting:
+            db.add(AppSetting(key="google_sheet_sync_interval", value=str(val_int)))
+        else:
+            setting.value = str(val_int)
+
+    # PrestaShop settings save
+    if prestashop_sync_interval is not None:
+        try:
+            val_int = int(prestashop_sync_interval)
+            if val_int < 1:
+                raise ValueError()
+        except ValueError:
+            raise HTTPException(status_code=400, detail="L'intervallo di sincronizzazione ordini deve essere un intero >= 1.")
+        setting = db.query(AppSetting).filter(AppSetting.key == "prestashop_sync_interval").first()
+        if not setting:
+            db.add(AppSetting(key="prestashop_sync_interval", value=str(val_int)))
+        else:
+            setting.value = str(val_int)
+
+    # Column mapping save
+    if mapping_sku is not None:
+        if not isinstance(mapping_sku, str):
+            raise HTTPException(status_code=400, detail="Il nome della colonna SKU deve essere una stringa.")
+        setting = db.query(AppSetting).filter(AppSetting.key == "mapping_sku").first()
+        if not setting:
+            db.add(AppSetting(key="mapping_sku", value=mapping_sku.strip()))
+        else:
+            setting.value = mapping_sku.strip()
+
+    if mapping_qty is not None:
+        if not isinstance(mapping_qty, str):
+            raise HTTPException(status_code=400, detail="Il nome della colonna Quantità deve essere una stringa.")
+        setting = db.query(AppSetting).filter(AppSetting.key == "mapping_qty").first()
+        if not setting:
+            db.add(AppSetting(key="mapping_qty", value=mapping_qty.strip()))
+        else:
+            setting.value = mapping_qty.strip()
+
+    if mapping_desc is not None:
+        if not isinstance(mapping_desc, str):
+            raise HTTPException(status_code=400, detail="Il nome della colonna Descrizione deve essere una stringa.")
+        setting = db.query(AppSetting).filter(AppSetting.key == "mapping_desc").first()
+        if not setting:
+            db.add(AppSetting(key="mapping_desc", value=mapping_desc.strip()))
+        else:
+            setting.value = mapping_desc.strip()
+
+    if mapping_lotto is not None:
+        if not isinstance(mapping_lotto, str):
+            raise HTTPException(status_code=400, detail="Il nome della colonna Lotto deve essere una stringa.")
+        setting = db.query(AppSetting).filter(AppSetting.key == "mapping_lotto").first()
+        if not setting:
+            db.add(AppSetting(key="mapping_lotto", value=mapping_lotto.strip()))
+        else:
+            setting.value = mapping_lotto.strip()
+
+    db.commit()
+    
+    # Sync settings back to backend/.env so the file stays up-to-date
+    # for cold-start bootstrap (e.g. after a clean git clone + restart)
+    _sync_env_file(db)
+    
+    # Return updated settings
+    return get_settings(db)
+
+@app.post("/api/settings/google-sheets/sync")
+def trigger_google_sheets_sync(db: Session = Depends(get_db)):
+    try:
+        res = sync_stock_from_google_sheets(db, force=True)
+        return res
+    except Exception as e:
+        err_setting = db.query(AppSetting).filter(AppSetting.key == "google_sheet_last_error").first()
+        if err_setting:
+            err_setting.value = str(e)
+        else:
+            db.add(AppSetting(key="google_sheet_last_error", value=str(e)))
+        db.commit()
+        raise HTTPException(status_code=400, detail=str(e))
+
+# ----------------- IMPORT ENDPOINTS -----------------
+
+@app.get("/api/import/sheets")
+def get_local_sheets():
+    """
+    Returns sheet names of the local giacenza.xlsx in the workspace directory.
+    """
+    workspace_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    filepath = os.path.join(workspace_dir, "giacenza.xlsx")
+    if not os.path.exists(filepath):
+         raise HTTPException(status_code=404, detail="File 'giacenza.xlsx' non trovato nella cartella di lavoro.")
+         
+    try:
+        with open(filepath, "rb") as f:
+            content = f.read()
+        sheets = get_excel_sheets(content)
+        return {"sheets": sheets}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Errore nella lettura dei fogli Excel: {str(e)}")
+
+@app.post("/api/import/warehouse")
+def import_warehouse(
+    file: Optional[UploadFile] = File(None),
+    use_local: bool = Form(False),
+    sheet_name: str = Form("ROSATE"),
+    db: Session = Depends(get_db)
+):
+    # Load mapping settings
+    m_sku_setting = db.query(AppSetting).filter(AppSetting.key == "mapping_sku").first()
+    m_qty_setting = db.query(AppSetting).filter(AppSetting.key == "mapping_qty").first()
+    m_desc_setting = db.query(AppSetting).filter(AppSetting.key == "mapping_desc").first()
+    m_lotto_setting = db.query(AppSetting).filter(AppSetting.key == "mapping_lotto").first()
+    
+    col_sku = m_sku_setting.value if m_sku_setting else "Sku"
+    col_qty = m_qty_setting.value if m_qty_setting else "Qta Tot."
+    col_desc = m_desc_setting.value if m_desc_setting else "Descrizione Sku"
+    col_lotto = m_lotto_setting.value if m_lotto_setting else "Lotto"
+
+    filename = "giacenza.xlsx"
+    file_content = None
+    
+    if use_local:
+        workspace_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        filepath = os.path.join(workspace_dir, "giacenza.xlsx")
+        if not os.path.exists(filepath):
+            raise HTTPException(status_code=404, detail="File local 'giacenza.xlsx' non trovato nella cartella.")
+        try:
+            with open(filepath, "rb") as f:
+                file_content = f.read()
+            filename = "giacenza.xlsx (Locale)"
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Errore nella lettura del file locale: {str(e)}")
+    elif file is not None:
+        filename = file.filename
+        file_content = file.file.read()
+    else:
+        raise HTTPException(status_code=400, detail="Devi caricare un file o abilitare 'use_local=true'.")
+ 
+    # Parse file
+    try:
+        valid_rows, anomalies = parse_warehouse_excel(
+            file_content, 
+            sheet_name,
+            col_sku=col_sku,
+            col_qty=col_qty,
+            col_desc=col_desc,
+            col_lotto=col_lotto
+        )
+    except Exception as e:
+        # Record anomaly about parsing error
+        anomaly = ImportAnomaly(
+            source="stock_import",
+            anomaly_type="parse_error",
+            message=f"Errore fatale nel parsing di {filename}: {str(e)}"
+        )
+        db.add(anomaly)
+        db.commit()
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # Disable previous active warehouse batches
+    db.query(ImportBatch).filter(ImportBatch.file_type == "warehouse").update({ImportBatch.is_active: False})
+    
+    # Create new Batch
+    batch = ImportBatch(
+        file_type="warehouse",
+        filename=filename,
+        sheet_name=sheet_name,
+        record_count=len([r for r in valid_rows if not r["sku"].startswith("__spacer_")]),
+        is_active=True
+    )
+    db.add(batch)
+    db.commit()
+    db.refresh(batch)
+    
+    # Save valid rows
+    stock_items = []
+    for r in valid_rows:
+        stock_items.append(WarehouseStock(
+            import_batch_id=batch.id,
+            sku=r["sku"],
+            description=r["description"],
+            lotto=r["lotto"],
+            qty_total=r["qty_total"]
+        ))
+    
+    db.bulk_save_objects(stock_items)
+    
+    # Save anomalies
+    for an in anomalies:
+        db.add(ImportAnomaly(
+            source=an["source"],
+            record_key=an["record_key"],
+            anomaly_type=an["anomaly_type"],
+            message=an["message"]
+        ))
+        
+    db.commit()
+    
+    # Trigger auto calculation in background
+    try:
+        run_calculation(db, warehouse_batch_id=batch.id)
+    except Exception as calc_err:
+        logger.error(f"Errore nel calcolo automatico dopo import stock: {calc_err}")
+        
+    return {
+        "status": "success",
+        "batch_id": batch.id,
+        "records_imported": len([r for r in valid_rows if not r["sku"].startswith("__spacer_")]),
+        "anomalies_found": len(anomalies)
+    }
+
+@app.post("/api/import/associations")
+def import_associations(
+    file: Optional[UploadFile] = File(None),
+    use_local: bool = Form(False),
+    db: Session = Depends(get_db)
+):
+    filename = "associazione.xlsx"
+    file_content = None
+    
+    if use_local:
+        workspace_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        filepath = os.path.join(workspace_dir, "associazione.xlsx")
+        if not os.path.exists(filepath):
+            raise HTTPException(status_code=404, detail="File local 'associazione.xlsx' non trovato nella cartella.")
+        try:
+            with open(filepath, "rb") as f:
+                file_content = f.read()
+            filename = "associazione.xlsx (Locale)"
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Errore nella lettura del file locale: {str(e)}")
+    elif file is not None:
+        filename = file.filename
+        file_content = file.file.read()
+    else:
+        raise HTTPException(status_code=400, detail="Devi caricare un file o abilitare 'use_local=true'.")
+
+    # Parse file
+    try:
+        associations, anomalies = parse_associations_excel(file_content)
+    except Exception as e:
+        anomaly = ImportAnomaly(
+            source="associations_import",
+            anomaly_type="parse_error",
+            message=f"Errore fatale nel parsing di {filename}: {str(e)}"
+        )
+        db.add(anomaly)
+        db.commit()
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # Disable previous active associations batches
+    db.query(ImportBatch).filter(ImportBatch.file_type == "associations").update({ImportBatch.is_active: False})
+    
+    # Create new Batch
+    batch = ImportBatch(
+        file_type="associations",
+        filename=filename,
+        record_count=len(associations),
+        is_active=True
+    )
+    db.add(batch)
+    db.commit()
+    db.refresh(batch)
+    
+    # Save associations
+    comp_items = []
+    for assoc in associations:
+        comp_items.append(ProductComponent(
+            import_batch_id=batch.id,
+            product_id=assoc["product_id"],
+            sku=assoc["sku"],
+            qty_required=assoc["qty_required"]
+        ))
+        
+    db.bulk_save_objects(comp_items)
+    
+    # Save anomalies
+    for an in anomalies:
+        db.add(ImportAnomaly(
+            source=an["source"],
+            record_key=an["record_key"],
+            anomaly_type=an["anomaly_type"],
+            message=an["message"]
+        ))
+        
+    db.commit()
+    
+    # Trigger auto calculation in background
+    try:
+        run_calculation(db, associations_batch_id=batch.id)
+    except Exception as calc_err:
+        logger.error(f"Errore nel calcolo automatico dopo import associazioni: {calc_err}")
+        
+    return {
+        "status": "success",
+        "batch_id": batch.id,
+        "records_imported": len(associations),
+        "anomalies_found": len(anomalies)
+    }
+
+# ----------------- PRESTASHOP SYNC & RECALC -----------------
+
+def sync_orders_internal(db: Session, client: PrestaShopClient) -> dict:
+    sync_progress.start()
+    # 1. Get states to sync
+    setting = db.query(AppSetting).filter(AppSetting.key == "included_state_ids").first()
+    if setting:
+        included_states = json.loads(setting.value)
+    else:
+        included_states = [12]
+        
+    if not included_states:
+        sync_progress.stop(success=False, error_msg="Nessuno stato ordine configurato nelle impostazioni.")
+        raise ValueError("Nessuno stato ordine configurato nelle impostazioni.")
+        
+    # Get active product IDs from associations to generate realistic mocks if in Mock mode
+    active_assoc_batch = db.query(ImportBatch).filter(
+        ImportBatch.file_type == "associations",
+        ImportBatch.is_active == True
+    ).first()
+    
+    valid_product_ids = []
+    if active_assoc_batch:
+        valid_product_ids = [
+            r[0] for r in db.query(ProductComponent.product_id)
+            .filter(ProductComponent.import_batch_id == active_assoc_batch.id)
+            .distinct().all()
+        ]
+        
+    # If no associations exist yet, use default placeholder IDs for mock data
+    if not valid_product_ids:
+        valid_product_ids = [609286, 609287, 605652]
+        
+    try:
+        # Fetch orders
+        def on_progress(phase, current, total):
+            if phase == "fetching_orders":
+                sync_progress.update(phase="fetching_orders", synced_orders=current, total_orders=total)
+
+        orders_data = client.get_orders(included_states, valid_product_ids, progress_callback=on_progress)
+        
+        # We need a map of order states to save state labels
+        states_map = {s["id"]: s["name"] for s in client.get_order_states()}
+        
+        sync_progress.update(phase="saving")
+        
+        # Transactional write: clear previous synced orders and write new ones
+        # This acts as a full snapshot sync.
+        db.query(PrestashopOrderLine).delete()
+        db.query(PrestashopOrder).delete()
+        db.query(ImportAnomaly).filter(ImportAnomaly.source == "orders_sync").delete()
+        
+        seen_order_ids = set()
+        synced_count = 0
+        now_val = datetime.utcnow()
+        for o in orders_data:
+            order_id = o["order_id"]
+            if order_id in seen_order_ids:
+                logger.warning(f"Ordine duplicato ignorato durante il salvataggio: {order_id}")
+                continue
+            seen_order_ids.add(order_id)
+
+            state_label = states_map.get(o["current_state"], f"Stato {o['current_state']}")
+            
+            db_order = PrestashopOrder(
+                order_id=order_id,
+                current_state=o["current_state"],
+                current_state_label=state_label,
+                date_add=o["date_add"],
+                date_upd=o["date_upd"],
+                customer_name=o.get("customer_name"),
+                total_paid=o.get("total_paid"),
+                synced_at=now_val
+            )
+            db.add(db_order)
+            
+            for line in o["lines"]:
+                db_line = PrestashopOrderLine(
+                    order_id=order_id,
+                    line_id=line["line_id"],
+                    product_id=line["product_id"],
+                    product_attribute_id=line["product_attribute_id"],
+                    product_reference=line["product_reference"],
+                    product_quantity=line["product_quantity"]
+                )
+                db.add(db_line)
+                
+            synced_count += 1
+            
+        db.commit()
+        
+        # Save last sync setting
+        last_sync_val = datetime.now(timezone.utc).isoformat()
+        ls_setting = db.query(AppSetting).filter(AppSetting.key == "prestashop_last_sync").first()
+        if ls_setting:
+            ls_setting.value = last_sync_val
+        else:
+            db.add(AppSetting(key="prestashop_last_sync", value=last_sync_val))
+        
+        err_setting = db.query(AppSetting).filter(AppSetting.key == "prestashop_last_error").first()
+        if err_setting:
+            err_setting.value = ""
+        else:
+            db.add(AppSetting(key="prestashop_last_error", value=""))
+        db.commit()
+        
+        sync_progress.update(phase="calculating")
+        # Trigger auto calculation
+        try:
+            run_calculation(db)
+        except Exception as calc_err:
+            logger.error(f"Errore nel calcolo automatico dopo sync ordini: {calc_err}")
+            
+        sync_progress.stop(success=True)
+        return {
+            "status": "success",
+            "orders_synced": synced_count,
+            "mock_mode": client.mock_mode
+        }
+        
+    except Exception as e:
+        sync_progress.stop(success=False, error_msg=str(e))
+        db.rollback()
+        err_msg = f"Errore durante la sincronizzazione degli ordini: {str(e)}"
+        
+        err_setting = db.query(AppSetting).filter(AppSetting.key == "prestashop_last_error").first()
+        if err_setting:
+            err_setting.value = err_msg
+        else:
+            db.add(AppSetting(key="prestashop_last_error", value=err_msg))
+            
+        # Save order sync anomaly
+        db.add(ImportAnomaly(
+            source="orders_sync",
+            anomaly_type="sync_error",
+            message=err_msg
+        ))
+        db.commit()
+        raise e
+
+@app.get("/api/prestashop/sync-status")
+def get_sync_status():
+    return {
+        "active": sync_progress.active,
+        "phase": sync_progress.phase,
+        "synced_orders": sync_progress.synced_orders,
+        "total_orders": sync_progress.total_orders,
+        "error_message": sync_progress.error_message
+    }
+
+@app.post("/api/prestashop/sync-orders")
+def sync_orders(db: Session = Depends(get_db), client: PrestaShopClient = Depends(get_ps_client)):
+    try:
+        res = sync_orders_internal(db, client)
+        return res
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/calc/run")
+def run_calc(db: Session = Depends(get_db)):
+    try:
+        run_id = run_calculation(db)
+        return {"status": "success", "calc_run_id": run_id}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+# ----------------- DATA RETRIEVAL ENDPOINTS -----------------
+
+@app.get("/api/dashboard")
+def get_dashboard_kpis(db: Session = Depends(get_db)):
+    # 1. Total SKU count in active batch (excluding spacer rows)
+    active_w = db.query(ImportBatch).filter(ImportBatch.file_type == "warehouse", ImportBatch.is_active == True).first()
+    sku_count = db.query(WarehouseStock).filter(
+        WarehouseStock.import_batch_id == active_w.id,
+        ~WarehouseStock.sku.like('__spacer_%')
+    ).count() if active_w else 0
+    
+    # 2. Total compound products in active batch
+    active_a = db.query(ImportBatch).filter(ImportBatch.file_type == "associations", ImportBatch.is_active == True).first()
+    product_count = db.query(ProductComponent.product_id).filter(ProductComponent.import_batch_id == active_a.id).distinct().count() if active_a else 0
+    
+    # 3. Active orders and total products ordered
+    order_count = db.query(PrestashopOrder).count()
+    items_ordered = db.query(func.sum(PrestashopOrderLine.product_quantity)).scalar() or 0
+    
+    # 4. Critical SKUs (residual stock <= 0 or committed > 0)
+    latest_run = db.query(CalcRun).filter(CalcRun.status == "completed").order_by(CalcRun.completed_at.desc()).first()
+    
+    critical_skus = 0
+    zero_availability_products = 0
+    
+    if latest_run:
+        critical_skus = db.query(SkuCommitment).filter(
+            SkuCommitment.calc_run_id == latest_run.id,
+            SkuCommitment.qty_residual <= 0
+        ).count()
+        
+        zero_availability_products = db.query(ProductAvailability).filter(
+            ProductAvailability.calc_run_id == latest_run.id,
+            ProductAvailability.qty_available == 0
+        ).count()
+        
+    # 5. Active anomalies
+    anomalies_count = db.query(ImportAnomaly).count()
+    
+    return {
+        "sku_count": sku_count,
+        "product_count": product_count,
+        "order_count": order_count,
+        "items_ordered": int(items_ordered),
+        "critical_skus": critical_skus,
+        "zero_availability_products": zero_availability_products,
+        "anomalies_count": anomalies_count,
+        "latest_import_warehouse": active_w.imported_at.isoformat() + "Z" if active_w and active_w.imported_at else None,
+        "latest_import_associations": active_a.imported_at.isoformat() + "Z" if active_a and active_a.imported_at else None,
+        "latest_calculation_run": latest_run.completed_at.isoformat() + "Z" if latest_run and latest_run.completed_at else None,
+    }
+
+@app.get("/api/stock")
+def get_stock(db: Session = Depends(get_db)):
+    active_w = db.query(ImportBatch).filter(ImportBatch.file_type == "warehouse", ImportBatch.is_active == True).first()
+    if not active_w:
+        return []
+        
+    latest_run = db.query(CalcRun).filter(CalcRun.status == "completed").order_by(CalcRun.completed_at.desc()).first()
+    
+    # Find all stock items ordered by insertion ID (Excel order)
+    stock_items = db.query(WarehouseStock).filter(
+        WarehouseStock.import_batch_id == active_w.id
+    ).order_by(WarehouseStock.id.asc()).all()
+    
+    # Get commitments for latest run
+    commitments = {}
+    if latest_run:
+        coms = db.query(SkuCommitment).filter(SkuCommitment.calc_run_id == latest_run.id).all()
+        commitments = {c.sku: c for c in coms}
+        
+    # Count connected products for each SKU in the active associations batch
+    active_a = db.query(ImportBatch).filter(ImportBatch.file_type == "associations", ImportBatch.is_active == True).first()
+    connected_counts = {}
+    if active_a:
+        counts = db.query(
+            ProductComponent.sku, 
+            func.count(ProductComponent.product_id.distinct())
+        ).filter(ProductComponent.import_batch_id == active_a.id).group_by(ProductComponent.sku).all()
+        connected_counts = {sku: cnt for sku, cnt in counts}
+        
+    # Count occurrences of each SKU in the stock
+    sku_counts = {}
+    for item in stock_items:
+        if not item.sku.startswith("__spacer_"):
+            sku_counts[item.sku] = sku_counts.get(item.sku, 0) + 1
+
+    sku_processed_count = {}
+    sku_allocated_commitment = {}
+
+    result = []
+    for idx, item in enumerate(stock_items):
+        if item.sku.startswith("__spacer_"):
+            result.append({
+                "index": idx + 1,
+                "sku": "",
+                "description": "",
+                "lotto": "",
+                "qty_total": 0.0,
+                "qty_committed": 0.0,
+                "qty_residual": 0.0,
+                "connected_products": 0,
+                "is_spacer": True
+            })
+            continue
+
+        comm = commitments.get(item.sku)
+        total_sku_committed = comm.qty_committed if comm else 0.0
+
+        # Track occurrence order for FIFO distribution
+        sku_processed_count[item.sku] = sku_processed_count.get(item.sku, 0) + 1
+        is_last_row = (sku_processed_count[item.sku] == sku_counts[item.sku])
+
+        already_allocated = sku_allocated_commitment.get(item.sku, 0.0)
+        remaining_commitment = total_sku_committed - already_allocated
+
+        if is_last_row:
+            allocated_to_this_row = remaining_commitment
+        else:
+            allocated_to_this_row = max(0.0, min(item.qty_total, remaining_commitment))
+
+        sku_allocated_commitment[item.sku] = already_allocated + allocated_to_this_row
+        qty_residual = item.qty_total - allocated_to_this_row
+
+        result.append({
+            "index": idx + 1,
+            "sku": item.sku,
+            "description": item.description or "",
+            "lotto": item.lotto or "",
+            "qty_total": item.qty_total,
+            "qty_committed": allocated_to_this_row,
+            "qty_residual": qty_residual,
+            "connected_products": connected_counts.get(item.sku, 0),
+            "is_spacer": False
+        })
+
+    return result
+
+@app.get("/api/stock/{sku}/orders")
+def get_stock_orders(sku: str, db: Session = Depends(get_db)):
+    active_a = db.query(ImportBatch).filter(
+        ImportBatch.file_type == "associations",
+        ImportBatch.is_active == True
+    ).first()
+    if not active_a:
+        return []
+
+    components = db.query(ProductComponent).filter(
+        ProductComponent.import_batch_id == active_a.id,
+        ProductComponent.sku == sku
+    ).all()
+    
+    if not components:
+        return []
+        
+    prod_req_map = {c.product_id: c.qty_required for c in components}
+    product_ids = list(prod_req_map.keys())
+
+    state_setting = db.query(AppSetting).filter(AppSetting.key == "included_state_ids").first()
+    included_states = json.loads(state_setting.value) if state_setting else [12]
+
+    matching_lines = db.query(PrestashopOrderLine).join(
+        PrestashopOrder, PrestashopOrderLine.order_id == PrestashopOrder.order_id
+    ).filter(
+        PrestashopOrder.current_state.in_(included_states),
+        PrestashopOrderLine.product_id.in_(product_ids)
+    ).all()
+
+    # Fetch PrestaShop admin URL for direct order links
+    ps_url_setting = db.query(AppSetting).filter(AppSetting.key == "prestashop_url").first()
+    ps_url = ps_url_setting.value.strip() if ps_url_setting and ps_url_setting.value else ""
+    
+    ps_admin_setting = db.query(AppSetting).filter(AppSetting.key == "prestashop_admin_url").first()
+    prestashop_admin_url = ps_admin_setting.value.strip() if ps_admin_setting and ps_admin_setting.value else ""
+    
+    if not prestashop_admin_url and ps_url:
+        # Fallback: strip '/api/' from the end of the URL
+        if "/api" in ps_url:
+            prestashop_admin_url = ps_url.split("/api")[0].rstrip('/')
+        else:
+            prestashop_admin_url = ps_url.rstrip('/')
+
+    orders_contrib = []
+    for line in matching_lines:
+        order = db.query(PrestashopOrder).filter(PrestashopOrder.order_id == line.order_id).first()
+        qty_req = prod_req_map.get(line.product_id, 1)
+        contribution = qty_req * line.product_quantity
+        unit_price = round(order.total_paid / line.product_quantity, 2) if (order and order.total_paid and line.product_quantity) else None
+        total_line_value = round((order.total_paid or 0), 2) if order else None
+
+        # Build direct link to order in PrestaShop admin
+        order_link = None
+        if prestashop_admin_url and order:
+            order_link = f"{prestashop_admin_url}/index.php?controller=AdminOrders&id_order={order.order_id}&vieworder"
+        
+        orders_contrib.append({
+            "order_id": line.order_id,
+            "current_state_label": order.current_state_label if order else "",
+            "date_add": order.date_add.isoformat() if order and order.date_add else None,
+            "product_id": line.product_id,
+            "product_reference": line.product_reference or f"ID {line.product_id}",
+            "product_quantity": line.product_quantity,
+            "qty_required": qty_req,
+            "contribution": contribution,
+            "customer_name": order.customer_name if order else None,
+            "total_paid": total_line_value,
+            "unit_price": unit_price,
+            "order_link": order_link
+        })
+        
+    orders_contrib.sort(key=lambda x: x["date_add"] or datetime.min, reverse=True)
+    return orders_contrib
+
+@app.get("/api/products")
+def get_products(db: Session = Depends(get_db)):
+    active_a = db.query(ImportBatch).filter(ImportBatch.file_type == "associations", ImportBatch.is_active == True).first()
+    if not active_a:
+        return []
+        
+    latest_run = db.query(CalcRun).filter(CalcRun.status == "completed").order_by(CalcRun.completed_at.desc()).first()
+    
+    # Group components by product_id
+    components = db.query(ProductComponent).filter(ProductComponent.import_batch_id == active_a.id).all()
+    components_map = {}
+    for comp in components:
+        if comp.product_id not in components_map:
+            components_map[comp.product_id] = []
+        components_map[comp.product_id].append(comp)
+        
+    # Get availability for latest run
+    availabilities = {}
+    if latest_run:
+        avs = db.query(ProductAvailability).filter(ProductAvailability.calc_run_id == latest_run.id).all()
+        availabilities = {a.product_id: a for a in avs}
+        
+    result = []
+    for prod_id, comps in components_map.items():
+        av = availabilities.get(prod_id)
+        qty_available = av.qty_available if av else 0
+        limiting_sku = av.limiting_sku if av else ""
+        
+        # Build components string and formula detail
+        components_str = ", ".join(f"{c.sku} (x{c.qty_required})" for c in comps)
+        
+        result.append({
+            "product_id": prod_id,
+            "components_str": components_str,
+            "qty_available": qty_available,
+            "limiting_sku": limiting_sku,
+            # Format: '609287 | CL5000M79/3E,CL2000UW35E,CL2000UW35E,CL2000UW35E'
+            "raw_association": f"{prod_id} | " + ",".join([c.sku for c in comps for _ in range(c.qty_required)])
+        })
+        
+    return result
+
+@app.get("/api/associations/{product_id}")
+def get_association(product_id: int, db: Session = Depends(get_db)):
+    active_a = db.query(ImportBatch).filter(
+        ImportBatch.file_type == "associations",
+        ImportBatch.is_active == True
+    ).first()
+    if not active_a:
+        return {"product_id": product_id, "components": []}
+        
+    comps = db.query(ProductComponent).filter(
+        ProductComponent.import_batch_id == active_a.id,
+        ProductComponent.product_id == product_id
+    ).all()
+    
+    return {
+        "product_id": product_id,
+        "components": [{"sku": c.sku, "qty_required": c.qty_required} for c in comps]
+    }
+
+@app.post("/api/associations")
+def save_association(payload: dict, db: Session = Depends(get_db)):
+    product_id = payload.get("product_id")
+    components = payload.get("components", [])
+    
+    if not product_id:
+        raise HTTPException(status_code=400, detail="Product ID mancante o non valido")
+        
+    try:
+        product_id = int(product_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Product ID deve essere un numero intero")
+        
+    active_a = db.query(ImportBatch).filter(
+        ImportBatch.file_type == "associations",
+        ImportBatch.is_active == True
+    ).first()
+    
+    if not active_a:
+        # Create a manual active batch
+        active_a = ImportBatch(
+            file_type="associations",
+            filename="associazione_manuale.xlsx",
+            is_active=True,
+            record_count=0
+        )
+        db.add(active_a)
+        db.commit()
+        db.refresh(active_a)
+        
+    # Group components by SKU to avoid unique constraint violations
+    sku_qty_map = {}
+    for comp in components:
+        sku = comp.get("sku", "").strip()
+        qty_required = comp.get("qty_required", 1)
+        if not sku:
+            continue
+        try:
+            qty_required = int(qty_required)
+            if qty_required <= 0:
+                continue
+        except ValueError:
+            continue
+        sku_qty_map[sku] = sku_qty_map.get(sku, 0) + qty_required
+
+    # Delete existing components for this product_id
+    db.query(ProductComponent).filter(
+        ProductComponent.import_batch_id == active_a.id,
+        ProductComponent.product_id == product_id
+    ).delete()
+    
+    # Insert new components
+    for sku, qty in sku_qty_map.items():
+        new_comp = ProductComponent(
+            import_batch_id=active_a.id,
+            product_id=product_id,
+            sku=sku,
+            qty_required=qty
+        )
+        db.add(new_comp)
+        
+    db.commit()
+    
+    # Update record_count for the batch
+    total_comps = db.query(ProductComponent).filter(ProductComponent.import_batch_id == active_a.id).count()
+    active_a.record_count = total_comps
+    db.commit()
+    
+    # Trigger recalculation automatically!
+    try:
+        run_calculation(db)
+    except Exception as calc_err:
+        logger.error(f"Errore nel ricalcolo automatico dopo modifica associazione: {calc_err}")
+        
+    return {"status": "success"}
+
+@app.delete("/api/associations/{product_id}")
+def delete_association(product_id: int, db: Session = Depends(get_db)):
+    active_a = db.query(ImportBatch).filter(
+        ImportBatch.file_type == "associations",
+        ImportBatch.is_active == True
+    ).first()
+    if not active_a:
+        return {"status": "success", "message": "Nessun batch attivo"}
+        
+    db.query(ProductComponent).filter(
+        ProductComponent.import_batch_id == active_a.id,
+        ProductComponent.product_id == product_id
+    ).delete()
+    
+    db.commit()
+    
+    # Update record_count for the batch
+    total_comps = db.query(ProductComponent).filter(ProductComponent.import_batch_id == active_a.id).count()
+    active_a.record_count = total_comps
+    db.commit()
+    
+    # Trigger recalculation automatically!
+    try:
+        run_calculation(db)
+    except Exception as calc_err:
+        logger.error(f"Errore nel ricalcolo automatico dopo eliminazione associazione: {calc_err}")
+        
+    return {"status": "success"}
+
+@app.post("/api/orders/analyze")
+def analyze_orders(payload: dict, db: Session = Depends(get_db)):
+    order_ids_raw = payload.get("order_ids", [])
+    
+    # Clean order_ids (remove duplicates and invalid integers)
+    order_ids = []
+    for oid in order_ids_raw:
+        try:
+            order_ids.append(int(oid))
+        except (ValueError, TypeError):
+            continue
+    order_ids = list(set(order_ids))
+    
+    if not order_ids:
+        return {
+            "orders_found": [],
+            "orders_missing": [],
+            "sku_requirements": []
+        }
+        
+    # Query prestashop orders
+    orders = db.query(PrestashopOrder).filter(PrestashopOrder.order_id.in_(order_ids)).all()
+    found_order_ids = [o.order_id for o in orders]
+    missing_order_ids = [oid for oid in order_ids if oid not in found_order_ids]
+    
+    # Extract order lines
+    order_lines = []
+    if found_order_ids:
+        order_lines = db.query(PrestashopOrderLine).filter(PrestashopOrderLine.order_id.in_(found_order_ids)).all()
+    
+    # Get active associations batch
+    active_a = db.query(ImportBatch).filter(ImportBatch.file_type == "associations", ImportBatch.is_active == True).first()
+    
+    # Load all components for active batch
+    components_map = {}
+    if active_a:
+        comps = db.query(ProductComponent).filter(ProductComponent.import_batch_id == active_a.id).all()
+        for c in comps:
+            if c.product_id not in components_map:
+                components_map[c.product_id] = []
+            components_map[c.product_id].append((c.sku, c.qty_required))
+            
+    # Load all warehouse stock for active warehouse batch
+    active_w = db.query(ImportBatch).filter(ImportBatch.file_type == "warehouse", ImportBatch.is_active == True).first()
+    stock_map = {}
+    if active_w:
+        stock_items = db.query(WarehouseStock).filter(WarehouseStock.import_batch_id == active_w.id).all()
+        for item in stock_items:
+            sku_key = item.sku.strip()
+            if not sku_key or sku_key.startswith("__spacer_"):
+                continue
+            if sku_key not in stock_map:
+                stock_map[sku_key] = {
+                    "description": item.description or "",
+                    "qty_total": 0.0
+                }
+            stock_map[sku_key]["qty_total"] += item.qty_total
+            
+    # Calculate required SKUs
+    sku_required_map = {}
+    for line in order_lines:
+        prod_id = line.product_id
+        qty_ordered = line.product_quantity or 1
+        
+        if prod_id in components_map:
+            # Composed product (explode it!)
+            for sku, qty_req in components_map[prod_id]:
+                sku_key = sku.strip()
+                sku_required_map[sku_key] = sku_required_map.get(sku_key, 0) + (qty_req * qty_ordered)
+        else:
+            # Single product, reference is SKU
+            sku_key = (line.product_reference or "").strip()
+            if sku_key:
+                sku_required_map[sku_key] = sku_required_map.get(sku_key, 0) + qty_ordered
+                
+    # Build result
+    sku_requirements = []
+    for sku, qty_req in sku_required_map.items():
+        stock_info = stock_map.get(sku, {"description": "Non presente in magazzino", "qty_total": 0.0})
+        sku_requirements.append({
+            "sku": sku,
+            "description": stock_info["description"],
+            "qty_required": qty_req,
+            "qty_stock": stock_info["qty_total"]
+        })
+        
+    # Sort by SKU
+    sku_requirements.sort(key=lambda x: x["sku"])
+    
+    return {
+        "orders_found": found_order_ids,
+        "orders_missing": missing_order_ids,
+        "sku_requirements": sku_requirements
+    }
+
+@app.get("/api/orders")
+def get_orders(page: int = 1, limit: int = 50, db: Session = Depends(get_db)):
+    offset = (page - 1) * limit
+    total_orders = db.query(PrestashopOrder).count()
+    
+    orders = db.query(PrestashopOrder).order_by(desc(PrestashopOrder.date_add)).offset(offset).limit(limit).all()
+    
+    result = []
+    for o in orders:
+        lines = db.query(PrestashopOrderLine).filter(PrestashopOrderLine.order_id == o.order_id).all()
+        lines_data = []
+        for l in lines:
+            # We want to show which SKUs are generated by this product line
+            active_a = db.query(ImportBatch).filter(ImportBatch.file_type == "associations", ImportBatch.is_active == True).first()
+            skus_gen = []
+            if active_a:
+                comps = db.query(ProductComponent).filter(
+                    ProductComponent.import_batch_id == active_a.id,
+                    ProductComponent.product_id == l.product_id
+                ).all()
+                skus_gen = [f"{c.sku} (x{c.qty_required * l.product_quantity})" for c in comps]
+                
+            lines_data.append({
+                "product_id": l.product_id,
+                "product_reference": l.product_reference or "",
+                "product_quantity": l.product_quantity,
+                "skus_generated": ", ".join(skus_gen) if skus_gen else "Nessuna associazione trovata"
+            })
+            
+        result.append({
+            "order_id": o.order_id,
+            "current_state": o.current_state,
+            "current_state_label": o.current_state_label or f"Stato {o.current_state}",
+            "date_add": o.date_add.isoformat() if o.date_add else None,
+            "date_upd": o.date_upd.isoformat() if o.date_upd else None,
+            "lines": lines_data
+        })
+        
+    return {
+        "orders": result,
+        "total": total_orders,
+        "page": page,
+        "limit": limit,
+        "total_pages": (total_orders + limit - 1) // limit if limit > 0 else 1
+    }
+
+@app.get("/api/anomalies")
+def get_anomalies(db: Session = Depends(get_db)):
+    anomalies = db.query(ImportAnomaly).order_by(desc(ImportAnomaly.created_at)).all()
+    return [{
+        "id": a.id,
+        "source": a.source,
+        "record_key": a.record_key or "",
+        "anomaly_type": a.anomaly_type,
+        "message": a.message,
+        "created_at": a.created_at.isoformat() + "Z" if a.created_at else None
+    } for a in anomalies]
+
+@app.post("/api/anomalies/clear")
+def clear_anomalies(db: Session = Depends(get_db)):
+    db.query(ImportAnomaly).delete()
+    db.commit()
+    return {"status": "success"}
+
+# ----------------- BACKUP & RESTORE -----------------
+
+def _get_db_path() -> str:
+    """Return the absolute path to the SQLite database file."""
+    db_url = os.getenv("DATABASE_URL", "sqlite:///./inventory.db")
+    # Strip sqlite:/// prefix and resolve relative path from process cwd
+    raw_path = db_url.replace("sqlite:///", "")
+    return os.path.abspath(raw_path)
+
+@app.get("/api/backup")
+def download_backup():
+    """Download the full SQLite database as a binary file."""
+    db_path = _get_db_path()
+    if not os.path.exists(db_path):
+        raise HTTPException(status_code=404, detail="Database file not found.")
+    
+    today = datetime.now().strftime("%Y-%m-%d_%H-%M")
+    filename = f"inventory_backup_{today}.db"
+    
+    return FileResponse(
+        path=db_path,
+        media_type="application/octet-stream",
+        filename=filename,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
+@app.post("/api/restore")
+async def restore_backup(file: UploadFile = File(...)):
+    """Restore the SQLite database from an uploaded .db file, then restart the server."""
+    db_path = _get_db_path()
+    
+    # Read uploaded content
+    content = await file.read()
+    
+    # Validate SQLite magic header (first 16 bytes: "SQLite format 3\x00")
+    SQLITE_MAGIC = b"SQLite format 3\x00"
+    if not content[:16] == SQLITE_MAGIC:
+        raise HTTPException(
+            status_code=400,
+            detail="File non valido: non è un database SQLite. Il ripristino è stato annullato."
+        )
+    
+    # Save automatic pre-restore backup alongside the current db
+    pre_restore_path = db_path.replace(".db", "_pre_restore.db")
+    try:
+        if os.path.exists(db_path):
+            import shutil
+            shutil.copy2(db_path, pre_restore_path)
+            logger.info(f"Pre-restore backup salvato in: {pre_restore_path}")
+    except Exception as e:
+        logger.warning(f"Impossibile creare backup pre-ripristino: {e}")
+    
+    # Write new database file
+    try:
+        with open(db_path, "wb") as f:
+            f.write(content)
+        logger.info(f"Database ripristinato con successo da: {file.filename} ({len(content)} bytes)")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Errore nella scrittura del database: {str(e)}")
+    
+    # Schedule server restart in a background thread (gives time for HTTP response to be sent)
+    def _restart():
+        import time
+        time.sleep(1.5)
+        logger.info("Avvio del riavvio del server dopo il ripristino del database...")
+        # Dispose the engine connections pool
+        try:
+            engine.dispose()
+        except Exception:
+            pass
+        # Re-execute the current process
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+    
+    import sys
+    restart_thread = threading.Thread(target=_restart, daemon=True)
+    restart_thread.start()
+    
+    return {
+        "status": "success",
+        "message": "Database ripristinato. Il server si sta riavviando...",
+        "bytes_written": len(content),
+        "pre_restore_backup": os.path.basename(pre_restore_path)
+    }
+
+# ----------------- SERVE FRONTEND STATIC FILES -----------------
+
+# Set up static files serving for the frontend React app in production mode
+frontend_dist = os.path.abspath(os.path.join(os.path.dirname(__file__), "../frontend/dist"))
+
+if os.path.exists(frontend_dist):
+    app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="static")
+    logger.info(f"Frontend static files mounted from: {frontend_dist}")
+else:
+    logger.warning(f"Frontend build folder '{frontend_dist}' not found. Serving API only. Run 'npm run build' in frontend first.")
+    
+    @app.get("/")
+    def read_root():
+        return {
+            "message": "PrestaShop Inventory Backend API is running. Build the frontend or run Vite dev server to access the UI.",
+            "api_docs": "/docs"
+        }
