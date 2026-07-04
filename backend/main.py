@@ -154,6 +154,14 @@ def sync_stock_from_google_sheets(db: Session, force: bool = False) -> dict:
     new_hash = hashlib.md5(file_content).hexdigest()
     
     if new_hash == old_hash and not force:
+        # Update google_sheet_last_sync to prevent repeated polling when skipped
+        setting = db.query(AppSetting).filter(AppSetting.key == "google_sheet_last_sync").first()
+        if setting:
+            setting.value = datetime.utcnow().isoformat() + "Z"
+        else:
+            db.add(AppSetting(key="google_sheet_last_sync", value=datetime.utcnow().isoformat() + "Z"))
+        db.commit()
+        
         return {
             "status": "skipped",
             "message": "Nessun cambiamento rilevato nel Google Sheet rispetto all'ultimo calcolo.",
@@ -420,6 +428,10 @@ def get_status(db: Session = Depends(get_db), client: PrestaShopClient = Depends
     latest_order = db.query(PrestashopOrder).order_by(PrestashopOrder.synced_at.desc()).first()
     last_orders_sync = latest_order.synced_at.isoformat() + "Z" if latest_order and latest_order.synced_at else None
     
+    # Get last google sheet sync check
+    g_last_sync_setting = db.query(AppSetting).filter(AppSetting.key == "google_sheet_last_sync").first()
+    google_sheet_last_sync = g_last_sync_setting.value if g_last_sync_setting else None
+    
     # Check local files presence in working directory
     workspace_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     giacenza_local = os.path.exists(os.path.join(workspace_dir, "giacenza.xlsx"))
@@ -433,6 +445,7 @@ def get_status(db: Session = Depends(get_db), client: PrestaShopClient = Depends
         "prestashop_url": client.url if not client.mock_mode else "Simulato (Mock Mode)",
         "database": "SQLite (attivo)",
         "last_orders_sync": last_orders_sync,
+        "google_sheet_last_sync": google_sheet_last_sync,
         "prestashop_orders_count": orders_count,
         "active_warehouse_batch": {
             "id": active_w.id if active_w else None,
@@ -830,6 +843,34 @@ def trigger_google_sheets_sync(db: Session = Depends(get_db)):
             db.add(AppSetting(key="google_sheet_last_error", value=str(e)))
         db.commit()
         raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/api/settings/test-connection")
+def test_prestashop_connection(payload: dict):
+    url = payload.get("prestashop_url", "")
+    api_key = payload.get("prestashop_api_key", "")
+    mock_mode = payload.get("prestashop_mock_mode", False)
+    
+    if mock_mode:
+        return {"status": "success", "message": "Connessione simulata riuscita (Mock Mode attiva)."}
+        
+    if not url or not api_key:
+        raise HTTPException(status_code=400, detail="URL e Chiave API sono richiesti.")
+        
+    try:
+        clean_url = url.rstrip('/') + '/'
+        states_url = f"{clean_url}order_states"
+        params = {
+            "display": "[id]",
+            "limit": "1",
+            "output_format": "JSON",
+            "ws_key": api_key
+        }
+        response = requests.get(states_url, params=params, timeout=10)
+        response.raise_for_status()
+        return {"status": "success", "message": "Connessione al server PrestaShop riuscita!"}
+    except Exception as e:
+        logger.error(f"Errore durante il test di connessione PrestaShop: {e}")
+        raise HTTPException(status_code=400, detail=f"Errore di connessione: {str(e)}")
 
 # ----------------- IMPORT ENDPOINTS -----------------
 

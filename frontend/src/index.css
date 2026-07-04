@@ -1331,16 +1331,38 @@ body.light-theme .badge-neutral {
   top: 100%;
   left: 0;
   right: 0;
-  background-color: var(--bg-primary);
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  box-shadow: var(--shadow-md);
+  background-color: rgba(30, 30, 40, 0.95);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.3);
   margin-top: 4px;
-  padding: 4px 0;
+  padding: 6px 0;
   list-style: none;
   z-index: 1010;
   max-height: 200px;
   overflow-y: auto;
+  transition: all 0.2s ease;
+}
+
+.autocomplete-dropdown::-webkit-scrollbar {
+  width: 6px;
+}
+.autocomplete-dropdown::-webkit-scrollbar-track {
+  background: transparent;
+}
+.autocomplete-dropdown::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+}
+.autocomplete-dropdown::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+body.light-theme .autocomplete-dropdown {
+  background-color: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
 }
 
 .autocomplete-dropdown li {
@@ -1348,11 +1370,19 @@ body.light-theme .badge-neutral {
   font-size: 0.85rem;
   color: var(--text-primary);
   cursor: pointer;
+  transition: background-color 0.15s ease;
 }
 
 .autocomplete-dropdown li:hover {
   background-color: var(--color-primary-bg);
   color: var(--color-primary);
+}
+
+body.light-theme .autocomplete-dropdown::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.1);
+}
+body.light-theme .autocomplete-dropdown::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.2);
 }
 
 .modal-footer {
@@ -1361,5 +1391,119 @@ body.light-theme .badge-neutral {
   gap: 12px;
   border-top: 1px solid var(--border-color);
   padding-top: 16px;
+}
+
+/* Appended Settings UX/UI Improvements */
+.settings-input:disabled {
+  background-color: rgba(255, 255, 255, 0.02) !important;
+  color: var(--text-secondary) !important;
+  border-color: rgba(255, 255, 255, 0.05) !important;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+body.light-theme .settings-input:disabled {
+  background-color: rgba(0, 0, 0, 0.03) !important;
+  color: #94a3b8 !important;
+  border-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+.states-scrollbox {
+  max-height: 250px;
+  overflow-y: auto;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 12px;
+  background-color: rgba(255, 255, 255, 0.01);
+  margin-top: 10px;
+}
+
+body.light-theme .states-scrollbox {
+  background-color: rgba(0, 0, 0, 0.005);
+}
+
+.states-filter-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.states-search-wrapper {
+  position: relative;
+  flex-grow: 1;
+  max-width: 320px;
+}
+
+.states-search-input {
+  width: 100%;
+  padding: 6px 12px 6px 32px;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-size: 0.82rem;
+  color: var(--text-primary);
+  outline: none;
+  transition: var(--transition-smooth);
+}
+
+.states-search-input:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px var(--color-primary-glow);
+}
+
+body.light-theme .states-search-input {
+  background-color: #ffffff;
+}
+
+.states-search-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-secondary);
+  pointer-events: none;
+}
+
+.states-actions-wrapper {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-small-link {
+  background: none;
+  border: none;
+  color: var(--color-primary);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: var(--transition-smooth);
+}
+
+.btn-small-link:hover {
+  background-color: var(--color-primary-glow);
+  color: #818cf8;
+}
+
+.confirm-modal {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-lg);
+  border-radius: 12px;
+  width: 90%;
+  max-width: 450px;
+  z-index: 1000;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 

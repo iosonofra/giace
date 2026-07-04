@@ -158,6 +158,14 @@ function App() {
   const [showApiKey, setShowApiKey] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
   const [settingsError, setSettingsError] = useState(null);
+  const [testingConnection, setTestingConnection] = useState(false);
+  const [testConnectionResult, setTestConnectionResult] = useState(null);
+  const [pendingRestoreFile, setPendingRestoreFile] = useState(null);
+  const [showRestoreConfirm, setShowRestoreConfirm] = useState(false);
+  const [searchStateQuery, setSearchStateQuery] = useState('');
+  const [showClearAnomaliesConfirm, setShowClearAnomaliesConfirm] = useState(false);
+  const [associationToDelete, setAssociationToDelete] = useState(null);
+  const [showDeleteAssociationConfirm, setShowDeleteAssociationConfirm] = useState(false);
   const [syncingStock, setSyncingStock] = useState(false);
   const [syncingOrders, setSyncingOrders] = useState(false);
   const [syncProgressText, setSyncProgressText] = useState('');
@@ -580,9 +588,41 @@ function App() {
     }
   };
 
+  const getOrderStateBadgeClass = (stateLabel) => {
+    if (!stateLabel) return 'badge-state-default';
+    const label = stateLabel.toLowerCase();
+    if (label.includes('magazzino') || label.includes('rosate')) {
+      return 'badge-state-magazzino';
+    }
+    if (label.includes('pagamento') || label.includes('accettato') || label.includes('attesa')) {
+      return 'badge-state-pagamento';
+    }
+    if (label.includes('spedito') || label.includes('consegnato') || label.includes('inviato')) {
+      return 'badge-state-spedito';
+    }
+    if (label.includes('annullato') || label.includes('rimborsato') || label.includes('errore')) {
+      return 'badge-state-annullato';
+    }
+    return 'badge-state-default';
+  };
+
+  const handleResolveMissingAssociation = (productId) => {
+    setActiveTab('associations');
+    setEditingProductId(productId);
+    setIsNewAssociation(true);
+    setAssociationModalMode('guided');
+    setGuidedComponents([{ sku: '', qty_required: 1 }]);
+    setRawAssociationText('');
+    setIsAssociationModalOpen(true);
+  };
+
   // Clear anomalies log
-  const handleClearAnomalies = async () => {
-    if (!window.confirm("Sei sicuro di voler pulire il registro delle anomalie?")) return;
+  const handleClearAnomalies = () => {
+    setShowClearAnomaliesConfirm(true);
+  };
+
+  const executeClearAnomalies = async () => {
+    setShowClearAnomaliesConfirm(false);
     try {
       const res = await fetch('/api/anomalies/clear', { method: 'POST' });
       if (res.ok) {
@@ -594,6 +634,7 @@ function App() {
       }
     } catch (e) {
       console.error(e);
+      showActionMsg("Errore durante la pulizia del registro.", "danger");
     }
   };
 
@@ -640,6 +681,66 @@ function App() {
       setSkuOrdersData([]);
     } finally {
       setLoadingSkuOrders(false);
+    }
+  };
+
+  const handleTestConnection = async () => {
+    setTestingConnection(true);
+    setTestConnectionResult(null);
+    try {
+      const res = await fetch('/api/settings/test-connection', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prestashop_url: prestashopUrl,
+          prestashop_api_key: prestashopApiKey,
+          prestashop_mock_mode: prestashopMockMode
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setTestConnectionResult({ status: 'success', message: data.message });
+      } else {
+        setTestConnectionResult({ status: 'error', message: data.detail || "Connessione fallita." });
+      }
+    } catch (err) {
+      console.error(err);
+      setTestConnectionResult({ status: 'error', message: "Errore di connessione." });
+    } finally {
+      setTestingConnection(false);
+    }
+  };
+
+  const handleSelectAllStates = async () => {
+    const allIds = orderStates.map(s => s.id);
+    setSelectedStates(allIds);
+    try {
+      const res = await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ included_state_ids: allIds })
+      });
+      if (res.ok) {
+        showActionMsg("Tutti gli stati selezionati con successo.");
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleDeselectAllStates = async () => {
+    setSelectedStates([]);
+    try {
+      const res = await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ included_state_ids: [] })
+      });
+      if (res.ok) {
+        showActionMsg("Tutti gli stati deselezionati.");
+      }
+    } catch (e) {
+      console.error(e);
     }
   };
 
@@ -779,10 +880,16 @@ function App() {
     }
   };
 
-  const handleDeleteAssociation = async (productId) => {
-    if (!window.confirm(`Sei sicuro di voler eliminare l'associazione per il prodotto composto ${productId}?`)) {
-      return;
-    }
+  const handleDeleteAssociation = (productId) => {
+    setAssociationToDelete(productId);
+    setShowDeleteAssociationConfirm(true);
+  };
+
+  const executeDeleteAssociation = async () => {
+    if (!associationToDelete) return;
+    const productId = associationToDelete;
+    setAssociationToDelete(null);
+    setShowDeleteAssociationConfirm(false);
     try {
       const res = await fetch(`/api/associations/${productId}`, {
         method: 'DELETE'
@@ -945,20 +1052,23 @@ function App() {
     }
   };
 
-  const handleRestoreDatabase = async (e) => {
+  const handleRestoreDatabase = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     
-    // Reset the file input so the same file can be reselected after an error
-    e.target.value = '';
+    setPendingRestoreFile(file);
+    setShowRestoreConfirm(true);
     
-    const confirmed = window.confirm(
-      `⚠️ ATTENZIONE: stai per ripristinare il database da "${file.name}".\n\n` +
-      `Questa operazione SOVRASCRIVERÀ IRREVOCABILMENTE tutti i dati attuali (ordini, giacenze, associazioni, impostazioni).\n\n` +
-      `Prima di procedere, viene salvata automaticamente una copia di emergenza del database corrente.\n\n` +
-      `Vuoi continuare?`
-    );
-    if (!confirmed) return;
+    // Reset the file input so the same file can be reselected
+    e.target.value = '';
+  };
+
+  const executeRestoreDatabase = async () => {
+    if (!pendingRestoreFile) return;
+    
+    const file = pendingRestoreFile;
+    setPendingRestoreFile(null);
+    setShowRestoreConfirm(false);
     
     setRestoreLoading(true);
     setRestoreCountdown(null);
@@ -1099,6 +1209,11 @@ function App() {
     String(order.order_id).includes(searchOrder) ||
     order.current_state_label.toLowerCase().includes(searchOrder.toLowerCase()) ||
     order.lines.some(l => String(l.product_id).includes(searchOrder))
+  );
+
+  const filteredOrderStates = orderStates.filter(state => 
+    state.name.toLowerCase().includes(searchStateQuery.toLowerCase()) ||
+    state.id.toString().includes(searchStateQuery)
   );
 
   return (
@@ -1251,7 +1366,7 @@ function App() {
 
           <div style={{ display: 'flex', gap: '12px' }}>
             <button className="btn btn-secondary" onClick={fetchData} disabled={loading}>
-              <Icons.Sync /> Ricarica Vista
+              <Icons.Sync spinning={loading} /> Aggiorna Dati
             </button>
             <button className="btn btn-primary" onClick={handleSyncAll} disabled={loading}>
               Sincronizza Tutto
@@ -1296,20 +1411,21 @@ function App() {
 
             {/* Dashboard Widgets */}
             <div className="dashboard-grid">
-              {/* Operations & Imports Widget */}
-              <div className="glass-panel widget-card">
-                <span className="widget-title">Azioni e Ingestione File</span>
+              {/* Left Column: Ingestion cards */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                 
-                <div className="upload-zone-wrapper">
-                  {/* Stock Excel import / Google Sheets sync */}
+                {/* Physical Inventory Card */}
+                <div className="glass-panel widget-card" style={{ gap: '16px' }}>
+                  <span className="widget-title">Ingestione Inventario Fisico (Giacenze)</span>
+                  
                   {stockSource === 'google_sheets' ? (
-                    <div style={{ background: 'rgba(99, 102, 241, 0.03)', padding: '20px', borderRadius: '8px', border: '1px solid rgba(99, 102, 241, 0.15)' }}>
-                      <h3 style={{ fontSize: '1rem', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ background: 'rgba(99, 102, 241, 0.03)', padding: '16px', borderRadius: '8px', border: '1px solid rgba(99, 102, 241, 0.15)' }}>
+                      <h3 style={{ fontSize: '0.95rem', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--color-success)', display: 'inline-block' }}></span>
                         Sincronizzazione Google Sheets Attiva
                       </h3>
-                      <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '12px' }}>
-                        L'inventario delle giacenze è collegato al foglio di calcolo remoto.
+                      <p style={{ color: 'var(--text-secondary)', fontSize: '0.82rem', marginBottom: '12px' }}>
+                        L'inventario è collegato al foglio di calcolo remoto.
                       </p>
                       
                       <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -1317,7 +1433,7 @@ function App() {
                           className="btn btn-primary" 
                           disabled={syncingGoogleSheets}
                           onClick={handleSyncGoogleSheetsNow}
-                          style={{ fontSize: '0.82rem', padding: '6px 12px' }}
+                          style={{ fontSize: '0.8rem', padding: '6px 12px' }}
                         >
                           {syncingGoogleSheets ? "Sincronizzazione..." : "Sincronizza Ora"}
                         </button>
@@ -1326,6 +1442,7 @@ function App() {
                           Verificato: {googleSheetLastSync ? new Date(googleSheetLastSync).toLocaleString('it-IT') : 'Mai'}
                         </span>
                       </div>
+                      
                       {status?.active_warehouse_batch && (
                         <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '12px', marginBottom: '0' }}>
                           Batch attivo: <strong>{status.active_warehouse_batch.filename}</strong> (Foglio: {status.active_warehouse_batch.sheet_name}) con {status.active_warehouse_batch.record_count} SKU.
@@ -1333,128 +1450,138 @@ function App() {
                       )}
                     </div>
                   ) : (
-                    <div style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '20px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-                      <h3 style={{ fontSize: '1rem', marginBottom: '8px' }}>Carica Inventario (giacenza.xlsx)</h3>
-                      <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '16px' }}>
-                        Seleziona il foglio di stock da elaborare.
-                      </p>
-                      
-                      <div style={{ display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap' }}>
-                        {status?.local_files?.giacenza_exists && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                      {status?.local_files?.giacenza_exists && (
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-color)', flexWrap: 'wrap', gap: '12px' }}>
                           <div style={{ display: 'flex', gap: '8px', flexDirection: 'column' }}>
-                            <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Foglio Excel</label>
-                            <select className="select-control" style={{ width: '180px' }} value={selectedSheet} onChange={(e) => setSelectedSheet(e.target.value)}>
+                            <label style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', fontWeight: '600', textTransform: 'uppercase' }}>Foglio Excel Attivo</label>
+                            <select className="select-control" style={{ width: '180px', height: '32px', fontSize: '0.82rem' }} value={selectedSheet} onChange={(e) => setSelectedSheet(e.target.value)}>
                               {availableSheets.map(s => <option key={s} value={s}>{s}</option>)}
                             </select>
                           </div>
-                        )}
-                        
-                        <div style={{ display: 'flex', gap: '10px', marginTop: status?.local_files?.giacenza_exists ? '18px' : '0' }}>
-                          {status?.local_files?.giacenza_exists ? (
-                            <button className="btn btn-primary" onClick={() => handleLocalImport('warehouse')} disabled={loading}>
-                              Importa Local [{selectedSheet}]
-                            </button>
-                          ) : (
-                            <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>File giacenza.xlsx locale non trovato.</span>
-                          )}
-                          
-                          <label className="btn btn-secondary">
-                            Sfoglia File...
-                            <input type="file" className="file-input" accept=".xlsx" onChange={(e) => handleFileUpload(e, 'warehouse')} />
-                          </label>
+                          <button className="btn btn-primary" style={{ height: '32px', fontSize: '0.82rem', padding: '0 12px' }} onClick={() => handleLocalImport('warehouse')} disabled={loading}>
+                            Importa da [{selectedSheet}]
+                          </button>
                         </div>
-                      </div>
+                      )}
+                      
+                      <label className="upload-card" style={{ width: '100%', cursor: 'pointer' }}>
+                        <svg width="28" height="28" fill="none" stroke="var(--color-primary)" strokeWidth="2" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                        </svg>
+                        <span style={{ fontWeight: '600', fontSize: '0.85rem', marginTop: '4px' }}>Sfoglia o trascina giacenza.xlsx</span>
+                        <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>Carica il file delle giacenze fisiche in formato Excel (.xlsx)</span>
+                        <input type="file" className="file-input" accept=".xlsx" style={{ display: 'none' }} onChange={(e) => handleFileUpload(e, 'warehouse')} />
+                      </label>
+
                       {status?.active_warehouse_batch && (
-                        <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '12px', marginBottom: '0' }}>
+                        <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px', marginBottom: '0' }}>
                           Batch attivo: <strong>{status.active_warehouse_batch.filename}</strong> (Foglio: {status.active_warehouse_batch.sheet_name}) con {status.active_warehouse_batch.record_count} SKU.
                         </p>
                       )}
                     </div>
                   )}
+                </div>
 
-                  {/* Associations Excel import */}
-                  <div style={{ background: 'rgba(255,255,255,0.02)', padding: '20px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-                    <h3 style={{ fontSize: '1rem', marginBottom: '8px' }}>Carica Associazioni (associazione.xlsx)</h3>
-                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '16px' }}>
-                      Importa l'esplosione dei prodotti composti in SKU.
-                    </p>
-                    
-                    <div style={{ display: 'flex', gap: '10px' }}>
-                      {status?.local_files?.associazione_exists ? (
-                        <button className="btn btn-primary" onClick={() => handleLocalImport('associations')} disabled={loading}>
-                          Importa Local
+                {/* Compound Products Card */}
+                <div className="glass-panel widget-card" style={{ gap: '16px' }}>
+                  <span className="widget-title">Carica Esplosione Distinte (Associazioni)</span>
+                  
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    {status?.local_files?.associazione_exists && (
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-color)', flexWrap: 'wrap', gap: '12px' }}>
+                        <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>Trovato file <code>associazione.xlsx</code> in locale.</span>
+                        <button className="btn btn-primary" style={{ height: '32px', fontSize: '0.82rem', padding: '0 12px' }} onClick={() => handleLocalImport('associations')} disabled={loading}>
+                          Importa File Local
                         </button>
-                      ) : (
-                        <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>File associazione.xlsx locale non trovato.</span>
-                      )}
-                      
-                      <label className="btn btn-secondary">
-                        Sfoglia File...
-                        <input type="file" className="file-input" accept=".xlsx" onChange={(e) => handleFileUpload(e, 'associations')} />
-                      </label>
-                    </div>
+                      </div>
+                    )}
+                    
+                    <label className="upload-card" style={{ width: '100%', cursor: 'pointer' }}>
+                      <svg width="28" height="28" fill="none" stroke="var(--color-primary)" strokeWidth="2" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                      <span style={{ fontWeight: '600', fontSize: '0.85rem', marginTop: '4px' }}>Sfoglia o trascina associazione.xlsx</span>
+                      <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>Carica il file con l'esplosione dei kit in SKU (.xlsx)</span>
+                      <input type="file" className="file-input" accept=".xlsx" style={{ display: 'none' }} onChange={(e) => handleFileUpload(e, 'associations')} />
+                    </label>
+
                     {status?.active_associations_batch && (
-                      <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '12px' }}>
+                      <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px', marginBottom: '0' }}>
                         Batch attivo: <strong>{status.active_associations_batch.filename}</strong> con {status.active_associations_batch.record_count} associazioni.
                       </p>
                     )}
                   </div>
-
-                  {/* PrestaShop sync */}
-                  <div style={{ background: 'rgba(255,255,255,0.02)', padding: '20px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-                    <h3 style={{ fontSize: '1rem', marginBottom: '8px' }}>Sincronizzazione Webservice PrestaShop</h3>
-                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '16px' }}>
-                      Sincronizza gli ordini attivi degli stati selezionati.
-                    </p>
-                    <button className="btn btn-primary" onClick={handleSyncOrders} disabled={loading}>
-                      Sincronizza Ordini da Webservice
-                    </button>
-                  </div>
                 </div>
+
               </div>
 
-              {/* Status and Summary Information widget */}
-              <div className="glass-panel widget-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                <span className="widget-title">Stato Elaborazione</span>
+              {/* Right Column: Status & Operational actions */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                 
-                <div>
-                  <h4 style={{ fontSize: '0.9rem', marginBottom: '6px', color: 'var(--text-secondary)' }}>Ultimo Ricalcolo Completo:</h4>
-                  <p style={{ fontSize: '1.05rem', fontWeight: '600' }}>
-                    {dashboardData.latest_calculation_run ? formatDate(dashboardData.latest_calculation_run) : "Mai eseguito"}
-                  </p>
-                </div>
-                
-                <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
-                  <h4 style={{ fontSize: '0.9rem', marginBottom: '8px', color: 'var(--text-secondary)' }}>Configurazione Cartella di Lavoro:</h4>
-                  <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.85rem' }}>
-                    <li style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span>giacenza.xlsx locale:</span>
-                      <strong style={{ color: status?.local_files?.giacenza_exists ? 'var(--color-success)' : 'var(--color-danger)' }}>
-                        {status?.local_files?.giacenza_exists ? 'PRESENTE' : 'MANCANTE'}
-                      </strong>
-                    </li>
-                    <li style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span>associazione.xlsx locale:</span>
-                      <strong style={{ color: status?.local_files?.associazione_exists ? 'var(--color-success)' : 'var(--color-danger)' }}>
-                        {status?.local_files?.associazione_exists ? 'PRESENTE' : 'MANCANTE'}
-                      </strong>
-                    </li>
-                  </ul>
-                  <p style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '8px', wordBreak: 'break-all' }}>
-                    Path: {status?.local_files?.workspace_path}
-                  </p>
+                {/* Processing Status widget */}
+                <div className="glass-panel widget-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <span className="widget-title">Stato Elaborazione</span>
+                  
+                  <div>
+                    <h4 style={{ fontSize: '0.85rem', marginBottom: '4px', color: 'var(--text-secondary)' }}>Ultimo Ricalcolo Completo:</h4>
+                    <p style={{ fontSize: '1.05rem', fontWeight: '600' }}>
+                      {dashboardData.latest_calculation_run ? formatDate(dashboardData.latest_calculation_run) : "Mai eseguito"}
+                    </p>
+                  </div>
+                  
+                  <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '12px' }}>
+                    <h4 style={{ fontSize: '0.85rem', marginBottom: '6px', color: 'var(--text-secondary)' }}>Cartella di Lavoro Locale:</h4>
+                    <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.8rem' }}>
+                      <li style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>giacenza.xlsx:</span>
+                        <strong style={{ color: status?.local_files?.giacenza_exists ? 'var(--color-success)' : 'var(--color-danger)' }}>
+                          {status?.local_files?.giacenza_exists ? 'PRESENTE' : 'MANCANTE'}
+                        </strong>
+                      </li>
+                      <li style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>associazione.xlsx:</span>
+                        <strong style={{ color: status?.local_files?.associazione_exists ? 'var(--color-success)' : 'var(--color-danger)' }}>
+                          {status?.local_files?.associazione_exists ? 'PRESENTE' : 'MANCANTE'}
+                        </strong>
+                      </li>
+                    </ul>
+                    <p style={{ fontSize: '0.68rem', color: 'var(--text-secondary)', marginTop: '8px', wordBreak: 'break-all' }}>
+                      Path: {status?.local_files?.workspace_path}
+                    </p>
+                  </div>
+
+                  <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <button className="btn btn-secondary" style={{ width: '100%', justifyContent: 'center', fontSize: '0.8rem', height: '32px' }} onClick={() => setActiveTab('settings')}>
+                      Gestisci Stati Sincronizzazione
+                    </button>
+                    {dashboardData.anomalies_count > 0 && (
+                      <button className="btn btn-danger" style={{ width: '100%', justifyContent: 'center', fontSize: '0.8rem', height: '32px' }} onClick={() => setActiveTab('anomalies')}>
+                        Visualizza {dashboardData.anomalies_count} Anomalie
+                      </button>
+                    )}
+                  </div>
                 </div>
 
-                <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  <button className="btn btn-secondary" style={{ width: '100%', justifyContent: 'center' }} onClick={() => setActiveTab('settings')}>
-                    Gestisci Stati Sincronizzazione
+                {/* PrestaShop Sync card */}
+                <div className="glass-panel widget-card" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  <span className="widget-title">PrestaShop Webservice</span>
+                  
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.82rem', lineHeight: '1.4', margin: '0' }}>
+                    Sincronizza gli ordini attivi degli stati selezionati configurati nelle impostazioni.
+                  </p>
+                  
+                  <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center', fontSize: '0.82rem', padding: '8px 12px' }} onClick={handleSyncOrders} disabled={loading}>
+                    Sincronizza Ordini Ora
                   </button>
-                  {dashboardData.anomalies_count > 0 && (
-                    <button className="btn btn-danger" style={{ width: '100%', justifyContent: 'center' }} onClick={() => setActiveTab('anomalies')}>
-                      Visualizza {dashboardData.anomalies_count} Anomalie
-                    </button>
+
+                  {status?.last_orders_sync && (
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', borderTop: '1px solid var(--border-color)', paddingTop: '8px' }}>
+                      Verificato: <strong style={{ color: 'var(--text-primary)' }}>{new Date(status.last_orders_sync).toLocaleString('it-IT')}</strong>
+                    </div>
                   )}
                 </div>
+
               </div>
             </div>
           </>
@@ -1474,10 +1601,15 @@ function App() {
                     Sorgente: <span style={{ color: 'var(--color-primary)' }}>{status?.active_warehouse_batch?.sheet_name || status?.active_warehouse_batch?.filename || 'File locale'}</span>
                   </div>
                   <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                    Ultimo sync: <strong style={{ color: 'var(--text-primary)' }}>{status?.active_warehouse_batch?.imported_at ? new Date(status.active_warehouse_batch.imported_at).toLocaleString('it-IT') : 'Mai'}</strong>
-                    {status?.active_warehouse_batch?.imported_at && (
+                    Ultimo sync: <strong style={{ color: 'var(--text-primary)' }}>
+                      {stockSource === 'google_sheets'
+                        ? (status?.google_sheet_last_sync ? new Date(status.google_sheet_last_sync).toLocaleString('it-IT') : 'Mai')
+                        : (status?.active_warehouse_batch?.imported_at ? new Date(status.active_warehouse_batch.imported_at).toLocaleString('it-IT') : 'Mai')
+                      }
+                    </strong>
+                    {((stockSource === 'google_sheets' && status?.google_sheet_last_sync) || (stockSource !== 'google_sheets' && status?.active_warehouse_batch?.imported_at)) && (
                       <span style={{ color: 'var(--text-secondary)', marginLeft: '6px' }}>
-                        | {getRelativeTimeString(status.active_warehouse_batch.imported_at)}
+                        | {getRelativeTimeString(stockSource === 'google_sheets' ? status.google_sheet_last_sync : status.active_warehouse_batch.imported_at)}
                       </span>
                     )}
                   </div>
@@ -1525,9 +1657,7 @@ function App() {
                     disabled={syncingGoogleSheets}
                     onClick={handleSyncGoogleSheetsNow}
                   >
-                    <svg className="w-4 h-4" style={{ animation: syncingGoogleSheets ? 'spin 1s infinite linear' : 'none' }} fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.21 7.89M9 11l3-3 3 3m-3-3v12"></path>
-                    </svg>
+                    <Icons.Sync spinning={syncingGoogleSheets} />
                     {syncingGoogleSheets ? "Sincronizzazione..." : "Sincronizza Google Sheets"}
                   </button>
                 )}
@@ -1676,11 +1806,18 @@ function App() {
                     {filteredOrders.map(order => (
                       <React.Fragment key={order.order_id}>
                         {order.lines.map((line, idx) => (
-                          <tr key={`${order.order_id}-${idx}`} style={{ borderBottom: idx === order.lines.length - 1 ? '1px solid var(--border-color)' : 'none' }}>
+                          <tr 
+                            key={`${order.order_id}-${idx}`} 
+                            style={{ 
+                              borderBottom: idx === order.lines.length - 1 
+                                ? '2px solid var(--border-color)' 
+                                : '1px dashed rgba(255, 255, 255, 0.03)' 
+                            }}
+                          >
                             {idx === 0 ? (
                               <td 
                                 rowSpan={order.lines.length} 
-                                style={{ position: 'relative', fontWeight: '700', verticalAlign: 'top', paddingTop: '14px', cursor: 'pointer', color: 'var(--color-primary)' }}
+                                style={{ position: 'relative', fontWeight: '700', verticalAlign: 'top', paddingTop: '14px', cursor: 'pointer', color: 'var(--color-primary)', fontFamily: 'monospace' }}
                                 onClick={() => handleCopyOrderId(order.order_id)}
                                 title="Clicca per copiare l'ID ordine"
                               >
@@ -1708,7 +1845,9 @@ function App() {
                             ) : null}
                             {idx === 0 ? (
                               <td rowSpan={order.lines.length} style={{ verticalAlign: 'top', paddingTop: '14px' }}>
-                                <span className="badge badge-warning">{highlightText(order.current_state_label, searchOrder)}</span>
+                                <span className={`badge ${getOrderStateBadgeClass(order.current_state_label)}`}>
+                                  {highlightText(order.current_state_label, searchOrder)}
+                                </span>
                               </td>
                             ) : null}
                             {idx === 0 ? (
@@ -1812,6 +1951,7 @@ function App() {
                           <th>Tipo Anomalia</th>
                           <th>Descrizione Errore</th>
                           <th>Data Rilevazione</th>
+                          <th style={{ textAlign: 'center', width: '100px' }}>Azioni</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1822,7 +1962,7 @@ function App() {
                                 {an.source}
                               </span>
                             </td>
-                            <td style={{ fontWeight: '600' }}>{an.record_key || "-"}</td>
+                            <td style={{ fontWeight: '600', fontFamily: 'monospace' }}>{an.record_key || "-"}</td>
                             <td>
                               <span className="badge badge-danger" style={{ backgroundColor: 'transparent', border: '1px solid var(--color-danger)', color: '#fca5a5' }}>
                                 {an.anomaly_type}
@@ -1830,6 +1970,18 @@ function App() {
                             </td>
                             <td style={{ color: 'var(--text-primary)', maxWidth: '400px' }}>{an.message}</td>
                             <td style={{ color: 'var(--text-secondary)' }}>{formatDate(an.created_at)}</td>
+                            <td style={{ textAlign: 'center' }}>
+                              {an.anomaly_type.includes('missing_association') && an.record_key ? (
+                                <button 
+                                  className="btn btn-neutral btn-sm" 
+                                  onClick={() => handleResolveMissingAssociation(an.record_key)}
+                                  title="Crea associazione per questo prodotto composto"
+                                  style={{ padding: '4px 8px', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                >
+                                  <Icons.Plus style={{ width: '12px', height: '12px' }} /> Risolvi
+                                </button>
+                              ) : "-"}
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -1919,7 +2071,6 @@ function App() {
                           <th className="sortable" onClick={() => handleSortProduct('limiting_sku')}>
                             SKU Limitante (Bloccante) {productSort.field === 'limiting_sku' && (productSort.direction === 'asc' ? '▲' : '▼')}
                           </th>
-                          <th>Associazione Grezza</th>
                           <th style={{ textAlign: 'center', width: '100px' }}>Azioni</th>
                         </tr>
                       </thead>
@@ -1927,23 +2078,42 @@ function App() {
                         {paginatedProducts.map(assoc => (
                           <tr key={assoc.product_id} style={assoc.qty_available === 0 ? { backgroundColor: 'rgba(239, 68, 68, 0.02)' } : {}}>
                             <td style={{ fontWeight: '700' }}>{highlightText(assoc.product_id, searchProduct)}</td>
-                            <td style={{ color: 'var(--text-secondary)', maxWidth: '350px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              {highlightText(assoc.components_str, searchProduct)}
+                            <td style={{ maxWidth: '380px' }}>
+                              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+                                {assoc.components_str.split(',').map((compStr, idx) => {
+                                  const trimmed = compStr.trim();
+                                  return (
+                                    <span 
+                                      key={idx} 
+                                      className="badge badge-neutral" 
+                                      style={{ 
+                                        fontSize: '0.72rem', 
+                                        padding: '2px 6px', 
+                                        borderRadius: '4px',
+                                        background: 'rgba(255, 255, 255, 0.05)',
+                                        border: '1px solid var(--border-color)',
+                                        color: 'var(--text-secondary)',
+                                        display: 'inline-block',
+                                        fontFamily: 'monospace'
+                                      }}
+                                    >
+                                      {highlightText(trimmed, searchProduct)}
+                                    </span>
+                                  );
+                                })}
+                              </div>
                             </td>
                             <td style={{ textAlign: 'right', fontWeight: '700', fontSize: '1.05rem', color: assoc.qty_available === 0 ? 'var(--color-danger)' : 'var(--color-success)' }}>
                               {assoc.qty_available}
                             </td>
                             <td>
                               {assoc.limiting_sku ? (
-                                <span className={`badge ${assoc.qty_available === 0 ? 'badge-danger' : 'badge-warning'}`}>
+                                <span className={`badge ${assoc.qty_available === 0 ? 'badge-danger' : 'badge-warning'}`} style={{ fontFamily: 'monospace' }}>
                                   {highlightText(assoc.limiting_sku, searchProduct)}
                                 </span>
                               ) : (
                                 <span className="badge badge-neutral">-</span>
                               )}
-                            </td>
-                            <td style={{ fontFamily: 'monospace', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                              {highlightText(assoc.raw_association, searchProduct)}
                             </td>
                             <td style={{ textAlign: 'center' }}>
                               <div style={{ display: 'flex', justifyContent: 'center', gap: '8px' }}>
@@ -2259,11 +2429,48 @@ function App() {
                   </small>
                 </div>
 
-                <div style={{ marginTop: '10px' }}>
-                  <button type="submit" className="btn btn-primary" disabled={savingSettings}>
-                    {savingSettings ? "Connessione in corso..." : "Salva Configurazione Connessione"}
+                <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginTop: '10px', flexWrap: 'wrap' }}>
+                  <button type="submit" className="btn btn-primary" disabled={savingSettings || testingConnection}>
+                    {savingSettings ? "Salvataggio..." : "Salva Configurazione Connessione"}
                   </button>
+                  
+                  {!prestashopMockMode && (
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={handleTestConnection}
+                      disabled={testingConnection || savingSettings}
+                      style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                    >
+                      {testingConnection ? (
+                        <>
+                          <div className="spinner" style={{ width: '14px', height: '14px', border: '2px solid rgba(255,255,255,0.2)', borderTopColor: 'var(--text-primary)' }}></div>
+                          Verifica...
+                        </>
+                      ) : (
+                        "Test Connessione"
+                      )}
+                    </button>
+                  )}
                 </div>
+
+                {testConnectionResult && (
+                  <div style={{ 
+                    padding: '10px 14px', 
+                    borderRadius: '6px', 
+                    fontSize: '0.8rem', 
+                    background: testConnectionResult.status === 'success' ? 'rgba(16, 185, 129, 0.08)' : 'rgba(239, 68, 68, 0.08)',
+                    border: testConnectionResult.status === 'success' ? '1px solid rgba(16, 185, 129, 0.2)' : '1px solid rgba(239, 68, 68, 0.2)',
+                    color: testConnectionResult.status === 'success' ? '#a7f3d0' : '#fca5a5',
+                    marginTop: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
+                  }}>
+                    <span>{testConnectionResult.status === 'success' ? '✅' : '❌'}</span>
+                    <span>{testConnectionResult.message}</span>
+                  </div>
+                )}
               </form>
             </div>
 
@@ -2499,26 +2706,53 @@ function App() {
             {/* Card 3: Stati Ordini da Includere nell'Impegnato */}
             <div className="glass-panel widget-card">
               <h2 style={{ fontSize: '1.2rem', marginBottom: '8px' }}>Stati Ordini da Includere nell'Impegnato</h2>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '24px' }}>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '16px' }}>
                 Gli ordini che si trovano in uno degli stati selezionati di seguito verranno estratti dal Webservice PrestaShop. 
                 Le SKU dei relativi prodotti venduti verranno aggregate e sottratte come "impegnate" dalla giacenza fisica totale.
               </p>
               
               {orderStates.length > 0 ? (
                 <div className="settings-grid">
-                  <div className="checkbox-list">
-                    {orderStates.map(state => (
-                      <label key={state.id} className="checkbox-label">
-                        <input type="checkbox" className="checkbox-control" checked={selectedStates.includes(state.id)} onChange={() => handleToggleState(state.id)} />
-                        <div>
-                          <div style={{ fontWeight: '500' }}>{state.name}</div>
-                          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>ID Stato: {state.id}</div>
-                        </div>
-                      </label>
-                    ))}
+                  <div className="states-filter-bar">
+                    <div className="states-search-wrapper">
+                      <span className="states-search-icon">🔍</span>
+                      <input 
+                        type="text" 
+                        className="states-search-input" 
+                        placeholder="Filtra stati per nome o ID..." 
+                        value={searchStateQuery}
+                        onChange={(e) => setSearchStateQuery(e.target.value)}
+                      />
+                    </div>
+                    <div className="states-actions-wrapper">
+                      <button type="button" className="btn-small-link" onClick={handleSelectAllStates}>
+                        Seleziona Tutti
+                      </button>
+                      <button type="button" className="btn-small-link" onClick={handleDeselectAllStates}>
+                        Deseleziona Tutti
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="states-scrollbox">
+                    {filteredOrderStates.length > 0 ? (
+                      <div className="checkbox-list">
+                        {filteredOrderStates.map(state => (
+                          <label key={state.id} className="checkbox-label">
+                            <input type="checkbox" className="checkbox-control" checked={selectedStates.includes(state.id)} onChange={() => handleToggleState(state.id)} />
+                            <div>
+                              <div style={{ fontWeight: '500' }}>{state.name}</div>
+                              <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>ID Stato: {state.id}</div>
+                            </div>
+                          </label>
+                        ))}
+                      </div>
+                    ) : (
+                      <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: '8px 0', textAlign: 'center' }}>Nessuno stato trovato per la ricerca inserita.</p>
+                    )}
                   </div>
                   
-                  <div style={{ marginTop: '24px', padding: '16px', borderRadius: '8px', background: 'rgba(99, 102, 241, 0.05)', border: '1px solid rgba(99, 102, 241, 0.2)', fontSize: '0.85rem', display: 'flex', gap: '12px', alignItems: 'center' }}>
+                  <div style={{ marginTop: '12px', padding: '16px', borderRadius: '8px', background: 'rgba(99, 102, 241, 0.05)', border: '1px solid rgba(99, 102, 241, 0.2)', fontSize: '0.85rem', display: 'flex', gap: '12px', alignItems: 'center' }}>
                     <svg className="w-5 h-5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                     <span>
                       Nota: Di default, lo stato <strong>magazzino rosate</strong> (solitamente ID 12) è quello utilizzato per l'impegnato. Le modifiche qui impostate si applicano istantaneamente ai ricalcoli.
@@ -3036,6 +3270,162 @@ function App() {
           </>
         );
       })()}
+
+      {/* Database Restore Confirmation Modal */}
+      {showRestoreConfirm && pendingRestoreFile && (
+        <>
+          <div className="modal-overlay" onClick={() => { setShowRestoreConfirm(false); setPendingRestoreFile(null); }}></div>
+          <div className="confirm-modal">
+            <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+              <div style={{ padding: '8px', borderRadius: '50%', background: 'rgba(239, 68, 68, 0.1)', color: 'var(--color-danger)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <svg width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: '700', color: 'var(--text-primary)' }}>Conferma Ripristino</h3>
+                <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
+                  Stai per ripristinare il database dal file <strong style={{ color: 'var(--text-primary)' }}>{pendingRestoreFile.name}</strong>.
+                </p>
+              </div>
+            </div>
+            
+            <div style={{ 
+              padding: '12px', 
+              borderRadius: '8px', 
+              background: 'rgba(239, 68, 68, 0.05)', 
+              border: '1px solid rgba(239, 68, 68, 0.2)', 
+              fontSize: '0.8rem', 
+              color: '#fca5a5',
+              lineHeight: '1.5'
+            }}>
+              <strong>⚠️ ATTENZIONE:</strong> Questa operazione sovrascriverà irrevocabilmente tutti i dati attuali (ordini, giacenze, associazioni, impostazioni). Viene effettuato comunque un salvataggio automatico di emergenza.
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '8px' }}>
+              <button 
+                type="button" 
+                className="btn btn-neutral" 
+                onClick={() => { setShowRestoreConfirm(false); setPendingRestoreFile(null); }}
+              >
+                Annulla
+              </button>
+              <button 
+                type="button" 
+                className="btn btn-danger" 
+                style={{ backgroundColor: 'var(--color-danger)', borderColor: 'var(--color-danger)', color: 'white' }}
+                onClick={executeRestoreDatabase}
+              >
+                Conferma e Ripristina
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Clear Anomalies Confirmation Modal */}
+      {showClearAnomaliesConfirm && (
+        <>
+          <div className="modal-overlay" onClick={() => setShowClearAnomaliesConfirm(false)}></div>
+          <div className="confirm-modal">
+            <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+              <div style={{ padding: '8px', borderRadius: '50%', background: 'rgba(239, 68, 68, 0.1)', color: 'var(--color-danger)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <svg width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: '700', color: 'var(--text-primary)' }}>Svuota Registro Anomalie</h3>
+                <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
+                  Sei sicuro di voler eliminare tutte le anomalie registrate?
+                </p>
+              </div>
+            </div>
+            
+            <div style={{ 
+              padding: '12px', 
+              borderRadius: '8px', 
+              background: 'rgba(239, 68, 68, 0.05)', 
+              border: '1px solid rgba(239, 68, 68, 0.2)', 
+              fontSize: '0.8rem', 
+              color: '#fca5a5',
+              lineHeight: '1.5'
+            }}>
+              Questa azione cancellerà permanentemente tutti gli avvisi del log corrente. Gli errori verranno comunque rilevati nuovamente al prossimo import o ricalcolo se non risolti.
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '8px' }}>
+              <button 
+                type="button" 
+                className="btn btn-neutral" 
+                onClick={() => setShowClearAnomaliesConfirm(false)}
+              >
+                Annulla
+              </button>
+              <button 
+                type="button" 
+                className="btn btn-danger" 
+                style={{ backgroundColor: 'var(--color-danger)', borderColor: 'var(--color-danger)', color: 'white' }}
+                onClick={executeClearAnomalies}
+              >
+                Svuota Registro
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Delete Association Confirmation Modal */}
+      {showDeleteAssociationConfirm && associationToDelete && (
+        <>
+          <div className="modal-overlay" onClick={() => { setShowDeleteAssociationConfirm(false); setAssociationToDelete(null); }}></div>
+          <div className="confirm-modal">
+            <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+              <div style={{ padding: '8px', borderRadius: '50%', background: 'rgba(239, 68, 68, 0.1)', color: 'var(--color-danger)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <svg width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: '700', color: 'var(--text-primary)' }}>Elimina Associazione</h3>
+                <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
+                  Sei sicuro di voler eliminare l'associazione per il prodotto composto <strong style={{ color: 'var(--text-primary)' }}>{associationToDelete}</strong>?
+                </p>
+              </div>
+            </div>
+            
+            <div style={{ 
+              padding: '12px', 
+              borderRadius: '8px', 
+              background: 'rgba(239, 68, 68, 0.05)', 
+              border: '1px solid rgba(239, 68, 68, 0.2)', 
+              fontSize: '0.8rem', 
+              color: '#fca5a5',
+              lineHeight: '1.5'
+            }}>
+              Questa operazione rimuoverà la distinta base. Il prodotto non potrà essere esploso in SKU nel calcolo delle giacenze fino a una nuova associazione.
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '8px' }}>
+              <button 
+                type="button" 
+                className="btn btn-neutral" 
+                onClick={() => { setShowDeleteAssociationConfirm(false); setAssociationToDelete(null); }}
+              >
+                Annulla
+              </button>
+              <button 
+                type="button" 
+                className="btn btn-danger" 
+                style={{ backgroundColor: 'var(--color-danger)', borderColor: 'var(--color-danger)', color: 'white' }}
+                onClick={executeDeleteAssociation}
+              >
+                Elimina Associazione
+              </button>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
