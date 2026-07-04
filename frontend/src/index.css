@@ -210,17 +210,11 @@ body {
 }
 
 .brand-logo {
-  background: linear-gradient(135deg, var(--color-primary), #a855f7);
   width: 32px;
   height: 32px;
-  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-weight: bold;
-  color: white;
-  font-size: 0.95rem;
-  box-shadow: 0 0 10px rgba(99, 102, 241, 0.4);
 }
 
 .brand-name {

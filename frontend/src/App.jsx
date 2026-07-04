@@ -1221,7 +1221,25 @@ function App() {
       {/* Sidebar Navigation */}
       <aside className="sidebar">
         <div className="brand-section">
-          <div className="brand-logo">G</div>
+          <div className="brand-logo">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" style={{ width: '100%', height: '100%' }}>
+              <defs>
+                <linearGradient id="logoGrad1" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="var(--color-primary)" />
+                  <stop offset="100%" stopColor="#a855f7" />
+                </linearGradient>
+                <linearGradient id="logoGrad2" x1="100%" y1="0%" x2="0%" y2="100%">
+                  <stop offset="0%" stopColor="#38bdf8" />
+                  <stop offset="100%" stopColor="var(--color-primary)" />
+                </linearGradient>
+              </defs>
+              <circle cx="16" cy="16" r="14" stroke="url(#logoGrad1)" strokeWidth="2.5" strokeLinecap="round" strokeDasharray="50 30" />
+              <path d="M26 12l2.5-3-3.5-.5M6 20l-2.5 3 3.5.5" stroke="url(#logoGrad1)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M16 9l5.5 2.75-5.5 2.75-5.5-2.75 5.5-2.75z" fill="url(#logoGrad2)" opacity="0.95" />
+              <path d="M10.5 11.75V18l5.5 3.25V14.5l-5.5-2.75z" fill="var(--color-primary)" opacity="0.8" />
+              <path d="M16 14.5V21.25l5.5-3.25V11.75l-5.5 2.75z" fill="#4f46e5" />
+            </svg>
+          </div>
           <span className="brand-name">Giacenza</span>
         </div>
 
