@@ -141,6 +141,7 @@ def run_calculation(db: Session, warehouse_batch_id: int = None, associations_ba
         
         sku_residual_map = {} # sku -> qty_residual
         
+        sku_commitments_to_save = []
         for sku in all_skus:
             # Check stock
             qty_total = sku_total_stock.get(sku, 0.0)
@@ -160,7 +161,7 @@ def run_calculation(db: Session, warehouse_batch_id: int = None, associations_ba
             sku_residual_map[sku] = qty_residual
             
             # Persist SKU commitment
-            db.add(SkuCommitment(
+            sku_commitments_to_save.append(SkuCommitment(
                 calc_run_id=run.id,
                 sku=sku,
                 qty_committed=qty_committed,
@@ -168,7 +169,11 @@ def run_calculation(db: Session, warehouse_batch_id: int = None, associations_ba
                 qty_residual=qty_residual
             ))
             
+        if sku_commitments_to_save:
+            db.bulk_save_objects(sku_commitments_to_save)
+            
         # 9. Step 3: Calculate Availability for each compound product
+        product_availabilities_to_save = []
         for product_id, product_comps in components_map.items():
             min_available = float('inf')
             limiting_sku = None
@@ -196,12 +201,15 @@ def run_calculation(db: Session, warehouse_batch_id: int = None, associations_ba
             if min_available == float('inf'):
                 min_available = 0
                 
-            db.add(ProductAvailability(
+            product_availabilities_to_save.append(ProductAvailability(
                 calc_run_id=run.id,
                 product_id=product_id,
                 qty_available=int(min_available),
                 limiting_sku=limiting_sku
             ))
+            
+        if product_availabilities_to_save:
+            db.bulk_save_objects(product_availabilities_to_save)
             
         # 10. Complete calculation run
         run.status = "completed"

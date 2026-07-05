@@ -317,7 +317,7 @@ def prestashop_orders_polling_worker():
                 logger.info("Avvio sincronizzazione automatica ordini da PrestaShop...")
                 try:
                     client = get_ps_client(db)
-                    res = sync_orders_internal(db, client)
+                    res = sync_orders_internal(db, client, force=False)
                     logger.info(f"Sincronizzazione automatica ordini completata: {res}")
                 except Exception as sync_err:
                     logger.error(f"Errore nella sincronizzazione automatica ordini: {sync_err}")
@@ -1094,7 +1094,7 @@ def import_associations(
 
 # ----------------- PRESTASHOP SYNC & RECALC -----------------
 
-def sync_orders_internal(db: Session, client: PrestaShopClient) -> dict:
+def sync_orders_internal(db: Session, client: PrestaShopClient, force: bool = False) -> dict:
     sync_progress.start()
     # 1. Get states to sync
     setting = db.query(AppSetting).filter(AppSetting.key == "included_state_ids").first()
@@ -1126,6 +1126,61 @@ def sync_orders_internal(db: Session, client: PrestaShopClient) -> dict:
         valid_product_ids = [609286, 609287, 605652]
         
     try:
+        # Check if we can skip the sync using the lightweight check
+        if not force:
+            try:
+                remote_orders = client.get_order_ids_and_update_times(included_states, valid_product_ids)
+                db_orders = db.query(PrestashopOrder).all()
+                db_orders_map = {o.order_id: o.date_upd for o in db_orders}
+                
+                # Check for sync errors and completed calculations
+                last_calc = db.query(CalcRun).filter(CalcRun.status == "completed").first()
+                err_setting = db.query(AppSetting).filter(AppSetting.key == "prestashop_last_error").first()
+                has_error = err_setting and err_setting.value
+                
+                if last_calc and not has_error and len(db_orders_map) == len(remote_orders):
+                    all_match = True
+                    for remote in remote_orders:
+                        oid = remote["id"]
+                        if oid not in db_orders_map:
+                            all_match = False
+                            break
+                        
+                        r_date_str = remote["date_upd"]
+                        r_date = None
+                        if r_date_str:
+                            try:
+                                r_date = datetime.strptime(r_date_str, "%Y-%m-%d %H:%M:%S")
+                            except Exception:
+                                pass
+                        
+                        db_date = db_orders_map[oid]
+                        if db_date != r_date:
+                            all_match = False
+                            break
+                            
+                    if all_match:
+                        logger.info("Nessuna modifica rilevata negli ordini PrestaShop. Sincronizzazione saltata.")
+                        # Save last sync setting anyway
+                        last_sync_val = datetime.now(timezone.utc).isoformat()
+                        ls_setting = db.query(AppSetting).filter(AppSetting.key == "prestashop_last_sync").first()
+                        if ls_setting:
+                            ls_setting.value = last_sync_val
+                        else:
+                            db.add(AppSetting(key="prestashop_last_sync", value=last_sync_val))
+                        db.commit()
+                        
+                        sync_progress.stop(success=True)
+                        return {
+                            "status": "skipped",
+                            "message": "Nessuna modifica rilevata negli ordini PrestaShop rispetto all'ultimo calcolo.",
+                            "orders_synced": len(db_orders),
+                            "mock_mode": client.mock_mode
+                        }
+            except Exception as check_err:
+                logger.warning(f"Errore durante il controllo rapido delle modifiche: {check_err}. Si procede con il sync completo.")
+                raise check_err
+
         # Fetch orders
         def on_progress(phase, current, total):
             if phase == "fetching_orders":
@@ -1147,6 +1202,8 @@ def sync_orders_internal(db: Session, client: PrestaShopClient) -> dict:
         seen_order_ids = set()
         synced_count = 0
         now_val = datetime.utcnow()
+        orders_to_save = []
+        lines_to_save = []
         for o in orders_data:
             order_id = o["order_id"]
             if order_id in seen_order_ids:
@@ -1166,7 +1223,7 @@ def sync_orders_internal(db: Session, client: PrestaShopClient) -> dict:
                 total_paid=o.get("total_paid"),
                 synced_at=now_val
             )
-            db.add(db_order)
+            orders_to_save.append(db_order)
             
             for line in o["lines"]:
                 db_line = PrestashopOrderLine(
@@ -1177,9 +1234,14 @@ def sync_orders_internal(db: Session, client: PrestaShopClient) -> dict:
                     product_reference=line["product_reference"],
                     product_quantity=line["product_quantity"]
                 )
-                db.add(db_line)
+                lines_to_save.append(db_line)
                 
             synced_count += 1
+            
+        if orders_to_save:
+            db.bulk_save_objects(orders_to_save)
+        if lines_to_save:
+            db.bulk_save_objects(lines_to_save)
             
         db.commit()
         
@@ -1243,9 +1305,9 @@ def get_sync_status():
     }
 
 @app.post("/api/prestashop/sync-orders")
-def sync_orders(db: Session = Depends(get_db), client: PrestaShopClient = Depends(get_ps_client)):
+def sync_orders(force: bool = True, db: Session = Depends(get_db), client: PrestaShopClient = Depends(get_ps_client)):
     try:
-        res = sync_orders_internal(db, client)
+        res = sync_orders_internal(db, client, force=force)
         return res
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

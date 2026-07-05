@@ -232,6 +232,53 @@ class PrestaShopClient:
             if progress_callback:
                 progress_callback("fetching_customers", fetched_so_far, total_customers)
 
+    def get_order_ids_and_update_times(self, state_ids: List[int], valid_product_ids: List[int] = None) -> List[Dict[str, Any]]:
+        """
+        Fetches only order IDs and their date_upd from PrestaShop for fast change detection.
+        In mock mode, returns the mock order IDs and fixed/generated dates.
+        """
+        if self.mock_mode:
+            mock_orders = self._generate_mock_orders(state_ids, valid_product_ids or [609286, 609287, 605652])
+            return [{"id": o["order_id"], "date_upd": o["date_upd"].strftime("%Y-%m-%d %H:%M:%S")} for o in mock_orders]
+
+        if not state_ids:
+            return []
+
+        try:
+            states_filter = "|".join(str(sid) for sid in state_ids)
+            orders_url = f"{self.url}orders"
+            params = {
+                "display": "[id,date_upd]",
+                "output_format": "JSON",
+                "filter[current_state]": f"[{states_filter}]",
+                "ws_key": self.api_key
+            }
+            response = requests.get(orders_url, params=params, timeout=15)
+            if response.status_code == 404:
+                return []
+            response.raise_for_status()
+            data = response.json()
+            raw_orders = data.get("orders", [])
+
+            if isinstance(raw_orders, dict):
+                raw_orders = [raw_orders]
+            elif not isinstance(raw_orders, list):
+                raw_orders = []
+
+            results = []
+            for item in raw_orders:
+                if isinstance(item, dict) and "id" in item:
+                    try:
+                        oid = int(item["id"])
+                        date_upd = item.get("date_upd", "")
+                        results.append({"id": oid, "date_upd": date_upd})
+                    except (ValueError, TypeError):
+                        pass
+            return results
+        except Exception as e:
+            logger.error(f"Errore nel recupero leggero degli ordini da PrestaShop: {str(e)}")
+            raise e
+
     def get_orders(self, state_ids: List[int], valid_product_ids: List[int] = None, progress_callback = None) -> List[Dict[str, Any]]:
         """
         Fetches orders filter by state_ids.
@@ -424,7 +471,7 @@ class PrestaShopClient:
         
         # Let's create 8 orders
         num_orders = 8
-        start_date = datetime.now() - timedelta(days=5)
+        start_date = datetime(2026, 7, 1)
         
         for i in range(num_orders):
             order_id = 1000 + i
@@ -437,7 +484,9 @@ class PrestaShopClient:
                 current_state = random.choice(state_ids) if state_ids else 12
                 
             date_add = start_date + timedelta(days=random.random() * 5, hours=random.random() * 24)
+            date_add = date_add.replace(microsecond=0)
             date_upd = date_add + timedelta(minutes=random.random() * 120)
+            date_upd = date_upd.replace(microsecond=0)
             
             # Generate lines (1 to 3 items per order)
             num_lines = random.randint(1, 3)
