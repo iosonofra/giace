@@ -199,6 +199,11 @@ function App() {
   const [pickingResults, setPickingResults] = useState(null);
   const [pickingLoading, setPickingLoading] = useState(false);
   const [pickingError, setPickingError] = useState(null);
+  const [pickingInputMode, setPickingInputMode] = useState('text'); // 'text' or 'file'
+  const [selectedPickingFiles, setSelectedPickingFiles] = useState([]);
+  const [pickingFilesAnomalies, setPickingFilesAnomalies] = useState([]);
+  const [pickingFilesSummary, setPickingFilesSummary] = useState([]);
+  const [dragOver, setDragOver] = useState(false);
   
   // Backup & Restore states
   const [backupLoading, setBackupLoading] = useState(false);
@@ -986,6 +991,48 @@ function App() {
         setPickingResults(data);
       } else {
         setPickingError(data.detail || "Errore durante l'elaborazione del fabbisogno.");
+      }
+    } catch (err) {
+      setPickingError(`Errore di connessione: ${err.message}`);
+    } finally {
+      setPickingLoading(false);
+    }
+  };
+
+  const handleUploadPickingFiles = async (e) => {
+    if (e) e.preventDefault();
+    if (selectedPickingFiles.length === 0) {
+      setPickingError("Seleziona almeno un file Excel da caricare.");
+      return;
+    }
+    
+    setPickingLoading(true);
+    setPickingError(null);
+    setPickingResults(null);
+    setPickingFilesAnomalies([]);
+    setPickingFilesSummary([]);
+    
+    const formData = new FormData();
+    for (let i = 0; i < selectedPickingFiles.length; i++) {
+      formData.append('files', selectedPickingFiles[i]);
+    }
+    
+    try {
+      const res = await fetch('/api/orders/analyze-files', {
+        method: 'POST',
+        body: formData
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setPickingResults({
+          orders_found: data.orders_found,
+          orders_missing: data.orders_missing,
+          sku_requirements: data.sku_requirements
+        });
+        setPickingFilesAnomalies(data.anomalies || []);
+        setPickingFilesSummary(data.files_processed || []);
+      } else {
+        setPickingError(data.detail || "Errore durante l'elaborazione del file di prelievo.");
       }
     } catch (err) {
       setPickingError(`Errore di connessione: ${err.message}`);
@@ -2198,68 +2245,253 @@ function App() {
         {activeTab === 'picking' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
             <div className="glass-panel widget-card">
-              <span className="widget-title">Pianificazione Prelievo da Elenco Grezzo</span>
+              <span className="widget-title">Pianificazione Prelievo</span>
               <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '16px', lineHeight: '1.5' }}>
-                Incolla qui qualsiasi testo o elenco di ordini (es. esportazioni di testo, email, log di logistica). 
-                Il sistema estrarrà automaticamente i numeri corrispondenti agli ID ordine, recupererà gli articoli/componenti 
-                e confronterà il fabbisogno con la giacenza effettiva a magazzino.
+                Seleziona la modalità di inserimento per pianificare il prelievo. Puoi incollare un elenco testuale di ID ordini oppure caricare uno o più file Excel contenenti le colonne <strong>ID prodotto</strong> e <strong>Quantità del prodotto</strong>.
               </p>
+
+              {/* Tab Selector */}
+              <div className="tab-pill-container" style={{ display: 'flex', gap: '8px', marginBottom: '20px', background: 'rgba(255,255,255,0.02)', padding: '4px', borderRadius: '8px', border: '1px solid var(--border-color)', width: 'fit-content' }}>
+                <button
+                  type="button"
+                  className={`btn btn-sm ${pickingInputMode === 'text' ? 'btn-primary' : 'btn-neutral'}`}
+                  style={{ borderRadius: '6px', height: '30px', padding: '0 16px', fontSize: '0.8rem', border: 'none', cursor: 'pointer' }}
+                  onClick={() => {
+                    setPickingInputMode('text');
+                    setPickingError(null);
+                  }}
+                >
+                  Incolla Testo (ID Ordini)
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-sm ${pickingInputMode === 'file' ? 'btn-primary' : 'btn-neutral'}`}
+                  style={{ borderRadius: '6px', height: '30px', padding: '0 16px', fontSize: '0.8rem', border: 'none', cursor: 'pointer' }}
+                  onClick={() => {
+                    setPickingInputMode('file');
+                    setPickingError(null);
+                  }}
+                >
+                  Carica Excel (Ordini)
+                </button>
+              </div>
               
-              <form onSubmit={handleCalculatePicking} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                <div className="form-group">
-                  <textarea
-                    className="settings-input"
-                    style={{ width: '100%', minHeight: '140px', fontFamily: 'monospace', fontSize: '0.9rem', padding: '12px', resize: 'vertical' }}
-                    placeholder={`Esempio di testo incollato:
+              {pickingInputMode === 'text' ? (
+                <form onSubmit={handleCalculatePicking} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <div className="form-group">
+                    <textarea
+                      className="settings-input"
+                      style={{ width: '100%', minHeight: '140px', fontFamily: 'monospace', fontSize: '0.9rem', padding: '12px', resize: 'vertical' }}
+                      placeholder={`Esempio di testo incollato:
 206542 > Meesseman 
 206794 > Wallbruch 
 208927 > BV FRE 
 209465 > Herting`}
-                    value={rawPickingText}
-                    onChange={(e) => setRawPickingText(e.target.value)}
-                  />
-                </div>
-                
-                {pickingError && (
-                  <div className="anomaly-bar danger-theme" style={{ display: 'flex', padding: '10px 14px', borderRadius: '8px', border: '1px solid rgba(220, 38, 38, 0.2)', backgroundColor: 'rgba(220, 38, 38, 0.05)', color: 'var(--color-danger)', fontSize: '0.85rem' }}>
-                    {pickingError}
+                      value={rawPickingText}
+                      onChange={(e) => setRawPickingText(e.target.value)}
+                    />
                   </div>
-                )}
-                
-                <div style={{ display: 'flex', gap: '12px' }}>
-                  <button 
-                    type="submit" 
-                    className="btn btn-primary" 
-                    disabled={pickingLoading}
-                    style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
-                  >
-                    {pickingLoading ? (
-                      <>
-                        <div className="spinner" style={{ width: '16px', height: '16px', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff' }}></div>
-                        Elaborazione in corso...
-                      </>
-                    ) : (
-                      <>
-                        Calcola Fabbisogno
-                      </>
-                    )}
-                  </button>
                   
-                  {pickingResults && (
+                  {pickingError && (
+                    <div className="anomaly-bar danger-theme" style={{ display: 'flex', padding: '10px 14px', borderRadius: '8px', border: '1px solid rgba(220, 38, 38, 0.2)', backgroundColor: 'rgba(220, 38, 38, 0.05)', color: 'var(--color-danger)', fontSize: '0.85rem' }}>
+                      {pickingError}
+                    </div>
+                  )}
+                  
+                  <div style={{ display: 'flex', gap: '12px' }}>
+                    <button 
+                      type="submit" 
+                      className="btn btn-primary" 
+                      disabled={pickingLoading}
+                      style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+                    >
+                      {pickingLoading ? (
+                        <>
+                          <div className="spinner" style={{ width: '16px', height: '16px', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff' }}></div>
+                          Elaborazione in corso...
+                        </>
+                      ) : (
+                        "Calcola Fabbisogno"
+                      )}
+                    </button>
+                    
+                    {pickingResults && (
+                      <button 
+                        type="button" 
+                        className="btn btn-neutral" 
+                        onClick={() => {
+                          setRawPickingText('');
+                          setPickingResults(null);
+                          setPickingError(null);
+                        }}
+                      >
+                        Nuovo Calcolo
+                      </button>
+                    )}
+                  </div>
+                </form>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <div 
+                    className={`upload-card ${dragOver ? 'drag-over' : ''}`}
+                    style={{ 
+                      width: '100%', 
+                      cursor: 'pointer',
+                      borderColor: dragOver ? 'var(--color-primary)' : 'var(--border-color)',
+                      backgroundColor: dragOver ? 'rgba(99, 102, 241, 0.05)' : 'rgba(255, 255, 255, 0.01)',
+                      borderStyle: 'dashed',
+                      borderWidth: '2px',
+                      padding: '24px',
+                      borderRadius: '8px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      transition: 'all 0.2s ease'
+                    }}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      setDragOver(true);
+                    }}
+                    onDragEnter={(e) => {
+                      e.preventDefault();
+                      setDragOver(true);
+                    }}
+                    onDragLeave={(e) => {
+                      e.preventDefault();
+                      setDragOver(false);
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setDragOver(false);
+                      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                        const files = Array.from(e.dataTransfer.files).filter(f => f.name.endsWith('.xlsx') || f.name.endsWith('.xls'));
+                        if (files.length > 0) {
+                          setSelectedPickingFiles(prev => [...prev, ...files]);
+                        }
+                      }
+                    }}
+                    onClick={() => document.getElementById('picking-file-input').click()}
+                  >
+                    <svg width="32" height="32" fill="none" stroke="var(--color-primary)" strokeWidth="2" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    <span style={{ fontWeight: '600', fontSize: '0.85rem', marginTop: '8px', color: 'var(--text-primary)' }}>
+                      Trascina o clicca per caricare i file Excel degli ordini
+                    </span>
+                    <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                      Supporta selezione singola o multipla di file Excel (.xlsx, .xls)
+                    </span>
+                    <input 
+                      id="picking-file-input"
+                      type="file" 
+                      accept=".xlsx,.xls" 
+                      multiple 
+                      style={{ display: 'none' }} 
+                      onChange={(e) => {
+                        if (e.target.files && e.target.files.length > 0) {
+                          setSelectedPickingFiles(prev => [...prev, ...Array.from(e.target.files)]);
+                        }
+                      }}
+                    />
+                  </div>
+                  
+                  {/* Selected files list */}
+                  {selectedPickingFiles.length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <span style={{ fontSize: '0.75rem', fontWeight: '600', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>
+                        File Selezionati ({selectedPickingFiles.length})
+                      </span>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        {selectedPickingFiles.map((file, idx) => (
+                          <div 
+                            key={idx} 
+                            style={{ 
+                              display: 'flex', 
+                              justifyContent: 'space-between', 
+                              alignItems: 'center', 
+                              padding: '8px 12px', 
+                              background: 'rgba(255,255,255,0.02)', 
+                              borderRadius: '6px', 
+                              border: '1px solid var(--border-color)',
+                              fontSize: '0.82rem'
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <svg style={{ width: '16px', height: '16px', color: 'var(--color-primary)' }} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                              </svg>
+                              <span style={{ fontWeight: '500', color: 'var(--text-primary)' }}>{file.name}</span>
+                              <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
+                                ({(file.size / 1024).toFixed(1)} KB)
+                              </span>
+                            </div>
+                            <button 
+                              type="button" 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedPickingFiles(prev => prev.filter((_, i) => i !== idx));
+                              }}
+                              className="btn btn-neutral"
+                              style={{ 
+                                height: '24px',
+                                padding: '0 8px',
+                                fontSize: '0.75rem',
+                                color: 'var(--color-danger)',
+                                border: '1px solid rgba(239, 68, 68, 0.15)',
+                                backgroundColor: 'rgba(239, 68, 68, 0.05)'
+                              }}
+                            >
+                              Rimuovi
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {pickingError && (
+                    <div className="anomaly-bar danger-theme" style={{ display: 'flex', padding: '10px 14px', borderRadius: '8px', border: '1px solid rgba(220, 38, 38, 0.2)', backgroundColor: 'rgba(220, 38, 38, 0.05)', color: 'var(--color-danger)', fontSize: '0.85rem' }}>
+                      {pickingError}
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', gap: '12px' }}>
                     <button 
                       type="button" 
-                      className="btn btn-neutral" 
-                      onClick={() => {
-                        setRawPickingText('');
-                        setPickingResults(null);
-                        setPickingError(null);
-                      }}
+                      className="btn btn-primary" 
+                      disabled={pickingLoading || selectedPickingFiles.length === 0}
+                      onClick={handleUploadPickingFiles}
+                      style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
                     >
-                      Nuovo Calcolo
+                      {pickingLoading ? (
+                        <>
+                          <div className="spinner" style={{ width: '16px', height: '16px', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff' }}></div>
+                          Elaborazione in corso...
+                        </>
+                      ) : (
+                        "Calcola Fabbisogno da File"
+                      )}
                     </button>
-                  )}
+                    
+                    {(pickingResults || selectedPickingFiles.length > 0) && (
+                      <button 
+                        type="button" 
+                        className="btn btn-neutral" 
+                        onClick={() => {
+                          setSelectedPickingFiles([]);
+                          setPickingResults(null);
+                          setPickingError(null);
+                          setPickingFilesAnomalies([]);
+                          setPickingFilesSummary([]);
+                        }}
+                      >
+                        Nuovo Calcolo
+                      </button>
+                    )}
+                  </div>
                 </div>
-              </form>
+              )}
             </div>
 
             {/* Results sections */}
@@ -2276,29 +2508,87 @@ function App() {
                   </button>
                 </div>
 
+                {/* Warnings / File Anomalies specific block */}
+                {pickingInputMode === 'file' && pickingFilesAnomalies.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <span style={{ fontSize: '0.78rem', fontWeight: '600', color: 'var(--color-warning)', textTransform: 'uppercase' }}>
+                      Avvisi ed Anomalie File ({pickingFilesAnomalies.length})
+                    </span>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '150px', overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '8px' }}>
+                      {pickingFilesAnomalies.map((anom, idx) => (
+                        <div 
+                          key={idx} 
+                          style={{ 
+                            fontSize: '0.78rem', 
+                            padding: '6px 10px', 
+                            borderRadius: '6px', 
+                            border: '1px solid rgba(245, 158, 11, 0.2)', 
+                            backgroundColor: 'rgba(245, 158, 11, 0.03)', 
+                            color: 'var(--color-warning)',
+                            lineHeight: '1.4'
+                          }}
+                        >
+                          <strong>{anom.record_key}:</strong> {anom.message}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Orders match summary cards */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px' }}>
-                  <div style={{ padding: '12px 16px', borderRadius: '8px', backgroundColor: 'rgba(16, 185, 129, 0.05)', border: '1px solid rgba(16, 185, 129, 0.15)' }}>
-                    <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-secondary)', fontWeight: '600' }}>Ordini Trovati nel Database</div>
-                    <div style={{ fontSize: '1.2rem', fontWeight: '700', marginTop: '4px', color: 'var(--color-success)' }}>
-                      {pickingResults.orders_found.length} ordini
-                    </div>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px', wordBreak: 'break-all' }}>
-                      {pickingResults.orders_found.length > 0 ? pickingResults.orders_found.join(', ') : 'Nessuno'}
-                    </div>
-                  </div>
-
-                  <div style={{ padding: '12px 16px', borderRadius: '8px', backgroundColor: pickingResults.orders_missing.length > 0 ? 'rgba(239, 68, 68, 0.05)' : 'rgba(71, 85, 105, 0.03)', border: pickingResults.orders_missing.length > 0 ? '1px solid rgba(239, 68, 68, 0.15)' : '1px solid var(--border-color)' }}>
-                    <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-secondary)', fontWeight: '600' }}>Ordini Non Trovati</div>
-                    <div style={{ fontSize: '1.2rem', fontWeight: '700', marginTop: '4px', color: pickingResults.orders_missing.length > 0 ? 'var(--color-danger)' : 'var(--text-secondary)' }}>
-                      {pickingResults.orders_missing.length} ordini
-                    </div>
-                    {pickingResults.orders_missing.length > 0 && (
-                      <div style={{ fontSize: '0.8rem', color: 'var(--color-danger)', marginTop: '4px', wordBreak: 'break-all' }}>
-                        {pickingResults.orders_missing.join(', ')}
+                  {pickingInputMode === 'text' ? (
+                    <>
+                      <div style={{ padding: '12px 16px', borderRadius: '8px', backgroundColor: 'rgba(16, 185, 129, 0.05)', border: '1px solid rgba(16, 185, 129, 0.15)' }}>
+                        <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-secondary)', fontWeight: '600' }}>Ordini Trovati nel Database</div>
+                        <div style={{ fontSize: '1.2rem', fontWeight: '700', marginTop: '4px', color: 'var(--color-success)' }}>
+                          {pickingResults.orders_found.length} ordini
+                        </div>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px', wordBreak: 'break-all' }}>
+                          {pickingResults.orders_found.length > 0 ? pickingResults.orders_found.join(', ') : 'Nessuno'}
+                        </div>
                       </div>
-                    )}
-                  </div>
+
+                      <div style={{ padding: '12px 16px', borderRadius: '8px', backgroundColor: pickingResults.orders_missing.length > 0 ? 'rgba(239, 68, 68, 0.05)' : 'rgba(71, 85, 105, 0.03)', border: pickingResults.orders_missing.length > 0 ? '1px solid rgba(239, 68, 68, 0.15)' : '1px solid var(--border-color)' }}>
+                        <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-secondary)', fontWeight: '600' }}>Ordini Non Trovati</div>
+                        <div style={{ fontSize: '1.2rem', fontWeight: '700', marginTop: '4px', color: pickingResults.orders_missing.length > 0 ? 'var(--color-danger)' : 'var(--text-secondary)' }}>
+                          {pickingResults.orders_missing.length} ordini
+                        </div>
+                        {pickingResults.orders_missing.length > 0 && (
+                          <div style={{ fontSize: '0.8rem', color: 'var(--color-danger)', marginTop: '4px', wordBreak: 'break-all' }}>
+                            {pickingResults.orders_missing.join(', ')}
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div style={{ padding: '12px 16px', borderRadius: '8px', backgroundColor: 'rgba(16, 185, 129, 0.05)', border: '1px solid rgba(16, 185, 129, 0.15)' }}>
+                        <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-secondary)', fontWeight: '600' }}>Riferimenti Ordini Rilevati</div>
+                        <div style={{ fontSize: '1.2rem', fontWeight: '700', marginTop: '4px', color: 'var(--color-success)' }}>
+                          {pickingResults.orders_found.length} ordini
+                        </div>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px', wordBreak: 'break-all', maxHeight: '60px', overflowY: 'auto' }}>
+                          {pickingResults.orders_found.length > 0 ? pickingResults.orders_found.join(', ') : 'Nessuno'}
+                        </div>
+                      </div>
+
+                      <div style={{ padding: '12px 16px', borderRadius: '8px', backgroundColor: 'rgba(99, 102, 241, 0.05)', border: '1px solid rgba(99, 102, 241, 0.15)' }}>
+                        <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-secondary)', fontWeight: '600' }}>File Excel Inclusi</div>
+                        <div style={{ fontSize: '1.2rem', fontWeight: '700', marginTop: '4px', color: 'var(--color-primary)' }}>
+                          {pickingFilesSummary.length} file
+                        </div>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px', display: 'flex', flexDirection: 'column', gap: '2px', maxHeight: '60px', overflowY: 'auto' }}>
+                          {pickingFilesSummary.map((f, i) => (
+                            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: '10px' }}>
+                              <span style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', maxWidth: '140px' }} title={f.filename}>{f.filename}</span>
+                              <strong>{f.rows_count} righe</strong>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </div>
 
                 {/* SKU Requirements Table */}

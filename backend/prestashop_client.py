@@ -515,3 +515,32 @@ class PrestaShopClient:
             
         return orders
 
+    def get_product_reference(self, product_id: int) -> Optional[str]:
+        """
+        Fetches the product reference (SKU) for a given product ID from PrestaShop.
+        In mock mode, returns a mock SKU.
+        """
+        if self.mock_mode:
+            return f"REF-{product_id}"
+            
+        try:
+            prod_url = f"{self.url}products/{product_id}"
+            params = {
+                "display": "[reference]",
+                "output_format": "JSON",
+                "ws_key": self.api_key
+            }
+            response = requests.get(prod_url, params=params, timeout=5)
+            response.raise_for_status()
+            data = response.json()
+            # PrestaShop returns data as: {"product": {"reference": "..."}}
+            prod = data.get("product", {})
+            if isinstance(prod, dict):
+                return str(prod.get("reference", "")).strip()
+            elif isinstance(prod, list) and prod:
+                return str(prod[0].get("reference", "")).strip()
+            return None
+        except Exception as e:
+            logger.error(f"Errore nel recupero della reference per il prodotto {product_id} da PrestaShop: {str(e)}")
+            return None
+

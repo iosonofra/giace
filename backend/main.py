@@ -23,7 +23,7 @@ from backend.models import (
     SkuCommitment, ProductAvailability, ImportAnomaly,
     AppSetting
 )
-from backend.excel_parser import parse_warehouse_excel, parse_associations_excel, get_excel_sheets
+from backend.excel_parser import parse_warehouse_excel, parse_associations_excel, get_excel_sheets, parse_picking_orders_excel
 from backend.prestashop_client import PrestaShopClient
 from backend.calculator import run_calculation
 
@@ -1792,6 +1792,142 @@ def analyze_orders(payload: dict, db: Session = Depends(get_db)):
         "orders_found": found_order_ids,
         "orders_missing": missing_order_ids,
         "sku_requirements": sku_requirements
+    }
+
+@app.post("/api/orders/analyze-files")
+def analyze_orders_files(
+    files: List[UploadFile] = File(...),
+    db: Session = Depends(get_db),
+    ps_client: PrestaShopClient = Depends(get_ps_client)
+):
+    all_rows = []
+    all_order_refs = set()
+    all_anomalies = []
+    files_processed = []
+    
+    for upload_file in files:
+        try:
+            content = upload_file.file.read()
+            valid_rows, order_refs, anomalies = parse_picking_orders_excel(content, upload_file.filename)
+            all_rows.extend(valid_rows)
+            all_order_refs.update(order_refs)
+            all_anomalies.extend(anomalies)
+            files_processed.append({
+                "filename": upload_file.filename,
+                "rows_count": len(valid_rows)
+            })
+        except Exception as e:
+            logger.error(f"Errore nel parsing del file {upload_file.filename}: {str(e)}")
+            raise HTTPException(status_code=400, detail=f"Errore nel parsing del file {upload_file.filename}: {str(e)}")
+            
+    if not all_rows:
+        return {
+            "orders_found": [],
+            "orders_missing": [],
+            "sku_requirements": [],
+            "anomalies": all_anomalies,
+            "files_processed": files_processed
+        }
+        
+    # Aggregate quantities by product_id
+    aggregated_products = {}
+    for row in all_rows:
+        pid = row["product_id"]
+        qty = row["quantity"]
+        aggregated_products[pid] = aggregated_products.get(pid, 0.0) + qty
+        
+    # Load all components for active batch
+    active_a = db.query(ImportBatch).filter(ImportBatch.file_type == "associations", ImportBatch.is_active == True).first()
+    components_map = {}
+    if active_a:
+        comps = db.query(ProductComponent).filter(ProductComponent.import_batch_id == active_a.id).all()
+        for c in comps:
+            if c.product_id not in components_map:
+                components_map[c.product_id] = []
+            components_map[c.product_id].append((c.sku, c.qty_required))
+            
+    # Load all warehouse stock for active warehouse batch
+    active_w = db.query(ImportBatch).filter(ImportBatch.file_type == "warehouse", ImportBatch.is_active == True).first()
+    stock_map = {}
+    if active_w:
+        stock_items = db.query(WarehouseStock).filter(WarehouseStock.import_batch_id == active_w.id).all()
+        for item in stock_items:
+            sku_key = item.sku.strip()
+            if not sku_key or sku_key.startswith("__spacer_"):
+                continue
+            if sku_key not in stock_map:
+                stock_map[sku_key] = {
+                    "description": item.description or "",
+                    "qty_total": 0.0
+                }
+            stock_map[sku_key]["qty_total"] += item.qty_total
+            
+    # Resolve product_ids to SKUs
+    sku_required_map = {}
+    
+    # Cache for DB product reference lookup
+    ref_db_cache = {}
+    
+    for pid, qty_ordered in aggregated_products.items():
+        if pid in components_map:
+            # Composed product
+            for sku, qty_req in components_map[pid]:
+                sku_key = sku.strip()
+                sku_required_map[sku_key] = sku_required_map.get(sku_key, 0.0) + (qty_req * qty_ordered)
+        else:
+            # Single product, let's find the reference
+            sku_key = None
+            
+            # 1. Check local db cache (prestashop_order_lines)
+            if pid in ref_db_cache:
+                sku_key = ref_db_cache[pid]
+            else:
+                cached_line = db.query(PrestashopOrderLine.product_reference).filter(
+                    PrestashopOrderLine.product_id == pid,
+                    PrestashopOrderLine.product_reference != None,
+                    PrestashopOrderLine.product_reference != ""
+                ).first()
+                if cached_line:
+                    sku_key = cached_line[0].strip()
+                    ref_db_cache[pid] = sku_key
+                    
+            # 2. Check PrestaShop Webservice
+            if not sku_key and ps_client:
+                sku_key = ps_client.get_product_reference(pid)
+                if sku_key:
+                    ref_db_cache[pid] = sku_key
+                    
+            # 3. Fallback to ID-XXXX
+            if not sku_key:
+                sku_key = f"ID-{pid}"
+                all_anomalies.append({
+                    "source": "file_picking_import",
+                    "record_key": f"ID {pid}",
+                    "anomaly_type": "missing_reference",
+                    "message": f"Impossibile trovare il codice SKU (riferimento) per il Prodotto ID {pid}. Utilizzato SKU provvisorio '{sku_key}'."
+                })
+                
+            sku_required_map[sku_key] = sku_required_map.get(sku_key, 0.0) + qty_ordered
+            
+    # Build result
+    sku_requirements = []
+    for sku, qty_req in sku_required_map.items():
+        stock_info = stock_map.get(sku, {"description": "Non presente in magazzino", "qty_total": 0.0})
+        sku_requirements.append({
+            "sku": sku,
+            "description": stock_info["description"],
+            "qty_required": qty_req,
+            "qty_stock": stock_info["qty_total"]
+        })
+        
+    sku_requirements.sort(key=lambda x: x["sku"])
+    
+    return {
+        "orders_found": sorted(list(all_order_refs)),
+        "orders_missing": [],
+        "sku_requirements": sku_requirements,
+        "anomalies": all_anomalies,
+        "files_processed": files_processed
     }
 
 @app.get("/api/orders")

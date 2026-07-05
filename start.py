@@ -143,7 +143,7 @@ def start_dev_mode():
         
         print("\n" + "="*60)
         print(" Entrambi i server sono in esecuzione!")
-        print(" - Frontend (Vite): http://localhost:5173")
+        print(" - Frontend (Vite): http://localhost:5173 (Nota: se occupato, controlla la porta nei log [Frontend] sopra)")
         print(" - Backend (FastAPI): http://localhost:8000")
         print(" Premi Ctrl+C per arrestare entrambi i server contemporaneamente.")
         print("="*60 + "\n")

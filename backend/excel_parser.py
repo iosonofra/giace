@@ -262,3 +262,117 @@ def parse_associations_excel(file_content: bytes) -> Tuple[List[Dict[str, Any]],
         
     except Exception as e:
         raise ValueError(f"Errore durante il parsing del file Excel di associazioni: {str(e)}")
+
+
+def parse_picking_orders_excel(
+    file_content: bytes, 
+    filename: str
+) -> Tuple[List[Dict[str, Any]], List[str], List[Dict[str, Any]]]:
+    """
+    Parses a picking orders excel file and returns:
+    - a list of valid rows (dict with product_id, quantity, order_ref, customer)
+    - a list of unique order references found
+    - a list of anomalies discovered during parsing
+    """
+    valid_rows = []
+    order_refs = set()
+    anomalies = []
+    
+    try:
+        wb = openpyxl.load_workbook(BytesIO(file_content), data_only=True)
+        sheet = wb.active # Use active sheet (first sheet)
+        
+        # Read header row (first row)
+        header_row = next(sheet.iter_rows(min_row=1, max_row=1), None)
+        if not header_row:
+            raise ValueError("Il file Excel è vuoto o non contiene un'intestazione.")
+            
+        header = [str(cell.value).strip() if cell.value is not None else "" for cell in header_row]
+        
+        # Helper to find column index with synonyms
+        def find_col_idx(names, required=False, label=""):
+            for name in names:
+                try:
+                    return next(i for i, h in enumerate(header) if h.lower() == name.lower())
+                except StopIteration:
+                    continue
+            if required:
+                raise ValueError(f"Colonna '{label}' non trovata nella riga di intestazione (colonne presenti: {', '.join(filter(None, header))}).")
+            return None
+            
+        pid_idx = find_col_idx(['id prodotto', 'id_prodotto', 'id_product', 'product_id', 'id', 'product id'], required=True, label="ID prodotto")
+        qty_idx = find_col_idx(['quantità del prodotto', 'quantita del prodotto', 'quantità', 'quantita', 'qty', 'quantity', 'quantit del prodotto', 'qta'], required=True, label="Quantità del prodotto")
+        ref_idx = find_col_idx(['riferimento ordine', 'riferimento', 'reference', 'order_reference', 'order reference', 'id_order', 'order_id', 'order id'])
+        cust_idx = find_col_idx(['cliente', 'customer', 'customer_name', 'customer name'])
+        
+        # Iterate data rows starting from row 2
+        for row_num, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=2):
+            if not any(cell is not None for cell in row):
+                continue
+                
+            pid_val = row[pid_idx] if pid_idx < len(row) else None
+            qty_val = row[qty_idx] if qty_idx < len(row) else None
+            ref_val = row[ref_idx] if ref_idx is not None and ref_idx < len(row) else None
+            cust_val = row[cust_idx] if cust_idx is not None and cust_idx < len(row) else None
+            
+            if pid_val is None or str(pid_val).strip() == "":
+                anomalies.append({
+                    "source": "file_picking_import",
+                    "record_key": f"{filename} - Riga {row_num}",
+                    "anomaly_type": "missing_product_id",
+                    "message": f"File '{filename}', riga {row_num}: ID prodotto vuoto o mancante, riga ignorata."
+                })
+                continue
+                
+            try:
+                product_id = int(float(str(pid_val).strip()))
+            except Exception:
+                anomalies.append({
+                    "source": "file_picking_import",
+                    "record_key": f"{filename} - Riga {row_num}",
+                    "anomaly_type": "invalid_product_id",
+                    "message": f"File '{filename}', riga {row_num}: ID prodotto non valido ('{pid_val}'), riga ignorata."
+                })
+                continue
+                
+            try:
+                if qty_val is None:
+                    raise ValueError("Quantità mancante")
+                qty_str = str(qty_val).replace(',', '.').strip()
+                qty = float(qty_str)
+                if qty <= 0:
+                    anomalies.append({
+                        "source": "file_picking_import",
+                        "record_key": f"{filename} - ID {product_id}",
+                        "anomaly_type": "invalid_quantity",
+                        "message": f"File '{filename}', riga {row_num} (ID {product_id}): Quantità non positiva ({qty_val})."
+                    })
+                    continue
+            except Exception:
+                anomalies.append({
+                    "source": "file_picking_import",
+                    "record_key": f"{filename} - ID {product_id}",
+                    "anomaly_type": "invalid_quantity",
+                    "message": f"File '{filename}', riga {row_num} (ID {product_id}): Quantità non valida o mancante ('{qty_val}')."
+                })
+                continue
+                
+            order_ref = str(ref_val).strip() if ref_val is not None and str(ref_val).strip() != "" else None
+            customer = str(cust_val).strip() if cust_val is not None and str(cust_val).strip() != "" else None
+            
+            if order_ref:
+                order_refs.add(order_ref)
+                
+            valid_rows.append({
+                "product_id": product_id,
+                "quantity": qty,
+                "order_ref": order_ref,
+                "customer": customer
+            })
+            
+        return valid_rows, list(order_refs), anomalies
+        
+    except Exception as e:
+        if not isinstance(e, ValueError):
+            raise ValueError(f"Errore durante il parsing del file Excel '{filename}': {str(e)}")
+        raise e
