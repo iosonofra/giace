@@ -22,6 +22,28 @@
   --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
   --transition-smooth: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   --border-radius: 12px;
+
+  /* Spacing Scale (4px base) */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
+
+  /* Typography Scale */
+  --text-xs: 0.72rem;
+  --text-sm: 0.8rem;
+  --text-base: 0.85rem;
+  --text-md: 0.9rem;
+  --text-lg: 1.05rem;
+  --text-xl: 1.15rem;
+  --text-2xl: 1.5rem;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.15);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.2);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.37);
 }
 
 /* Light Theme Variables Override */
@@ -153,20 +175,20 @@ body {
   overflow-x: hidden;
 }
 
-/* Scrollbar styling */
+/* Scrollbar styling — single definition */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 ::-webkit-scrollbar-track {
-  background: var(--bg-primary);
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
   background: var(--border-color);
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #4b5563;
+  background: var(--text-secondary);
 }
 
 /* Glassmorphism utility */
@@ -246,6 +268,12 @@ body {
   transition: var(--transition-smooth);
 }
 
+.nav-item-badge-wrapper {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+}
+
 .nav-item svg {
   width: 18px !important;
   height: 18px !important;
@@ -260,8 +288,18 @@ body {
 .nav-item.active {
   background-color: var(--color-primary-glow);
   color: #818cf8;
-  border-left: 3px solid var(--color-primary);
-  padding-left: 9px;
+  position: relative;
+}
+
+.nav-item.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--color-primary);
 }
 
 .sidebar-footer {
@@ -379,14 +417,14 @@ body {
 }
 
 .page-title h1 {
-  font-size: 1.8rem;
+  font-size: var(--text-2xl);
   font-weight: 700;
-  margin-bottom: 4px;
+  margin-bottom: var(--space-xs);
 }
 
 .page-title p {
   color: var(--text-secondary);
-  font-size: 0.9rem;
+  font-size: var(--text-md);
 }
 
 /* Button styles */
@@ -422,6 +460,27 @@ body {
 
 .btn-secondary:hover {
   background-color: rgba(255, 255, 255, 0.05);
+}
+
+.btn-warning {
+  background-color: var(--color-warning-bg);
+  border-color: rgba(245, 158, 11, 0.25);
+  color: #fbbf24;
+}
+
+.btn-warning:hover {
+  background-color: rgba(245, 158, 11, 0.2);
+  color: #fde68a;
+}
+
+body.light-theme .btn-warning {
+  background-color: rgba(245, 158, 11, 0.08);
+  border-color: rgba(217, 119, 6, 0.25);
+  color: #b45309;
+}
+
+body.light-theme .btn-warning:hover {
+  background-color: rgba(245, 158, 11, 0.15);
 }
 
 .btn-danger {
@@ -586,9 +645,17 @@ body {
   border-bottom: 1px solid var(--border-color);
   color: var(--text-secondary);
   font-weight: 600;
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--bg-secondary);
+}
+
+body.light-theme .custom-table th {
+  background: #ffffff;
 }
 
 .custom-table td {
@@ -657,17 +724,17 @@ body {
 
 .badge-success {
   background-color: var(--color-success-bg);
-  color: #6ee7b7;
+  color: #a7f3d0; /* Improved contrast: ~5.2:1 on dark bg */
 }
 
 .badge-warning {
   background-color: var(--color-warning-bg);
-  color: #fcd34d;
+  color: #fde68a; /* Improved contrast: ~5.8:1 on dark bg */
 }
 
 .badge-danger {
   background-color: var(--color-danger-bg);
-  color: #fca5a5;
+  color: #fecaca; /* Improved contrast: ~5.5:1 on dark bg */
 }
 
 .badge-neutral {
@@ -1148,24 +1215,7 @@ body.light-theme .qty-committed-zero-badge {
   to { transform: scale(1); opacity: 1; }
 }
 
-/* Scrollbar custom style */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  background: var(--border-color);
-  border-radius: 4px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: var(--text-secondary);
-}
+/* (Scrollbar rules consolidated at top of file) */
 
 
 /* Light Theme overrides for accessible contrast and clean borders */
@@ -1459,6 +1509,8 @@ body.light-theme .states-search-input {
   transform: translateY(-50%);
   color: var(--text-secondary);
   pointer-events: none;
+  width: 14px;
+  height: 14px;
 }
 
 .states-actions-wrapper {
@@ -1499,5 +1551,279 @@ body.light-theme .states-search-input {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+/* =============================================
+   SEMANTIC UTILITY CLASSES
+   Replaces common inline style patterns
+   ============================================= */
+
+/* Section titles inside cards */
+.section-title {
+  font-size: var(--text-xl);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: var(--space-sm);
+}
+
+.section-subtitle {
+  color: var(--text-secondary);
+  font-size: var(--text-md);
+  margin-bottom: var(--space-lg);
+  line-height: 1.5;
+}
+
+/* Label used above form groups and stat boxes */
+.label-uppercase {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+}
+
+/* Informational box (bordered, subtle bg) */
+.info-box {
+  padding: var(--space-md);
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: rgba(255, 255, 255, 0.02);
+  font-size: var(--text-base);
+}
+
+body.light-theme .info-box {
+  background: rgba(0, 0, 0, 0.01);
+}
+
+.info-box-primary {
+  background: rgba(99, 102, 241, 0.05);
+  border-color: rgba(99, 102, 241, 0.2);
+}
+
+.info-box-success {
+  background: rgba(16, 185, 129, 0.05);
+  border-color: rgba(16, 185, 129, 0.15);
+}
+
+.info-box-danger {
+  background: rgba(239, 68, 68, 0.05);
+  border-color: rgba(239, 68, 68, 0.2);
+  color: #fecaca;
+}
+
+body.light-theme .info-box-danger {
+  color: #b91c1c;
+}
+
+/* Sync status cards grid */
+.sync-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: var(--space-md);
+  margin-bottom: var(--space-lg);
+}
+
+/* Sync status card content layout */
+.sync-card {
+  padding: var(--space-md);
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  border-radius: var(--border-radius);
+  transition: all 0.3s ease;
+}
+
+.sync-card-icon {
+  padding: 10px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sync-card-icon.stock {
+  background: rgba(16, 185, 129, 0.1);
+  color: var(--color-success);
+}
+
+.sync-card-icon.orders {
+  background: rgba(99, 102, 241, 0.1);
+  color: var(--color-primary);
+}
+
+/* Form actions bar */
+.form-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+/* Stat summary card (picking results, etc.) */
+.stat-summary-card {
+  padding: 12px 16px;
+  border-radius: 8px;
+}
+
+.stat-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-md);
+}
+
+/* Section divider */
+.section-divider {
+  border-top: 1px solid var(--border-color);
+  padding-top: var(--space-lg);
+  margin-top: 10px;
+}
+
+/* Backup/Restore cards grid */
+.dual-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--space-lg);
+}
+
+.action-card {
+  padding: var(--space-lg);
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+}
+
+.action-card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.action-card-header span {
+  font-weight: 700;
+  font-size: 1rem;
+  color: var(--text-primary);
+}
+
+.action-card p {
+  font-size: var(--text-base);
+  color: var(--text-secondary);
+  margin-bottom: var(--space-md);
+  line-height: 1.5;
+}
+
+/* Toast / Alert system — fixed position */
+.toast-container {
+  position: fixed;
+  top: var(--space-lg);
+  right: var(--space-lg);
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  max-width: 480px;
+  pointer-events: none;
+}
+
+.toast-container > * {
+  pointer-events: all;
+}
+
+.toast-alert {
+  border-radius: 8px;
+  padding: 12px 20px;
+  font-size: var(--text-md);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  animation: slideInFromRight 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+  box-shadow: var(--shadow-md);
+}
+
+.toast-alert .toast-close {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-weight: bold;
+  padding: 4px 6px;
+  border-radius: 4px;
+  opacity: 0.7;
+  transition: opacity 0.15s;
+  flex-shrink: 0;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.toast-alert .toast-close:hover {
+  opacity: 1;
+}
+
+/* Pagination bar */
+.pagination-bar {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: var(--space-md);
+  margin-top: var(--space-lg);
+}
+
+/* Compact inline-flex utility for buttons row in tables */
+.table-actions {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-sm);
+}
+
+/* Monospace badge (for SKU, IDs, etc.) */
+.badge-mono {
+  font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+}
+
+/* Radio card (Settings stock source selector) */
+.radio-card {
+  flex: 1;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: var(--transition-smooth);
+}
+
+.radio-card.selected {
+  border-color: var(--color-primary);
+}
+
+/* Restore countdown overlay */
+.restore-countdown {
+  padding: var(--space-lg);
+  border-radius: var(--border-radius);
+  background: rgba(99, 102, 241, 0.07);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  margin-bottom: var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+}
+
+.restore-countdown .countdown-number {
+  font-size: 2.5rem;
+  font-weight: 800;
+  color: var(--color-primary);
+}
+
+/* Skeleton Loading Animation */
+.skeleton-pulse {
+  animation: skeleton-loading-pulse 1.5s infinite ease-in-out;
+}
+
+@keyframes skeleton-loading-pulse {
+  0% { opacity: 0.6; }
+  50% { opacity: 0.35; }
+  100% { opacity: 0.6; }
 }
 

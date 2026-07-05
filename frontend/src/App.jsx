@@ -133,6 +133,190 @@ const getStateBadgeClass = (label = '') => {
   return 'badge-state badge-state-default';
 };
 
+/** Reusable Confirmation Modal component to avoid code duplication */
+const ConfirmModal = ({ isOpen, title, message, warningText, onCancel, onConfirm, confirmText, variant = 'danger' }) => {
+  if (!isOpen) return null;
+  
+  // Choose icon based on variant
+  const icon = variant === 'danger' ? (
+    <svg width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+    </svg>
+  ) : (
+    <svg width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+    </svg>
+  );
+
+  return (
+    <>
+      <div className="modal-overlay" onClick={onCancel}></div>
+      <div className="confirm-modal">
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+          <div style={{ 
+            padding: '8px', 
+            borderRadius: '50%', 
+            background: variant === 'danger' ? 'rgba(239, 68, 68, 0.1)' : 'rgba(245, 158, 11, 0.1)', 
+            color: variant === 'danger' ? 'var(--color-danger)' : 'var(--color-warning)', 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center', 
+            flexShrink: 0 
+          }}>
+            {icon}
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: '700', color: 'var(--text-primary)' }}>{title}</h3>
+            <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
+              {message}
+            </p>
+          </div>
+        </div>
+        
+        {warningText && (
+          <div style={{ 
+            padding: '12px', 
+            borderRadius: '8px', 
+            background: variant === 'danger' ? 'rgba(239, 68, 68, 0.05)' : 'rgba(245, 158, 11, 0.05)', 
+            border: variant === 'danger' ? '1px solid rgba(239, 68, 68, 0.2)' : '1px solid rgba(245, 158, 11, 0.2)', 
+            fontSize: '0.8rem', 
+            color: variant === 'danger' ? '#fca5a5' : '#fde68a',
+            lineHeight: '1.5'
+          }}>
+            {warningText}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '8px' }}>
+          <button 
+            type="button" 
+            className="btn btn-neutral" 
+            onClick={onCancel}
+          >
+            Annulla
+          </button>
+          <button 
+            type="button" 
+            className={`btn btn-${variant}`} 
+            style={variant === 'danger' ? { backgroundColor: 'var(--color-danger)', borderColor: 'var(--color-danger)', color: 'white' } : {}}
+            onClick={onConfirm}
+          >
+            {confirmText}
+          </button>
+        </div>
+      </div>
+    </>
+  );
+};
+
+/** Reusable Pagination component to unify layout and controls across lists */
+const Pagination = ({ 
+  currentPage, 
+  totalPages, 
+  onPageChange, 
+  limit, 
+  onLimitChange, 
+  limitOptions = [10, 25, 50, 100], 
+  disabled = false 
+}) => {
+  if (totalPages <= 1 && !onLimitChange) return null;
+
+  return (
+    <div className="pagination-bar">
+      <button 
+        type="button" 
+        className="btn btn-neutral btn-sm" 
+        disabled={currentPage === 1 || disabled}
+        onClick={() => onPageChange(currentPage - 1)}
+      >
+        Indietro
+      </button>
+      
+      <span style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
+        Pagina <strong>{currentPage}</strong> di <strong>{totalPages || 1}</strong>
+      </span>
+      
+      <button 
+        type="button" 
+        className="btn btn-neutral btn-sm" 
+        disabled={currentPage === totalPages || totalPages === 0 || disabled}
+        onClick={() => onPageChange(currentPage + 1)}
+      >
+        Avanti
+      </button>
+
+      {onLimitChange && limit !== undefined && (
+        <select 
+          className="settings-input" 
+          style={{ width: '90px', height: '30px', padding: '0 8px', margin: '0 0 0 8px', fontSize: '0.8rem' }}
+          value={limit} 
+          disabled={disabled}
+          onChange={(e) => {
+            onLimitChange(parseInt(e.target.value, 10));
+            onPageChange(1);
+          }}
+        >
+          {limitOptions.map(opt => (
+            <option key={opt} value={opt}>{opt} / pag</option>
+          ))}
+        </select>
+      )}
+    </div>
+  );
+};
+
+/** TableSkeleton component to render skeleton placeholder loaders for data tables */
+const TableSkeleton = ({ rows = 5, cols = 4 }) => {
+  return (
+    <div className="skeleton-container" style={{ padding: '16px 0' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        {/* Table header placeholder */}
+        <div style={{ display: 'flex', gap: '16px', paddingBottom: '12px', borderBottom: '1px solid var(--border-color)' }}>
+          {Array(cols).fill(0).map((_, i) => (
+            <div 
+              key={i} 
+              className="skeleton-pulse" 
+              style={{ 
+                height: '16px', 
+                flex: 1, 
+                backgroundColor: 'rgba(255, 255, 255, 0.05)', 
+                borderRadius: '4px' 
+              }}
+            />
+          ))}
+        </div>
+        
+        {/* Table rows placeholder */}
+        {Array(rows).fill(0).map((_, rowIndex) => (
+          <div 
+            key={rowIndex} 
+            style={{ 
+              display: 'flex', 
+              gap: '16px', 
+              padding: '12px 0', 
+              borderBottom: '1px solid rgba(255, 255, 255, 0.02)' 
+            }}
+          >
+            {Array(cols).fill(0).map((_, colIndex) => (
+              <div 
+                key={colIndex} 
+                className="skeleton-pulse" 
+                style={{ 
+                  height: '14px', 
+                  flex: 1, 
+                  backgroundColor: 'rgba(255, 255, 255, 0.025)', 
+                  borderRadius: '4px',
+                  width: colIndex === cols - 1 ? '80px' : `${Math.floor(Math.random() * 40) + 60}%`
+                }}
+              />
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 function App() {
   const [activeTab, setActiveTab] = useState('stock');
   const [timeTick, setTimeTick] = useState(Date.now());
@@ -259,6 +443,41 @@ function App() {
     }
     localStorage.setItem('theme', theme);
   }, [theme]);
+
+  // Keyboard shortcuts and global key listeners
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Escape closes modals/drawers
+      if (e.key === 'Escape') {
+        setIsAssociationModalOpen(false);
+        setSelectedSkuForOrders(null);
+        setShowRestoreConfirm(false);
+        setShowClearAnomaliesConfirm(false);
+        setShowDeleteAssociationConfirm(false);
+      }
+
+      // Alt + Number switches tabs
+      if (e.altKey && e.key >= '1' && e.key <= '7') {
+        e.preventDefault();
+        const tabMap = {
+          '1': 'dashboard',
+          '2': 'stock',
+          '3': 'associations',
+          '4': 'orders',
+          '5': 'picking',
+          '6': 'anomalies',
+          '7': 'settings'
+        };
+        const targetTab = tabMap[e.key];
+        if (targetTab) {
+          setActiveTab(targetTab);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   // Tick timer to refresh relative times every minute
   useEffect(() => {
@@ -398,7 +617,10 @@ function App() {
 
   const showActionMsg = (text, type = 'success') => {
     setActionMessage({ text, type });
-    setTimeout(() => setActionMessage(null), 5000);
+    // Errors stay visible until manually dismissed; success/warning auto-dismiss
+    if (type !== 'danger') {
+      setTimeout(() => setActionMessage(null), 5000);
+    }
   };
 
   // Import local files
@@ -529,6 +751,7 @@ function App() {
     setSyncingOrders(true);
     if (stockSource === 'google_sheets') {
       setSyncingStock(true);
+      setSyncingGoogleSheets(true);
     }
     const pollId = startStatusPolling();
     try {
@@ -539,6 +762,7 @@ function App() {
         if (!resStock.ok) {
           showActionMsg(`Errore sincronizzazione Google Sheets: ${dataStock.detail}`, 'danger');
           setSyncingStock(false);
+          setSyncingGoogleSheets(false);
           setSyncingOrders(false);
           setLoading(false);
           clearInterval(pollId);
@@ -546,6 +770,7 @@ function App() {
           return;
         }
         setSyncingStock(false);
+        setSyncingGoogleSheets(false);
       }
       
       // 2. Sync PrestaShop Orders
@@ -568,6 +793,7 @@ function App() {
     } finally {
       clearInterval(pollId);
       setSyncingStock(false);
+      setSyncingGoogleSheets(false);
       setSyncingOrders(false);
       setLoading(false);
       setSyncProgressText('');
@@ -1310,7 +1536,7 @@ function App() {
           </li>
           <li className={`nav-item ${activeTab === 'anomalies' ? 'active' : ''}`} onClick={() => setActiveTab('anomalies')}>
             <Icons.Anomaly />
-            <span style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+            <span className="nav-item-badge-wrapper">
               Anomalie
               {dashboardData?.anomalies_count > 0 && (
                 <span className="badge badge-danger" style={{ padding: '2px 6px', fontSize: '0.7rem' }}>
@@ -1369,12 +1595,13 @@ function App() {
 
       {/* Main Content Area */}
       <main className="main-content">
-        {/* Top bar alert messages */}
+        {/* Fixed-position toast alerts */}
         {actionMessage && (
-          <div className={`badge badge-${actionMessage.type === 'danger' ? 'danger' : actionMessage.type === 'warning' ? 'warning' : 'success'}`} 
-               style={{ width: '100%', borderRadius: '8px', padding: '12px 20px', fontSize: '0.9rem', marginBottom: '20px', display: 'flex', justifyContent: 'space-between' }}>
-            <span>{actionMessage.text}</span>
-            <button onClick={() => setActionMessage(null)} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', fontWeight: 'bold' }}>✕</button>
+          <div className="toast-container">
+            <div className={`toast-alert badge-${actionMessage.type === 'danger' ? 'danger' : actionMessage.type === 'warning' ? 'warning' : 'success'}`}>
+              <span>{actionMessage.text}</span>
+              <button className="toast-close" onClick={() => setActionMessage(null)}>✕</button>
+            </div>
           </div>
         )}
 
@@ -1429,13 +1656,60 @@ function App() {
             )}
           </div>
 
-          <div style={{ display: 'flex', gap: '12px' }}>
-            <button className="btn btn-secondary" onClick={fetchData} disabled={loading}>
-              <Icons.Sync spinning={loading} /> Aggiorna Dati
-            </button>
-            <button className="btn btn-primary" onClick={handleSyncAll} disabled={loading}>
-              Sincronizza Tutto
-            </button>
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+            {activeTab !== 'settings' && activeTab !== 'picking' && (
+              <button 
+                className="btn btn-secondary" 
+                onClick={fetchData} 
+                disabled={loading}
+                title="Ricarica i dati salvati nel database locale senza avviare nuove richieste esterne (veloce)"
+              >
+                <Icons.Sync spinning={loading} /> Aggiorna Dati
+              </button>
+            )}
+            
+            {activeTab === 'dashboard' && (
+              <button 
+                className="btn btn-primary" 
+                onClick={handleSyncAll} 
+                disabled={loading}
+                title="Avvia la sincronizzazione da Google Sheets ed esegue il calcolo degli ordini da PrestaShop (richiede qualche secondo)"
+              >
+                Sincronizza Tutto
+              </button>
+            )}
+            
+            {activeTab === 'stock' && (
+              stockSource === 'google_sheets' ? (
+                <button 
+                  className="btn btn-primary" 
+                  onClick={handleSyncAll} 
+                  disabled={syncingGoogleSheets || syncingOrders || loading}
+                  title="Avvia la sincronizzazione da Google Sheets ed esegue il calcolo degli ordini da PrestaShop (richiede qualche secondo)"
+                >
+                  <Icons.Sync spinning={syncingGoogleSheets || syncingOrders} /> Sincronizza Tutto (Sheets & Ordini)
+                </button>
+              ) : (
+                <button 
+                  className="btn btn-primary" 
+                  onClick={handleSyncOrders} 
+                  disabled={syncingOrders || loading}
+                  title="Scarica i nuovi ordini da PrestaShop e ricalcola le giacenze (richiede qualche secondo)"
+                >
+                  <Icons.Sync spinning={syncingOrders} /> Sincronizza Ordini
+                </button>
+              )
+            )}
+
+            {activeTab === 'orders' && (
+              <button 
+                className="btn btn-primary" 
+                onClick={handleSyncOrders} 
+                disabled={syncingOrders || loading}
+              >
+                <Icons.Sync spinning={syncingOrders} /> Sincronizza Ordini
+              </button>
+            )}
           </div>
         </header>
 
@@ -1655,9 +1929,9 @@ function App() {
         {/* --- STOCK TAB --- */}
         {activeTab === 'stock' && (
           <>
-            <div className="sync-cards-container" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px', marginBottom: '20px' }}>
-              <div className={`glass-panel ${syncingStock ? 'card-loading-pulse-green' : ''}`} style={{ padding: '16px', display: 'flex', alignItems: 'center', gap: '16px', borderRadius: '12px', transition: 'all 0.3s ease' }}>
-                <div style={{ padding: '10px', borderRadius: '10px', background: 'rgba(16, 185, 129, 0.1)', color: 'var(--color-success)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div className="sync-cards-grid">
+              <div className={`glass-panel sync-card ${syncingStock ? 'card-loading-pulse-green' : ''}`}>
+                <div className="sync-card-icon stock">
                   <Icons.Stock style={{ width: '24px', height: '24px', animation: syncingStock ? 'spin 1s infinite linear' : 'none' }} />
                 </div>
                 <div>
@@ -1681,8 +1955,8 @@ function App() {
                 </div>
               </div>
 
-              <div className={`glass-panel ${syncingOrders ? 'card-loading-pulse' : ''}`} style={{ padding: '16px', display: 'flex', alignItems: 'center', gap: '16px', borderRadius: '12px', transition: 'all 0.3s ease' }}>
-                <div style={{ padding: '10px', borderRadius: '10px', background: 'rgba(99, 102, 241, 0.1)', color: 'var(--color-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <div className={`glass-panel sync-card ${syncingOrders ? 'card-loading-pulse' : ''}`}>
+                <div className="sync-card-icon orders">
                   <Icons.Orders style={{ width: '24px', height: '24px', animation: syncingOrders ? 'spin 1s infinite linear' : 'none' }} />
                 </div>
                 <div>
@@ -1731,13 +2005,9 @@ function App() {
                 Visualizzate: {sortedStock.length} di {stockData.length} SKU
               </span>
             </div>
-
             <div className="table-container">
               {tabLoading ? (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '60px 0', gap: '16px' }}>
-                  <div className="spinner"></div>
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Caricamento dati in corso...</p>
-                </div>
+                <TableSkeleton rows={8} cols={9} />
               ) : sortedStock.length > 0 ? (
                 <table className="custom-table">
                   <thead>
@@ -1849,13 +2119,9 @@ function App() {
                 Visualizzati: {filteredOrders.length} di {totalOrders} Ordini Totali
               </span>
             </div>
-
             <div className="table-container">
               {tabLoading ? (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '60px 0', gap: '16px' }}>
-                  <div className="spinner"></div>
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Caricamento dati in corso...</p>
-                </div>
+                <TableSkeleton rows={6} cols={5} />
               ) : filteredOrders.length > 0 ? (
                 <table className="custom-table">
                   <thead>
@@ -1940,43 +2206,14 @@ function App() {
             </div>
             
             {/* Pagination Controls */}
-            {totalOrdersPages > 1 && (
-              <div className="pagination-controls" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px', marginTop: '20px' }}>
-                <button 
-                  className="btn btn-secondary" 
-                  style={{ height: '36px', padding: '0 16px' }}
-                  disabled={ordersPage === 1 || loading}
-                  onClick={() => setOrdersPage(prev => Math.max(1, prev - 1))}
-                >
-                  Precedente
-                </button>
-                <span style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-                  Pagina <strong>{ordersPage}</strong> di <strong>{totalOrdersPages}</strong>
-                </span>
-                <button 
-                  className="btn btn-secondary" 
-                  style={{ height: '36px', padding: '0 16px' }}
-                  disabled={ordersPage === totalOrdersPages || loading}
-                  onClick={() => setOrdersPage(prev => Math.min(totalOrdersPages, prev + 1))}
-                >
-                  Successiva
-                </button>
-                <select 
-                  className="settings-input" 
-                  style={{ width: '80px', height: '36px', padding: '0 8px', margin: 0 }}
-                  value={ordersLimit} 
-                  onChange={(e) => {
-                    setOrdersLimit(parseInt(e.target.value));
-                    setOrdersPage(1);
-                  }}
-                >
-                  <option value={10}>10</option>
-                  <option value={25}>25</option>
-                  <option value={50}>50</option>
-                  <option value={100}>100</option>
-                </select>
-              </div>
-            )}
+            <Pagination 
+              currentPage={ordersPage}
+              totalPages={totalOrdersPages}
+              onPageChange={setOrdersPage}
+              limit={ordersLimit}
+              onLimitChange={setOrdersLimit}
+              disabled={loading}
+            />
           </div>
         )}
 
@@ -1999,13 +2236,9 @@ function App() {
                   </button>
                 )}
               </div>
-
               <div className="table-container">
                 {tabLoading ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '60px 0', gap: '16px' }}>
-                    <div className="spinner"></div>
-                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Caricamento dati in corso...</p>
-                  </div>
+                  <TableSkeleton rows={5} cols={6} />
                 ) : anomalyData.length > 0 ? (
                   <>
                     <table className="custom-table">
@@ -2052,27 +2285,12 @@ function App() {
                       </tbody>
                     </table>
 
-                    {totalAnomaliesPages > 1 && (
-                      <div className="pagination-bar" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '16px', marginTop: '24px' }}>
-                        <button 
-                          className="btn btn-neutral btn-sm" 
-                          disabled={anomaliesPage === 1 || tabLoading}
-                          onClick={() => setAnomaliesPage(prev => Math.max(1, prev - 1))}
-                        >
-                          Indietro
-                        </button>
-                        <span style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-                          Pagina <strong>{anomaliesPage}</strong> di <strong>{totalAnomaliesPages}</strong>
-                        </span>
-                        <button 
-                          className="btn btn-neutral btn-sm" 
-                          disabled={anomaliesPage === totalAnomaliesPages || tabLoading}
-                          onClick={() => setAnomaliesPage(prev => Math.min(totalAnomaliesPages, prev + 1))}
-                        >
-                          Avanti
-                        </button>
-                      </div>
-                    )}
+                    <Pagination 
+                      currentPage={anomaliesPage}
+                      totalPages={totalAnomaliesPages}
+                      onPageChange={setAnomaliesPage}
+                      disabled={tabLoading}
+                    />
                   </>
                 ) : (
                   <div style={{ textAlign: 'center', padding: '48px', color: 'var(--text-secondary)' }}>
@@ -2114,13 +2332,9 @@ function App() {
                   <Icons.Plus /> Nuova Associazione
                 </button>
               </div>
-
               <div className="table-container">
                 {tabLoading ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '60px 0', gap: '16px' }}>
-                    <div className="spinner"></div>
-                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Caricamento dati in corso...</p>
-                  </div>
+                  <TableSkeleton rows={8} cols={5} />
                 ) : sortedProducts.length > 0 ? (
                   <>
                     <table className="custom-table">
@@ -2207,29 +2421,12 @@ function App() {
                       </tbody>
                     </table>
 
-                    {totalProductsPages > 1 && (
-                      <div className="pagination-bar" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '16px', marginTop: '24px' }}>
-                        <button 
-                          className="btn btn-neutral btn-sm" 
-                          disabled={productsPage === 1 || tabLoading}
-                          onClick={() => setProductsPage(prev => Math.max(1, prev - 1))}
-                          type="button"
-                        >
-                          Indietro
-                        </button>
-                        <span style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-                          Pagina <strong>{productsPage}</strong> di <strong>{totalProductsPages}</strong>
-                        </span>
-                        <button 
-                          className="btn btn-neutral btn-sm" 
-                          disabled={productsPage === totalProductsPages || tabLoading}
-                          onClick={() => setProductsPage(prev => Math.min(totalProductsPages, prev + 1))}
-                          type="button"
-                        >
-                          Avanti
-                        </button>
-                      </div>
-                    )}
+                    <Pagination 
+                      currentPage={productsPage}
+                      totalPages={totalProductsPages}
+                      onPageChange={setProductsPage}
+                      disabled={tabLoading}
+                    />
                   </>
                 ) : (
                   <p style={{ textAlign: 'center', padding: '24px', color: 'var(--text-secondary)' }}>
@@ -2999,8 +3196,7 @@ function App() {
                   {stockSource === 'google_sheets' && (
                     <button 
                       type="button" 
-                      className="btn btn-danger" 
-                      style={{ background: 'rgba(245, 158, 11, 0.2)', border: '1px solid var(--color-warning)', color: 'var(--color-warning)' }}
+                      className="btn btn-warning" 
                       disabled={syncingGoogleSheets}
                       onClick={handleSyncGoogleSheetsNow}
                     >
@@ -3023,7 +3219,7 @@ function App() {
                 <div className="settings-grid">
                   <div className="states-filter-bar">
                     <div className="states-search-wrapper">
-                      <span className="states-search-icon">🔍</span>
+                      <svg className="states-search-icon" width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path d="M12.9 14.32a8 8 0 1 1 1.41-1.41l5.35 5.33-1.42 1.42-5.33-5.34zM8 14A6 6 0 1 0 8 2a6 6 0 0 0 0 12z"/></svg>
                       <input 
                         type="text" 
                         className="states-search-input" 
@@ -3579,161 +3775,39 @@ function App() {
         );
       })()}
 
-      {/* Database Restore Confirmation Modal */}
-      {showRestoreConfirm && pendingRestoreFile && (
-        <>
-          <div className="modal-overlay" onClick={() => { setShowRestoreConfirm(false); setPendingRestoreFile(null); }}></div>
-          <div className="confirm-modal">
-            <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
-              <div style={{ padding: '8px', borderRadius: '50%', background: 'rgba(239, 68, 68, 0.1)', color: 'var(--color-danger)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <svg width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                </svg>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: '700', color: 'var(--text-primary)' }}>Conferma Ripristino</h3>
-                <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
-                  Stai per ripristinare il database dal file <strong style={{ color: 'var(--text-primary)' }}>{pendingRestoreFile.name}</strong>.
-                </p>
-              </div>
-            </div>
-            
-            <div style={{ 
-              padding: '12px', 
-              borderRadius: '8px', 
-              background: 'rgba(239, 68, 68, 0.05)', 
-              border: '1px solid rgba(239, 68, 68, 0.2)', 
-              fontSize: '0.8rem', 
-              color: '#fca5a5',
-              lineHeight: '1.5'
-            }}>
-              <strong>⚠️ ATTENZIONE:</strong> Questa operazione sovrascriverà irrevocabilmente tutti i dati attuali (ordini, giacenze, associazioni, impostazioni). Viene effettuato comunque un salvataggio automatico di emergenza.
-            </div>
+      {/* Reusable Confirm Modals */}
+      <ConfirmModal 
+        isOpen={showRestoreConfirm && !!pendingRestoreFile}
+        title="Conferma Ripristino"
+        message={pendingRestoreFile ? `Stai per ripristinare il database dal file ${pendingRestoreFile.name}.` : ""}
+        warningText="⚠️ ATTENZIONE: Questa operazione sovrascriverà irrevocabilmente tutti i dati attuali (ordini, giacenze, associazioni, impostazioni). Viene effettuato comunque un salvataggio automatico di emergenza."
+        onCancel={() => { setShowRestoreConfirm(false); setPendingRestoreFile(null); }}
+        onConfirm={executeRestoreDatabase}
+        confirmText="Conferma e Ripristina"
+        variant="danger"
+      />
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '8px' }}>
-              <button 
-                type="button" 
-                className="btn btn-neutral" 
-                onClick={() => { setShowRestoreConfirm(false); setPendingRestoreFile(null); }}
-              >
-                Annulla
-              </button>
-              <button 
-                type="button" 
-                className="btn btn-danger" 
-                style={{ backgroundColor: 'var(--color-danger)', borderColor: 'var(--color-danger)', color: 'white' }}
-                onClick={executeRestoreDatabase}
-              >
-                Conferma e Ripristina
-              </button>
-            </div>
-          </div>
-        </>
-      )}
+      <ConfirmModal 
+        isOpen={showClearAnomaliesConfirm}
+        title="Svuota Registro Anomalie"
+        message="Sei sicuro di voler eliminare tutte le anomalie registrate?"
+        warningText="Questa azione cancellerà permanentemente tutti gli avvisi del log corrente. Gli errori verranno comunque rilevati nuovamente al prossimo import o ricalcolo se non risolti."
+        onCancel={() => setShowClearAnomaliesConfirm(false)}
+        onConfirm={executeClearAnomalies}
+        confirmText="Svuota Registro"
+        variant="danger"
+      />
 
-      {/* Clear Anomalies Confirmation Modal */}
-      {showClearAnomaliesConfirm && (
-        <>
-          <div className="modal-overlay" onClick={() => setShowClearAnomaliesConfirm(false)}></div>
-          <div className="confirm-modal">
-            <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
-              <div style={{ padding: '8px', borderRadius: '50%', background: 'rgba(239, 68, 68, 0.1)', color: 'var(--color-danger)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <svg width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: '700', color: 'var(--text-primary)' }}>Svuota Registro Anomalie</h3>
-                <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
-                  Sei sicuro di voler eliminare tutte le anomalie registrate?
-                </p>
-              </div>
-            </div>
-            
-            <div style={{ 
-              padding: '12px', 
-              borderRadius: '8px', 
-              background: 'rgba(239, 68, 68, 0.05)', 
-              border: '1px solid rgba(239, 68, 68, 0.2)', 
-              fontSize: '0.8rem', 
-              color: '#fca5a5',
-              lineHeight: '1.5'
-            }}>
-              Questa azione cancellerà permanentemente tutti gli avvisi del log corrente. Gli errori verranno comunque rilevati nuovamente al prossimo import o ricalcolo se non risolti.
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '8px' }}>
-              <button 
-                type="button" 
-                className="btn btn-neutral" 
-                onClick={() => setShowClearAnomaliesConfirm(false)}
-              >
-                Annulla
-              </button>
-              <button 
-                type="button" 
-                className="btn btn-danger" 
-                style={{ backgroundColor: 'var(--color-danger)', borderColor: 'var(--color-danger)', color: 'white' }}
-                onClick={executeClearAnomalies}
-              >
-                Svuota Registro
-              </button>
-            </div>
-          </div>
-        </>
-      )}
-
-      {/* Delete Association Confirmation Modal */}
-      {showDeleteAssociationConfirm && associationToDelete && (
-        <>
-          <div className="modal-overlay" onClick={() => { setShowDeleteAssociationConfirm(false); setAssociationToDelete(null); }}></div>
-          <div className="confirm-modal">
-            <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
-              <div style={{ padding: '8px', borderRadius: '50%', background: 'rgba(239, 68, 68, 0.1)', color: 'var(--color-danger)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <svg width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: '700', color: 'var(--text-primary)' }}>Elimina Associazione</h3>
-                <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
-                  Sei sicuro di voler eliminare l'associazione per il prodotto composto <strong style={{ color: 'var(--text-primary)' }}>{associationToDelete}</strong>?
-                </p>
-              </div>
-            </div>
-            
-            <div style={{ 
-              padding: '12px', 
-              borderRadius: '8px', 
-              background: 'rgba(239, 68, 68, 0.05)', 
-              border: '1px solid rgba(239, 68, 68, 0.2)', 
-              fontSize: '0.8rem', 
-              color: '#fca5a5',
-              lineHeight: '1.5'
-            }}>
-              Questa operazione rimuoverà la distinta base. Il prodotto non potrà essere esploso in SKU nel calcolo delle giacenze fino a una nuova associazione.
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '8px' }}>
-              <button 
-                type="button" 
-                className="btn btn-neutral" 
-                onClick={() => { setShowDeleteAssociationConfirm(false); setAssociationToDelete(null); }}
-              >
-                Annulla
-              </button>
-              <button 
-                type="button" 
-                className="btn btn-danger" 
-                style={{ backgroundColor: 'var(--color-danger)', borderColor: 'var(--color-danger)', color: 'white' }}
-                onClick={executeDeleteAssociation}
-              >
-                Elimina Associazione
-              </button>
-            </div>
-          </div>
-        </>
-      )}
+      <ConfirmModal 
+        isOpen={showDeleteAssociationConfirm && !!associationToDelete}
+        title="Elimina Associazione"
+        message={associationToDelete ? `Sei sicuro di voler eliminare l'associazione per il prodotto composto ${associationToDelete}?` : ""}
+        warningText="Questa operazione rimuoverà la distinta base. Il prodotto non potrà essere esploso in SKU nel calcolo delle giacenze fino a una nuova associazione."
+        onCancel={() => { setShowDeleteAssociationConfirm(false); setAssociationToDelete(null); }}
+        onConfirm={executeDeleteAssociation}
+        confirmText="Elimina Associazione"
+        variant="danger"
+      />
     </div>
   );
 }
