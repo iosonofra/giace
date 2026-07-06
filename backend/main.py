@@ -1371,6 +1371,62 @@ def get_dashboard_kpis(db: Session = Depends(get_db)):
         "latest_import_associations": active_a.imported_at.isoformat() + "Z" if active_a and active_a.imported_at else None,
         "latest_calculation_run": latest_run.completed_at.isoformat() + "Z" if latest_run and latest_run.completed_at else None,
     }
+@app.get("/api/stock/missing")
+def get_missing_stock(db: Session = Depends(get_db)):
+    active_w = db.query(ImportBatch).filter(ImportBatch.file_type == "warehouse", ImportBatch.is_active == True).first()
+    active_w_id = active_w.id if active_w else None
+    
+    latest_run = db.query(CalcRun).filter(CalcRun.status == "completed").order_by(CalcRun.completed_at.desc()).first()
+    if not latest_run:
+        return []
+        
+    active_a = db.query(ImportBatch).filter(ImportBatch.file_type == "associations", ImportBatch.is_active == True).first()
+    if not active_a:
+        return []
+        
+    query = db.query(SkuCommitment).filter(
+        SkuCommitment.calc_run_id == latest_run.id,
+        SkuCommitment.qty_committed > 0
+    )
+    if active_w_id:
+        stock_skus_select = db.query(WarehouseStock.sku).filter(WarehouseStock.import_batch_id == active_w_id)
+        query = query.filter(~SkuCommitment.sku.in_(stock_skus_select))
+        
+    commitments = query.all()
+    
+    associated_skus = set(
+        r[0] for r in db.query(ProductComponent.sku)
+        .filter(ProductComponent.import_batch_id == active_a.id)
+        .all()
+    )
+    
+    counts = db.query(
+        ProductComponent.sku, 
+        func.count(ProductComponent.product_id.distinct())
+    ).filter(ProductComponent.import_batch_id == active_a.id).group_by(ProductComponent.sku).all()
+    connected_counts = {sku: cnt for sku, cnt in counts}
+    
+    result = []
+    idx = 1
+    for comm in commitments:
+        if comm.sku not in associated_skus:
+            continue
+            
+        result.append({
+            "index": idx,
+            "sku": comm.sku,
+            "description": "NON INVENTARIATO (Sku non presente nel file)",
+            "lotto": "-",
+            "qty_total": 0.0,
+            "qty_committed": comm.qty_committed,
+            "qty_residual": 0.0,
+            "connected_products": connected_counts.get(comm.sku, 0),
+            "is_spacer": False,
+            "is_missing": True
+        })
+        idx += 1
+        
+    return result
 
 @app.get("/api/stock")
 def get_stock(db: Session = Depends(get_db)):

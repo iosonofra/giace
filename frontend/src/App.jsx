@@ -410,6 +410,8 @@ function App() {
 
   // Table Data
   const [stockData, setStockData] = useState([]);
+  const [stockViewMode, setStockViewMode] = useState('standard');
+  const [missingStockData, setMissingStockData] = useState([]);
   const [productData, setProductData] = useState([]);
   const [orderData, setOrderData] = useState([]);
   const [anomalyData, setAnomalyData] = useState([]);
@@ -553,9 +555,14 @@ function App() {
   useEffect(() => {
     setTabLoading(true);
     if (activeTab === 'stock') {
-      fetch('/api/stock')
-        .then(r => r.json())
-        .then(setStockData)
+      Promise.all([
+        fetch('/api/stock').then(r => r.json()),
+        fetch('/api/stock/missing').then(r => r.json())
+      ])
+        .then(([stock, missing]) => {
+          setStockData(stock || []);
+          setMissingStockData(missing || []);
+        })
         .catch(console.error)
         .finally(() => setTabLoading(false));
     } else if (activeTab === 'associations') {
@@ -613,7 +620,7 @@ function App() {
     } else {
       setTabLoading(false);
     }
-  }, [activeTab, ordersPage, ordersLimit]);
+  }, [activeTab, ordersPage, ordersLimit, status?.latest_calculation?.id, status?.active_warehouse_batch?.id, status?.active_associations_batch?.id]);
 
   const showActionMsg = (text, type = 'success') => {
     setActionMessage({ text, type });
@@ -1421,7 +1428,9 @@ function App() {
   };
 
   // Filters stock items
-  const filteredStock = stockData.filter(item => 
+  const currentStockSourceData = stockViewMode === 'standard' ? stockData : missingStockData;
+
+  const filteredStock = currentStockSourceData.filter(item => 
     item.sku.toLowerCase().includes(searchStock.toLowerCase()) ||
     (item.description && item.description.toLowerCase().includes(searchStock.toLowerCase()))
   );
@@ -1984,11 +1993,35 @@ function App() {
 
             <div className="glass-panel widget-card">
             <div className="filter-bar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-              <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+              <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
                 <div className="search-wrapper">
                   <input type="text" className="search-input" placeholder="Cerca per SKU o descrizione..." value={searchStock} onChange={(e) => setSearchStock(e.target.value)} />
                   <svg className="search-icon-svg" viewBox="0 0 20 20"><path d="M12.9 14.32a8 8 0 1 1 1.41-1.41l5.35 5.33-1.42 1.42-5.33-5.34zM8 14A6 6 0 1 0 8 2a6 6 0 0 0 0 12z"/></svg>
                 </div>
+                
+                {/* View Mode Toggle Buttons */}
+                <div className="toggle-group" style={{ display: 'inline-flex', background: 'rgba(255,255,255,0.03)', padding: '3px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                  <button 
+                    className={`btn ${stockViewMode === 'standard' ? 'btn-primary' : ''}`}
+                    style={{ fontSize: '0.8rem', padding: '4px 12px', border: 'none', background: stockViewMode === 'standard' ? 'var(--color-primary)' : 'transparent', color: stockViewMode === 'standard' ? '#fff' : 'var(--text-secondary)', borderRadius: '6px', height: '28px', transition: 'all 0.2s', cursor: 'pointer' }}
+                    onClick={() => setStockViewMode('standard')}
+                  >
+                    Giacenza Standard
+                  </button>
+                  <button 
+                    className={`btn ${stockViewMode === 'missing' ? 'btn-danger' : ''}`}
+                    style={{ fontSize: '0.8rem', padding: '4px 12px', border: 'none', background: stockViewMode === 'missing' ? 'var(--color-danger)' : 'transparent', color: stockViewMode === 'missing' ? '#fff' : 'var(--text-secondary)', borderRadius: '6px', height: '28px', transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}
+                    onClick={() => setStockViewMode('missing')}
+                  >
+                    SKU Non in File
+                    {missingStockData.length > 0 && (
+                      <span style={{ background: 'rgba(255,255,255,0.2)', padding: '1px 6px', borderRadius: '10px', fontSize: '0.7rem', fontWeight: 'bold' }}>
+                        {missingStockData.length}
+                      </span>
+                    )}
+                  </button>
+                </div>
+
                 {stockSource === 'google_sheets' && (
                   <button 
                     className="btn btn-secondary" 
@@ -2002,7 +2035,7 @@ function App() {
                 )}
               </div>
               <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                Visualizzate: {sortedStock.length} di {stockData.length} SKU
+                Visualizzate: {sortedStock.length} di {currentStockSourceData.length} SKU
               </span>
             </div>
             <div className="table-container">
@@ -2040,14 +2073,15 @@ function App() {
                   <tbody>
                     {sortedStock.map(item => {
                       const isSpacer = item.is_spacer || (item.sku && item.sku.startsWith('__spacer_'));
-                      const percent = !isSpacer && item.qty_total > 0 ? Math.min(100, Math.max(0, (item.qty_residual / item.qty_total) * 100)) : 0;
-                      const barClass = percent <= 0 ? 'danger' : percent < 30 ? 'warning' : 'success';
+                      const isMissing = item.is_missing;
+                      const percent = !isSpacer && !isMissing && item.qty_total > 0 ? Math.min(100, Math.max(0, (item.qty_residual / item.qty_total) * 100)) : 0;
+                      const barClass = isMissing || percent <= 0 ? 'danger' : percent < 30 ? 'warning' : 'success';
                       
                       return (
                         <tr key={item.index} style={
                           isSpacer 
                             ? { height: '24px', backgroundColor: 'rgba(255, 255, 255, 0.005)' } 
-                            : item.qty_residual <= 0 
+                            : (item.qty_residual <= 0 || isMissing)
                               ? { backgroundColor: 'rgba(239, 68, 68, 0.03)' } 
                               : {}
                         }>
@@ -2072,11 +2106,15 @@ function App() {
                               </span>
                             )}
                           </td>
-                          <td style={{ textAlign: 'right', fontWeight: '700', color: item.qty_residual <= 0 ? 'var(--color-danger)' : 'var(--color-success)' }}>
-                            {isSpacer ? "" : item.qty_residual}
+                          <td style={{ textAlign: 'right', fontWeight: '700', color: (item.qty_residual <= 0 || isMissing) ? 'var(--color-danger)' : 'var(--color-success)' }}>
+                            {isSpacer ? "" : (isMissing ? "0" : item.qty_residual)}
                           </td>
                           <td style={{ verticalAlign: 'middle' }}>
-                            {isSpacer ? "" : (
+                            {isSpacer ? "" : isMissing ? (
+                              <div style={{ display: 'flex', justifyContent: 'center' }}>
+                                <span className="badge badge-danger" style={{ fontWeight: '700', letterSpacing: '0.5px' }}>NON DISPONIBILE</span>
+                              </div>
+                            ) : (
                               <div className="stock-bar-wrapper" style={{ justifyContent: 'center' }}>
                                 <div className="stock-bar-container">
                                   <div className={`stock-bar-fill ${barClass}`} style={{ width: `${percent}%` }}></div>
@@ -2099,7 +2137,10 @@ function App() {
                 </table>
               ) : (
                 <p style={{ textAlign: 'center', padding: '24px', color: 'var(--text-secondary)' }}>
-                  Nessuna SKU trovata. Assicurati di aver caricato il file 'giacenza.xlsx' ed eseguito il calcolo.
+                  {stockViewMode === 'missing' 
+                    ? "Nessuna SKU non in file trovata (tutte le SKU impegnate sono presenti a inventario)."
+                    : "Nessuna SKU trovata. Assicurati di aver caricato il file 'giacenza.xlsx' ed eseguito il calcolo."
+                  }
                 </p>
               )}
             </div>
