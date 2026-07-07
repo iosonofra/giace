@@ -47,11 +47,15 @@ else
     echo "  Nessun database trovato — primo avvio?"
 fi
 
-# ---------- 2. Aggiornamento codice (git pull) ----------
-echo "[2/4] git pull — aggiornamento codice..."
-# Il .gitignore protegge .env, *.db e *.xlsx: non verranno mai sovrascritti
-git pull origin main
-echo "  OK — codice aggiornato"
+# ---------- 2. Aggiornamento codice ----------
+if [ -d ".git" ]; then
+    echo "[2/4] git pull — aggiornamento codice..."
+    # Il .gitignore protegge .env, *.db e *.xlsx: non verranno mai sovrascritti
+    git pull origin main
+    echo "  OK — codice aggiornato"
+else
+    echo "[2/4] Installazione offline/zip — salto git pull (i file sono già stati aggiornati tramite estrazione)"
+fi
 
 # ---------- 3. Dipendenze Python ----------
 echo "[3/4] Aggiornamento dipendenze Python..."

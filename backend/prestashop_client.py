@@ -3,6 +3,7 @@ import logging
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 import random
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +17,21 @@ class PrestaShopClient:
             logger.info("PrestaShopClient inizializzato in MOCK MODE (dati di test simulati).")
         else:
             logger.info(f"PrestaShopClient inizializzato con URL: {self.url}")
+
+    def _make_request(self, url: str, params: dict, timeout: int = 30) -> requests.Response:
+        max_retries = 3
+        backoff = 1.0
+        for attempt in range(max_retries):
+            try:
+                response = requests.get(url, params=params, timeout=timeout)
+                return response
+            except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+                if attempt == max_retries - 1:
+                    logger.error(f"Errore di rete definitivo per {url} dopo {max_retries} tentativi: {e}")
+                    raise e
+                logger.warning(f"Tentativo {attempt + 1} fallito per {url} ({e}). Riprovo tra {backoff}s...")
+                time.sleep(backoff)
+                backoff *= 2
 
     def get_order_states(self) -> List[Dict[str, Any]]:
         """
@@ -42,7 +58,7 @@ class PrestaShopClient:
                 "output_format": "JSON",
                 "ws_key": self.api_key
             }
-            response = requests.get(states_url, params=params, timeout=10)
+            response = self._make_request(states_url, params=params, timeout=15)
             response.raise_for_status()
             data = response.json()
             
@@ -191,7 +207,7 @@ class PrestaShopClient:
                     "output_format": "JSON",
                     "ws_key": self.api_key
                 }
-                resp = requests.get(customer_url, params=params, timeout=10)
+                resp = self._make_request(customer_url, params=params, timeout=15)
                 if resp.status_code == 200:
                     cdata_list = []
                     res_json = resp.json()
@@ -253,7 +269,7 @@ class PrestaShopClient:
                 "filter[current_state]": f"[{states_filter}]",
                 "ws_key": self.api_key
             }
-            response = requests.get(orders_url, params=params, timeout=15)
+            response = self._make_request(orders_url, params=params, timeout=30)
             if response.status_code == 404:
                 return []
             response.raise_for_status()
@@ -304,7 +320,7 @@ class PrestaShopClient:
                 "filter[current_state]": f"[{states_filter}]",
                 "ws_key": self.api_key
             }
-            response = requests.get(orders_url, params=params_ids, timeout=15)
+            response = self._make_request(orders_url, params=params_ids, timeout=30)
             if response.status_code == 404:
                 return []
             response.raise_for_status()
@@ -346,7 +362,7 @@ class PrestaShopClient:
                     "ws_key": self.api_key
                 }
 
-                response = requests.get(orders_url, params=params, timeout=15)
+                response = self._make_request(orders_url, params=params, timeout=30)
                 if response.status_code == 404:
                     continue
                 response.raise_for_status()
@@ -443,6 +459,9 @@ class PrestaShopClient:
                         "lines": order_lines
                     })
 
+                # Sleep 200ms between chunks to prevent overloading the PrestaShop API
+                time.sleep(0.2)
+
             if progress_callback:
                 progress_callback("fetching_orders", total_orders, total_orders)
 
@@ -530,7 +549,7 @@ class PrestaShopClient:
                 "output_format": "JSON",
                 "ws_key": self.api_key
             }
-            response = requests.get(prod_url, params=params, timeout=5)
+            response = self._make_request(prod_url, params=params, timeout=10)
             response.raise_for_status()
             data = response.json()
             # PrestaShop returns data as: {"product": {"reference": "..."}}

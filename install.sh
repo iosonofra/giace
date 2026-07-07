@@ -42,18 +42,53 @@ else
     echo "  Utente '$APP_USER' già presente."
 fi
 
-# ---------- 3. Clone o aggiornamento repository ----------
-echo "[3/6] Codice sorgente..."
-if [ -d "$APP_DIR/.git" ]; then
-    echo "  Repository già presente — eseguo git pull..."
-    git -C "$APP_DIR" pull origin main
-else
-    if [ -d "$APP_DIR" ]; then
-        echo "  Cartella $APP_DIR esistente senza .git — rimozione e reclone..."
-        rm -rf "$APP_DIR"
+# ---------- 3. Codice sorgente ----------
+echo "[3/6] Installazione codice sorgente..."
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+
+if [ -f "$SCRIPT_DIR/backend/main.py" ]; then
+    echo "  Rilevato codice sorgente locale in $SCRIPT_DIR."
+    if [ "$SCRIPT_DIR" = "$APP_DIR" ]; then
+        echo "  Esecuzione direttamente da $APP_DIR. Nessuna copia necessaria."
+    else
+        echo "  Copia dei file da $SCRIPT_DIR a $APP_DIR..."
+        mkdir -p "$APP_DIR"
+        
+        # Creiamo le cartelle di destinazione principali
+        mkdir -p "$APP_DIR/backend" "$APP_DIR/frontend"
+        
+        # Copiamo i file della root
+        find "$SCRIPT_DIR" -maxdepth 1 -type f ! -name "*.zip" ! -name "*.xlsx" ! -name "*.db" -exec cp -p {} "$APP_DIR/" \;
+        
+        # Copiamo il backend (escludendo .env o db)
+        find "$SCRIPT_DIR/backend" -maxdepth 1 -type f ! -name ".env" ! -name "*.db" -exec cp -p {} "$APP_DIR/backend/" \;
+        
+        # Copiamo la cartella frontend ricorsivamente
+        if [ -d "$SCRIPT_DIR/frontend" ]; then
+            # Copiamo package.json e altri file della root frontend
+            find "$SCRIPT_DIR/frontend" -maxdepth 1 -type f -exec cp -p {} "$APP_DIR/frontend/" \;
+            
+            # Copiamo le sottocartelle src, public e dist
+            for dir in src public dist; do
+                if [ -d "$SCRIPT_DIR/frontend/$dir" ]; then
+                    cp -pr "$SCRIPT_DIR/frontend/$dir" "$APP_DIR/frontend/"
+                fi
+            done
+        fi
     fi
-    echo "  Clone del repository in $APP_DIR..."
-    git clone "$REPO_URL" "$APP_DIR"
+else
+    # Fallback al clone da git se non ci sono sorgenti locali
+    if [ -d "$APP_DIR/.git" ]; then
+        echo "  Repository git già presente — eseguo git pull..."
+        git -C "$APP_DIR" pull origin main
+    else
+        if [ -d "$APP_DIR" ]; then
+            echo "  Cartella $APP_DIR esistente senza .git — rimozione e reclone..."
+            rm -rf "$APP_DIR"
+        fi
+        echo "  Clone del repository da $REPO_URL in $APP_DIR..."
+        git clone "$REPO_URL" "$APP_DIR"
+    fi
 fi
 
 # Imposta permessi eseguibili sugli script (sicuro anche dopo clone da Windows)

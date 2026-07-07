@@ -1759,26 +1759,30 @@ def delete_association(product_id: int, db: Session = Depends(get_db)):
 def analyze_orders(payload: dict, db: Session = Depends(get_db)):
     order_ids_raw = payload.get("order_ids", [])
     
-    # Clean order_ids (remove duplicates and invalid integers)
+    # Clean order_ids (preserve insertion order, remove duplicates and invalid integers)
     order_ids = []
     for oid in order_ids_raw:
         try:
             order_ids.append(int(oid))
         except (ValueError, TypeError):
             continue
-    order_ids = list(set(order_ids))
+    order_ids = list(dict.fromkeys(order_ids))
     
     if not order_ids:
         return {
             "orders_found": [],
             "orders_missing": [],
-            "sku_requirements": []
+            "sku_requirements": [],
+            "order_requirements": []
         }
         
-    # Query prestashop orders
+    # Query prestashop orders and preserve the input sequence
     orders = db.query(PrestashopOrder).filter(PrestashopOrder.order_id.in_(order_ids)).all()
-    found_order_ids = [o.order_id for o in orders]
-    missing_order_ids = [oid for oid in order_ids if oid not in found_order_ids]
+    order_map = {o.order_id: o for o in orders}
+    sorted_found_orders = [order_map[oid] for oid in order_ids if oid in order_map]
+    
+    found_order_ids = [o.order_id for o in sorted_found_orders]
+    missing_order_ids = [oid for oid in order_ids if oid not in order_map]
     
     # Extract order lines
     order_lines = []
@@ -1813,7 +1817,7 @@ def analyze_orders(payload: dict, db: Session = Depends(get_db)):
                 }
             stock_map[sku_key]["qty_total"] += item.qty_total
             
-    # Calculate required SKUs
+    # Calculate required SKUs (aggregated)
     sku_required_map = {}
     for line in order_lines:
         prod_id = line.product_id
@@ -1830,7 +1834,7 @@ def analyze_orders(payload: dict, db: Session = Depends(get_db)):
             if sku_key:
                 sku_required_map[sku_key] = sku_required_map.get(sku_key, 0) + qty_ordered
                 
-    # Build result
+    # Build aggregated result
     sku_requirements = []
     for sku, qty_req in sku_required_map.items():
         stock_info = stock_map.get(sku, {"description": "Non presente in magazzino", "qty_total": 0.0})
@@ -1844,10 +1848,71 @@ def analyze_orders(payload: dict, db: Session = Depends(get_db)):
     # Sort by SKU
     sku_requirements.sort(key=lambda x: x["sku"])
     
+    # Build order-by-order requirements with progressive stock
+    running_stock = {}
+    for sku, info in stock_map.items():
+        running_stock[sku] = info["qty_total"]
+        
+    order_requirements = []
+    for o in sorted_found_orders:
+        lines = db.query(PrestashopOrderLine).filter(PrestashopOrderLine.order_id == o.order_id).all()
+        
+        sku_reqs = {}
+        for line in lines:
+            prod_id = line.product_id
+            qty_ordered = line.product_quantity or 1
+            
+            if prod_id in components_map:
+                for sku, qty_req in components_map[prod_id]:
+                    sku_key = sku.strip()
+                    sku_reqs[sku_key] = sku_reqs.get(sku_key, 0.0) + (qty_req * qty_ordered)
+            else:
+                sku_key = (line.product_reference or "").strip()
+                if sku_key:
+                    sku_reqs[sku_key] = sku_reqs.get(sku_key, 0.0) + qty_ordered
+                    
+        items = []
+        for sku, req_qty in sorted(sku_reqs.items()):
+            stock_info = stock_map.get(sku, {"description": "Non presente in magazzino", "qty_total": 0.0})
+            qty_stock = stock_info["qty_total"]
+            desc = stock_info["description"]
+            
+            avail_before = running_stock.get(sku, 0.0)
+            running_stock[sku] = avail_before - req_qty
+            avail_after = running_stock[sku]
+            
+            if avail_before >= req_qty:
+                status = "disponibile"
+                qty_fulfilled = req_qty
+            elif avail_before > 0:
+                status = "parziale"
+                qty_fulfilled = avail_before
+            else:
+                status = "mancante"
+                qty_fulfilled = 0.0
+                
+            items.append({
+                "sku": sku,
+                "description": desc,
+                "qty_required": req_qty,
+                "qty_stock": qty_stock,
+                "avail_before": avail_before,
+                "avail_after": avail_after,
+                "qty_fulfilled": qty_fulfilled,
+                "status": status
+            })
+            
+        order_requirements.append({
+            "order_id": str(o.order_id),
+            "customer_name": o.customer_name or "Cliente sconosciuto",
+            "items": items
+        })
+        
     return {
         "orders_found": found_order_ids,
         "orders_missing": missing_order_ids,
-        "sku_requirements": sku_requirements
+        "sku_requirements": sku_requirements,
+        "order_requirements": order_requirements
     }
 
 @app.post("/api/orders/analyze-files")
@@ -1865,6 +1930,11 @@ def analyze_orders_files(
         try:
             content = upload_file.file.read()
             valid_rows, order_refs, anomalies = parse_picking_orders_excel(content, upload_file.filename)
+            
+            # Attach filename to row for fallback grouping
+            for r in valid_rows:
+                r["filename"] = upload_file.filename
+                
             all_rows.extend(valid_rows)
             all_order_refs.update(order_refs)
             all_anomalies.extend(anomalies)
@@ -1881,6 +1951,7 @@ def analyze_orders_files(
             "orders_found": [],
             "orders_missing": [],
             "sku_requirements": [],
+            "order_requirements": [],
             "anomalies": all_anomalies,
             "files_processed": files_processed
         }
@@ -1918,7 +1989,7 @@ def analyze_orders_files(
                 }
             stock_map[sku_key]["qty_total"] += item.qty_total
             
-    # Resolve product_ids to SKUs
+    # Resolve product_ids to SKUs (aggregated)
     sku_required_map = {}
     
     # Cache for DB product reference lookup
@@ -1934,7 +2005,7 @@ def analyze_orders_files(
             # Single product, let's find the reference
             sku_key = None
             
-            # 1. Check local db cache (prestashop_order_lines)
+            # 1. Check local db cache
             if pid in ref_db_cache:
                 sku_key = ref_db_cache[pid]
             else:
@@ -1965,7 +2036,7 @@ def analyze_orders_files(
                 
             sku_required_map[sku_key] = sku_required_map.get(sku_key, 0.0) + qty_ordered
             
-    # Build result
+    # Build aggregated result
     sku_requirements = []
     for sku, qty_req in sku_required_map.items():
         stock_info = stock_map.get(sku, {"description": "Non presente in magazzino", "qty_total": 0.0})
@@ -1978,10 +2049,118 @@ def analyze_orders_files(
         
     sku_requirements.sort(key=lambda x: x["sku"])
     
+    # Group rows into order-by-order structures to preserve sequence
+    order_groups = {}
+    order_sequence = []
+    
+    for row in all_rows:
+        filename = row.get("filename", "excel")
+        order_ref = row.get("order_ref")
+        customer = row.get("customer")
+        
+        if order_ref:
+            order_key = str(order_ref)
+        else:
+            order_key = f"File: {filename}"
+            
+        if order_key not in order_groups:
+            order_groups[order_key] = {
+                "customer": customer or "Cliente sconosciuto",
+                "rows": []
+            }
+            order_sequence.append(order_key)
+            
+        if customer and order_groups[order_key]["customer"] == "Cliente sconosciuto":
+            order_groups[order_key]["customer"] = customer
+            
+        order_groups[order_key]["rows"].append(row)
+        
+    # Build order-by-order requirements with progressive stock
+    running_stock = {}
+    for sku, info in stock_map.items():
+        running_stock[sku] = info["qty_total"]
+        
+    order_requirements = []
+    for order_key in order_sequence:
+        group = order_groups[order_key]
+        rows = group["rows"]
+        customer = group["customer"]
+        
+        sku_reqs = {}
+        for row in rows:
+            pid = row["product_id"]
+            qty_ordered = row["quantity"]
+            
+            if pid in components_map:
+                for sku, qty_req in components_map[pid]:
+                    sku_key = sku.strip()
+                    sku_reqs[sku_key] = sku_reqs.get(sku_key, 0.0) + (qty_req * qty_ordered)
+            else:
+                sku_key = None
+                if pid in ref_db_cache:
+                    sku_key = ref_db_cache[pid]
+                else:
+                    cached_line = db.query(PrestashopOrderLine.product_reference).filter(
+                        PrestashopOrderLine.product_id == pid,
+                        PrestashopOrderLine.product_reference != None,
+                        PrestashopOrderLine.product_reference != ""
+                    ).first()
+                    if cached_line:
+                        sku_key = cached_line[0].strip()
+                        ref_db_cache[pid] = sku_key
+                
+                if not sku_key and ps_client:
+                    sku_key = ps_client.get_product_reference(pid)
+                    if sku_key:
+                        ref_db_cache[pid] = sku_key
+                        
+                if not sku_key:
+                    sku_key = f"ID-{pid}"
+                    
+                sku_reqs[sku_key] = sku_reqs.get(sku_key, 0.0) + qty_ordered
+                
+        items = []
+        for sku, req_qty in sorted(sku_reqs.items()):
+            stock_info = stock_map.get(sku, {"description": "Non presente in magazzino", "qty_total": 0.0})
+            qty_stock = stock_info["qty_total"]
+            desc = stock_info["description"]
+            
+            avail_before = running_stock.get(sku, 0.0)
+            running_stock[sku] = avail_before - req_qty
+            avail_after = running_stock[sku]
+            
+            if avail_before >= req_qty:
+                status = "disponibile"
+                qty_fulfilled = req_qty
+            elif avail_before > 0:
+                status = "parziale"
+                qty_fulfilled = avail_before
+            else:
+                status = "mancante"
+                qty_fulfilled = 0.0
+                
+            items.append({
+                "sku": sku,
+                "description": desc,
+                "qty_required": req_qty,
+                "qty_stock": qty_stock,
+                "avail_before": avail_before,
+                "avail_after": avail_after,
+                "qty_fulfilled": qty_fulfilled,
+                "status": status
+            })
+            
+        order_requirements.append({
+            "order_id": order_key,
+            "customer_name": customer,
+            "items": items
+        })
+        
     return {
-        "orders_found": sorted(list(all_order_refs)),
+        "orders_found": sorted(list(all_order_refs)) if all_order_refs else sorted(list(order_sequence)),
         "orders_missing": [],
         "sku_requirements": sku_requirements,
+        "order_requirements": order_requirements,
         "anomalies": all_anomalies,
         "files_processed": files_processed
     }

@@ -387,6 +387,7 @@ function App() {
   const [selectedPickingFiles, setSelectedPickingFiles] = useState([]);
   const [pickingFilesAnomalies, setPickingFilesAnomalies] = useState([]);
   const [pickingFilesSummary, setPickingFilesSummary] = useState([]);
+  const [pickingViewMode, setPickingViewMode] = useState('aggregated'); // 'aggregated' or 'by_order'
   const [dragOver, setDragOver] = useState(false);
   
   // Backup & Restore states
@@ -1275,27 +1276,58 @@ function App() {
   };
 
   const handleCopyPickingList = () => {
-    if (!pickingResults || !pickingResults.sku_requirements) return;
+    if (!pickingResults) return;
     
-    const textLines = [
-      "=== LISTA PRELIEVO ===",
-      `Data: ${new Date().toLocaleString('it-IT')}`,
-      `Ordini trovati nel database: ${pickingResults.orders_found.join(', ')}`,
-      pickingResults.orders_missing.length > 0 
-        ? `Ordini non trovati: ${pickingResults.orders_missing.join(', ')}`
-        : "Tutti gli ordini sono stati trovati nel database.",
-      "",
-      "SKU | DESCRIZIONE | RICHIESTO | DISPONIBILE | STATO",
-      "-------------------------------------------------------"
-    ];
+    let clipboardText = "";
     
-    pickingResults.sku_requirements.forEach(req => {
-      const diff = req.qty_stock - req.qty_required;
-      const statusText = diff >= 0 ? "Disponibile" : `Mancano ${Math.abs(diff)}`;
-      textLines.push(`${req.sku} | ${req.description} | Richiesto: ${req.qty_required} | Stock: ${req.qty_stock} | ${statusText}`);
-    });
+    if (pickingViewMode === 'aggregated') {
+      if (!pickingResults.sku_requirements) return;
+      const textLines = [
+        "=== LISTA PRELIEVO (AGGREGATA) ===",
+        `Data: ${new Date().toLocaleString('it-IT')}`,
+        `Ordini trovati nel database: ${pickingResults.orders_found.join(', ')}`,
+        pickingResults.orders_missing && pickingResults.orders_missing.length > 0 
+          ? `Ordini non trovati: ${pickingResults.orders_missing.join(', ')}`
+          : "Tutti gli ordini sono stati trovati nel database.",
+        "",
+        "SKU | DESCRIZIONE | RICHIESTO | DISPONIBILE | STATO",
+        "-------------------------------------------------------"
+      ];
+      
+      pickingResults.sku_requirements.forEach(req => {
+        const diff = req.qty_stock - req.qty_required;
+        const statusText = diff >= 0 ? "Disponibile" : `Mancano ${Math.abs(diff)}`;
+        textLines.push(`${req.sku} | ${req.description} | Richiesto: ${req.qty_required} | Stock: ${req.qty_stock} | ${statusText}`);
+      });
+      clipboardText = textLines.join('\n');
+    } else {
+      if (!pickingResults.order_requirements) return;
+      const textLines = [
+        "=== DETTAGLIO PRELIEVO PER ORDINE ===",
+        `Data: ${new Date().toLocaleString('it-IT')}`,
+        ""
+      ];
+      
+      pickingResults.order_requirements.forEach(ord => {
+        textLines.push(`Ordine: ${ord.order_id} - Cliente: ${ord.customer_name}`);
+        textLines.push("--------------------------------------------------------------------------------");
+        ord.items.forEach(req => {
+          let statusText = "";
+          if (req.status === 'disponibile') {
+            statusText = `Disponibile (Residuo: ${req.avail_after})`;
+          } else if (req.status === 'parziale') {
+            statusText = `Parziale (Coperti ${req.qty_fulfilled} di ${req.qty_required})`;
+          } else {
+            statusText = `Mancante (Richiesto: ${req.qty_required})`;
+          }
+          textLines.push(`- SKU: ${req.sku} | ${req.description} | Richiesto: ${req.qty_required} | Stock: ${req.qty_stock} | ${statusText}`);
+        });
+        textLines.push("");
+      });
+      clipboardText = textLines.join('\n');
+    }
     
-    navigator.clipboard.writeText(textLines.join('\n'))
+    navigator.clipboard.writeText(clipboardText)
       .then(() => {
         showActionMsg("Lista prelievo copiata negli appunti con successo!");
       })
@@ -2735,8 +2767,51 @@ function App() {
             {/* Results sections */}
             {pickingResults && (
               <div className="glass-panel widget-card" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-                  <span className="widget-title" style={{ margin: 0 }}>Analisi del Fabbisogno di Prelievo</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+                    <span className="widget-title" style={{ margin: 0 }}>Analisi del Fabbisogno di Prelievo</span>
+                    
+                    {/* View Mode Toggle */}
+                    <div style={{ display: 'inline-flex', padding: '3px', borderRadius: '8px', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)' }}>
+                      <button 
+                        type="button"
+                        className="tab-btn"
+                        onClick={() => setPickingViewMode('aggregated')}
+                        style={{ 
+                          padding: '6px 12px', 
+                          fontSize: '0.8rem', 
+                          border: 0, 
+                          borderRadius: '6px', 
+                          background: pickingViewMode === 'aggregated' ? 'var(--bg-primary)' : 'transparent', 
+                          color: pickingViewMode === 'aggregated' ? 'var(--text-primary)' : 'var(--text-secondary)', 
+                          fontWeight: pickingViewMode === 'aggregated' ? '600' : 'normal', 
+                          cursor: 'pointer', 
+                          transition: 'all 0.2s' 
+                        }}
+                      >
+                        Vista Aggregata
+                      </button>
+                      <button 
+                        type="button"
+                        className="tab-btn"
+                        onClick={() => setPickingViewMode('by_order')}
+                        style={{ 
+                          padding: '6px 12px', 
+                          fontSize: '0.8rem', 
+                          border: 0, 
+                          borderRadius: '6px', 
+                          background: pickingViewMode === 'by_order' ? 'var(--bg-primary)' : 'transparent', 
+                          color: pickingViewMode === 'by_order' ? 'var(--text-primary)' : 'var(--text-secondary)', 
+                          fontWeight: pickingViewMode === 'by_order' ? '600' : 'normal', 
+                          cursor: 'pointer', 
+                          transition: 'all 0.2s' 
+                        }}
+                      >
+                        Vista per Ordini
+                      </button>
+                    </div>
+                  </div>
+                  
                   <button 
                     className="btn btn-secondary" 
                     onClick={handleCopyPickingList}
@@ -2829,54 +2904,160 @@ function App() {
                   )}
                 </div>
 
-                {/* SKU Requirements Table */}
-                <div className="table-container">
-                  {pickingResults.sku_requirements.length > 0 ? (
-                    <table className="custom-table">
-                      <thead>
-                        <tr>
-                          <th>SKU Componente</th>
-                          <th>Descrizione Magazzino</th>
-                          <th style={{ textAlign: 'right', width: '120px' }}>Quantità Richiesta</th>
-                          <th style={{ textAlign: 'right', width: '120px' }}>Disponibile Magazzino</th>
-                          <th style={{ textAlign: 'center', width: '140px' }}>Stato Prelievo</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {pickingResults.sku_requirements.map(req => {
-                          const diff = req.qty_stock - req.qty_required;
-                          const hasEnough = diff >= 0;
-                          
-                          return (
-                            <tr key={req.sku}>
-                              <td style={{ fontWeight: '700' }}>{req.sku}</td>
-                              <td style={{ color: 'var(--text-secondary)', maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                {req.description}
-                              </td>
-                              <td style={{ textAlign: 'right', fontWeight: '600' }}>{req.qty_required}</td>
-                              <td style={{ textAlign: 'right', color: 'var(--text-secondary)' }}>{req.qty_stock}</td>
-                              <td style={{ textAlign: 'center' }}>
-                                {hasEnough ? (
-                                  <span className="badge badge-success" style={{ display: 'inline-block', width: '90%' }}>
-                                    Disponibile (+{diff})
-                                  </span>
-                                ) : (
-                                  <span className="badge badge-danger" style={{ display: 'inline-block', width: '90%' }}>
-                                    Mancano {Math.abs(diff)}
-                                  </span>
-                                )}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  ) : (
-                    <p style={{ textAlign: 'center', padding: '20px', color: 'var(--text-secondary)' }}>
-                      Nessun articolo o SKU richiesto per gli ordini trovati.
-                    </p>
-                  )}
-                </div>
+                {/* Requirements Rendering based on view mode */}
+                {pickingViewMode === 'aggregated' ? (
+                  <div className="table-container">
+                    {pickingResults.sku_requirements && pickingResults.sku_requirements.length > 0 ? (
+                      <table className="custom-table">
+                        <thead>
+                          <tr>
+                            <th>SKU Componente</th>
+                            <th>Descrizione Magazzino</th>
+                            <th style={{ textAlign: 'right', width: '120px' }}>Quantità Richiesta</th>
+                            <th style={{ textAlign: 'right', width: '120px' }}>Disponibile Magazzino</th>
+                            <th style={{ textAlign: 'center', width: '140px' }}>Stato Prelievo</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {pickingResults.sku_requirements.map(req => {
+                            const diff = req.qty_stock - req.qty_required;
+                            const hasEnough = diff >= 0;
+                            
+                            return (
+                              <tr key={req.sku}>
+                                <td style={{ fontWeight: '700' }}>{req.sku}</td>
+                                <td style={{ color: 'var(--text-secondary)', maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  {req.description}
+                                </td>
+                                <td style={{ textAlign: 'right', fontWeight: '600' }}>{req.qty_required}</td>
+                                <td style={{ textAlign: 'right', color: 'var(--text-secondary)' }}>{req.qty_stock}</td>
+                                <td style={{ textAlign: 'center' }}>
+                                  {hasEnough ? (
+                                    <span className="badge badge-success" style={{ display: 'inline-block', width: '90%' }}>
+                                      Disponibile (+{diff})
+                                    </span>
+                                  ) : (
+                                    <span className="badge badge-danger" style={{ display: 'inline-block', width: '90%' }}>
+                                      Mancano {Math.abs(diff)}
+                                    </span>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    ) : (
+                      <p style={{ textAlign: 'center', padding: '20px', color: 'var(--text-secondary)' }}>
+                        Nessun articolo o SKU richiesto per gli ordini trovati.
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  /* Detailed View by Order */
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                    {pickingResults.order_requirements && pickingResults.order_requirements.length > 0 ? (
+                      pickingResults.order_requirements.map(ord => {
+                        // Calculate overall order status
+                        const allAvailable = ord.items.every(item => item.status === 'disponibile');
+                        const noneAvailable = ord.items.every(item => item.status === 'mancante');
+                        
+                        let orderBadge = null;
+                        if (allAvailable) {
+                          orderBadge = <span className="badge badge-success" style={{ padding: '4px 10px', fontSize: '0.75rem' }}>Pronto per il prelievo</span>;
+                        } else if (noneAvailable) {
+                          orderBadge = <span className="badge badge-danger" style={{ padding: '4px 10px', fontSize: '0.75rem' }}>Mancano tutti i componenti</span>;
+                        } else {
+                          orderBadge = <span className="badge badge-warning" style={{ padding: '4px 10px', fontSize: '0.75rem' }}>Parzialmente pronto</span>;
+                        }
+                        
+                        return (
+                          <div 
+                            key={ord.order_id} 
+                            style={{ 
+                              padding: '16px', 
+                              borderRadius: '10px', 
+                              border: '1px solid var(--border-color)', 
+                              backgroundColor: 'rgba(255, 255, 255, 0.01)',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '12px'
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                <span style={{ fontSize: '0.9rem', fontWeight: '700', color: 'var(--text-primary)' }}>
+                                  Ordine: {ord.order_id}
+                                </span>
+                                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                                  — Cliente: <strong>{ord.customer_name}</strong>
+                                </span>
+                              </div>
+                              {orderBadge}
+                            </div>
+                            
+                            <div className="table-container" style={{ margin: 0, border: 'none' }}>
+                              <table className="custom-table" style={{ fontSize: '0.82rem' }}>
+                                <thead>
+                                  <tr>
+                                    <th>SKU Componente</th>
+                                    <th>Descrizione Magazzino</th>
+                                    <th style={{ textAlign: 'right', width: '100px' }}>Richiesto</th>
+                                    <th style={{ textAlign: 'right', width: '120px' }}>Stock Totale</th>
+                                    <th style={{ textAlign: 'center', width: '220px' }}>Giacenza Progressiva (Stato)</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {ord.items.map(item => {
+                                    let progressBadge = null;
+                                    
+                                    if (item.status === 'disponibile') {
+                                      progressBadge = (
+                                        <span className="badge badge-success" style={{ display: 'inline-block', width: '95%', fontSize: '0.72rem' }}>
+                                          Disp. (Residua: {item.avail_after})
+                                        </span>
+                                      );
+                                    } else if (item.status === 'parziale') {
+                                      progressBadge = (
+                                        <span className="badge badge-warning" style={{ display: 'inline-block', width: '95%', fontSize: '0.72rem' }}>
+                                          Parziale ({item.qty_fulfilled} su {item.qty_required})
+                                        </span>
+                                      );
+                                    } else {
+                                      progressBadge = (
+                                        <span className="badge badge-danger" style={{ display: 'inline-block', width: '95%', fontSize: '0.72rem' }}>
+                                          Mancano {item.qty_required}
+                                        </span>
+                                      );
+                                    }
+                                    
+                                    return (
+                                      <tr key={item.sku}>
+                                        <td style={{ fontWeight: '600' }}>{item.sku}</td>
+                                        <td style={{ color: 'var(--text-secondary)', maxWidth: '280px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                          {item.description}
+                                        </td>
+                                        <td style={{ textAlign: 'right', fontWeight: '600' }}>{item.qty_required}</td>
+                                        <td style={{ textAlign: 'right', color: 'var(--text-secondary)' }}>{item.qty_stock}</td>
+                                        <td style={{ textAlign: 'center' }}>
+                                          {progressBadge}
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <p style={{ textAlign: 'center', padding: '20px', color: 'var(--text-secondary)' }}>
+                        Nessun dettaglio per ordine disponibile.
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>
