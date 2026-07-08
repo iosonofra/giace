@@ -1514,7 +1514,7 @@ def get_stock(db: Session = Depends(get_db)):
 
     return result
 
-@app.get("/api/stock/{sku}/orders")
+@app.get("/api/stock/{sku:path}/orders")
 def get_stock_orders(sku: str, db: Session = Depends(get_db)):
     active_a = db.query(ImportBatch).filter(
         ImportBatch.file_type == "associations",
