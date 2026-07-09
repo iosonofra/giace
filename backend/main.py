@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import func, desc
+from sqlalchemy import func, desc, asc
 
 # Import our backend modules
 from backend.database import engine, Base, get_db
@@ -1312,6 +1312,235 @@ def sync_orders(force: bool = True, db: Session = Depends(get_db), client: Prest
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+def sync_specific_orders_internal(db: Session, client: PrestaShopClient, order_ids: List[int]) -> dict:
+    from datetime import timedelta
+    import random
+    clean_ids = []
+    for oid in order_ids:
+        try:
+            clean_ids.append(int(oid))
+        except (ValueError, TypeError):
+            continue
+    clean_ids = list(dict.fromkeys(clean_ids))
+    if not clean_ids:
+        return {"status": "success", "orders_synced": 0, "mock_mode": client.mock_mode}
+
+    active_assoc_batch = db.query(ImportBatch).filter(
+        ImportBatch.file_type == "associations",
+        ImportBatch.is_active == True
+    ).first()
+    
+    valid_product_ids = []
+    if active_assoc_batch:
+        valid_product_ids = [
+            r[0] for r in db.query(ProductComponent.product_id)
+            .filter(ProductComponent.import_batch_id == active_assoc_batch.id)
+            .distinct().all()
+        ]
+        
+    if not valid_product_ids:
+        valid_product_ids = [609286, 609287, 605652]
+
+    orders_data = []
+    if client.mock_mode:
+        states_map = {s["id"]: s["name"] for s in client.get_order_states()}
+        mock_customers = ["Mario Rossi", "Giulia Bianchi", "Luca Verdi", "Anna Ferrari", "Paolo Esposito"]
+        mock_prices = [12.50, 24.90, 34.00, 18.75, 45.00]
+        random.seed(42)
+        
+        setting = db.query(AppSetting).filter(AppSetting.key == "included_state_ids").first()
+        state_ids = json.loads(setting.value) if setting else [12]
+        
+        for idx, oid in enumerate(clean_ids):
+            current_state = random.choice(state_ids) if state_ids else 12
+            date_add = datetime.utcnow()
+            date_upd = date_add
+            num_lines = random.randint(1, 3)
+            selected_products = random.sample(valid_product_ids, min(num_lines, len(valid_product_ids)))
+            lines = []
+            for l_idx, prod_id in enumerate(selected_products):
+                lines.append({
+                    "line_id": l_idx + 1,
+                    "product_id": prod_id,
+                    "product_attribute_id": 0,
+                    "product_reference": f"REF-{prod_id}",
+                    "product_quantity": random.choice([1, 1, 2])
+                })
+            orders_data.append({
+                "order_id": oid,
+                "current_state": current_state,
+                "date_add": date_add,
+                "date_upd": date_upd,
+                "customer_name": mock_customers[idx % len(mock_customers)],
+                "total_paid": mock_prices[idx % len(mock_prices)],
+                "lines": lines
+            })
+    else:
+        orders_list = []
+        customer_cache = {}
+        states_map = {s["id"]: s["name"] for s in client.get_order_states()}
+        
+        limit = 50
+        for i in range(0, len(clean_ids), limit):
+            chunk = clean_ids[i:i+limit]
+            ids_filter = "|".join(str(oid) for oid in chunk)
+            params = {
+                "display": "full",
+                "output_format": "JSON",
+                "filter[id]": f"[{ids_filter}]",
+                "ws_key": client.api_key
+            }
+            orders_url = f"{client.url}orders"
+            response = client._make_request(orders_url, params=params, timeout=30)
+            if response.status_code == 404:
+                continue
+            response.raise_for_status()
+            data = response.json()
+            raw_orders = data.get("orders", [])
+            if isinstance(raw_orders, dict):
+                raw_orders = [raw_orders]
+            elif not isinstance(raw_orders, list):
+                raw_orders = []
+                
+            cust_ids_to_fetch = []
+            for order_data in raw_orders:
+                if isinstance(order_data, dict):
+                    firstname = client._clean_name_field(order_data.get("customer_firstname"))
+                    lastname = client._clean_name_field(order_data.get("customer_lastname"))
+                    if not (firstname or lastname):
+                        id_customer = order_data.get("id_customer")
+                        if id_customer:
+                            try:
+                                id_customer = int(id_customer)
+                                if id_customer not in customer_cache:
+                                    cust_ids_to_fetch.append(id_customer)
+                            except (ValueError, TypeError):
+                                pass
+            if cust_ids_to_fetch:
+                client._fetch_customer_names_batch(cust_ids_to_fetch, customer_cache, None)
+                
+            for order_data in raw_orders:
+                if not isinstance(order_data, dict):
+                    continue
+                order_id = int(order_data.get("id"))
+                current_state = int(order_data.get("current_state"))
+                
+                date_add_str = order_data.get("date_add")
+                date_upd_str = order_data.get("date_upd")
+                date_add = None
+                date_upd = None
+                try:
+                    if date_add_str:
+                        date_add = datetime.strptime(date_add_str, "%Y-%m-%d %H:%M:%S")
+                    if date_upd_str:
+                        date_upd = datetime.strptime(date_upd_str, "%Y-%m-%d %H:%M:%S")
+                except Exception:
+                    pass
+                    
+                assoc = order_data.get("associations", {})
+                order_rows_raw = []
+                if isinstance(assoc, dict):
+                    order_rows_raw = assoc.get("order_rows", [])
+                if isinstance(order_rows_raw, dict):
+                    order_rows_raw = [order_rows_raw]
+                elif not isinstance(order_rows_raw, list):
+                    order_rows_raw = []
+                    
+                order_lines = []
+                for line in order_rows_raw:
+                    if not isinstance(line, dict):
+                        continue
+                    product_id = int(line.get("product_id"))
+                    qty = int(line.get("product_quantity", 1))
+                    line_id = int(line.get("id")) if line.get("id") else None
+                    prod_attr_id = int(line.get("product_attribute_id", 0)) if line.get("product_attribute_id") else 0
+                    ref = line.get("product_reference", "")
+                    
+                    order_lines.append({
+                        "line_id": line_id,
+                        "product_id": product_id,
+                        "product_attribute_id": prod_attr_id,
+                        "product_reference": ref,
+                        "product_quantity": qty
+                    })
+                    
+                customer_name = client._get_customer_name(order_data, customer_cache)
+                try:
+                    total_paid = float(order_data.get("total_paid_tax_incl") or 0)
+                except (ValueError, TypeError):
+                    total_paid = None
+                    
+                orders_list.append({
+                    "order_id": order_id,
+                    "current_state": current_state,
+                    "date_add": date_add,
+                    "date_upd": date_upd,
+                    "customer_name": customer_name,
+                    "total_paid": total_paid,
+                    "lines": order_lines
+                })
+                
+        orders_data = orders_list
+
+    states_map = {s["id"]: s["name"] for s in client.get_order_states()}
+    now_val = datetime.utcnow()
+    synced_count = 0
+    
+    for o in orders_data:
+        order_id = o["order_id"]
+        state_label = states_map.get(o["current_state"], f"Stato {o['current_state']}")
+        
+        db.query(PrestashopOrderLine).filter(PrestashopOrderLine.order_id == order_id).delete()
+        db.query(PrestashopOrder).filter(PrestashopOrder.order_id == order_id).delete()
+        
+        db_order = PrestashopOrder(
+            order_id=order_id,
+            current_state=o["current_state"],
+            current_state_label=state_label,
+            date_add=o["date_add"],
+            date_upd=o["date_upd"],
+            customer_name=o.get("customer_name"),
+            total_paid=o.get("total_paid"),
+            synced_at=now_val
+        )
+        db.add(db_order)
+        db.commit()
+        
+        for line in o["lines"]:
+            db_line = PrestashopOrderLine(
+                order_id=order_id,
+                line_id=line["line_id"],
+                product_id=line["product_id"],
+                product_attribute_id=line["product_attribute_id"],
+                product_reference=line["product_reference"],
+                product_quantity=line["product_quantity"]
+            )
+            db.add(db_line)
+        
+        synced_count += 1
+        
+    db.commit()
+    
+    try:
+        run_calculation(db)
+    except Exception as calc_err:
+        logger.error(f"Errore nel calcolo automatico dopo sync specifico: {calc_err}")
+        
+    return {
+        "status": "success",
+        "orders_synced": synced_count,
+        "mock_mode": client.mock_mode
+    }
+
+@app.post("/api/prestashop/sync-specific-orders")
+def sync_specific_orders(payload: dict, db: Session = Depends(get_db), client: PrestaShopClient = Depends(get_ps_client)):
+    order_ids = payload.get("order_ids", [])
+    try:
+        res = sync_specific_orders_internal(db, client, order_ids=order_ids)
+        return res
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/api/calc/run")
 def run_calc(db: Session = Depends(get_db)):
     try:
@@ -1913,6 +2142,213 @@ def analyze_orders(payload: dict, db: Session = Depends(get_db)):
         "orders_missing": missing_order_ids,
         "sku_requirements": sku_requirements,
         "order_requirements": order_requirements
+    }
+
+@app.post("/api/orders/auto-picking")
+def auto_picking_orders(payload: dict, db: Session = Depends(get_db)):
+    try:
+        limit = int(payload.get("limit", 20))
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Il numero ordini deve essere un intero valido.")
+
+    if limit < 1 or limit > 500:
+        raise HTTPException(status_code=400, detail="Il numero ordini deve essere compreso tra 1 e 500.")
+
+    strict_chronology = bool(payload.get("strict_chronology", False))
+    sku_filter_raw = payload.get("sku_filter", [])
+    if isinstance(sku_filter_raw, str):
+        sku_filter_raw = [s.strip() for s in sku_filter_raw.split(",")]
+    if not isinstance(sku_filter_raw, list):
+        sku_filter_raw = []
+    sku_filter = {
+        str(sku).strip().upper()
+        for sku in sku_filter_raw
+        if str(sku).strip()
+    }
+
+    active_a = db.query(ImportBatch).filter(ImportBatch.file_type == "associations", ImportBatch.is_active == True).first()
+    components_map = {}
+    if active_a:
+        comps = db.query(ProductComponent).filter(ProductComponent.import_batch_id == active_a.id).all()
+        for c in comps:
+            components_map.setdefault(c.product_id, []).append((c.sku, c.qty_required))
+
+    active_w = db.query(ImportBatch).filter(ImportBatch.file_type == "warehouse", ImportBatch.is_active == True).first()
+    stock_map = {}
+    stock_order = {}
+    if active_w:
+        stock_items = db.query(WarehouseStock).filter(WarehouseStock.import_batch_id == active_w.id).order_by(WarehouseStock.id).all()
+        for item in stock_items:
+            sku_key = item.sku.strip()
+            if not sku_key or sku_key.startswith("__spacer_"):
+                continue
+            if sku_key not in stock_map:
+                stock_order[sku_key] = len(stock_order)
+                stock_map[sku_key] = {
+                    "description": item.description or "",
+                    "qty_total": 0.0
+                }
+            stock_map[sku_key]["qty_total"] += item.qty_total
+
+    running_stock = {sku: info["qty_total"] for sku, info in stock_map.items()}
+
+    state_setting = db.query(AppSetting).filter(AppSetting.key == "included_state_ids").first()
+    try:
+        included_states = json.loads(state_setting.value) if state_setting else [12]
+    except Exception:
+        included_states = [12]
+
+    orders_query = db.query(PrestashopOrder)
+    if included_states:
+        orders_query = orders_query.filter(PrestashopOrder.current_state.in_(included_states))
+    else:
+        orders_query = orders_query.filter(False)
+
+    orders = orders_query.order_by(
+        asc(PrestashopOrder.date_add),
+        asc(PrestashopOrder.order_id)
+    ).all()
+
+    order_ids = [o.order_id for o in orders]
+    lines_by_order = {}
+    if order_ids:
+        lines = db.query(PrestashopOrderLine).filter(PrestashopOrderLine.order_id.in_(order_ids)).all()
+        for line in lines:
+            lines_by_order.setdefault(line.order_id, []).append(line)
+
+    selected_orders = []
+    skipped_orders = []
+    order_requirements = []
+    sku_required_map = {}
+    evaluated_count = 0
+
+    for order in orders:
+        if len(selected_orders) >= limit:
+            break
+
+        sku_reqs = {}
+        missing_reference_lines = []
+
+        for line in lines_by_order.get(order.order_id, []):
+            prod_id = line.product_id
+            qty_ordered = line.product_quantity or 1
+
+            if prod_id in components_map:
+                for sku, qty_req in components_map[prod_id]:
+                    sku_key = sku.strip()
+                    if sku_key:
+                        sku_reqs[sku_key] = sku_reqs.get(sku_key, 0.0) + (qty_req * qty_ordered)
+            else:
+                sku_key = (line.product_reference or "").strip()
+                if sku_key:
+                    sku_reqs[sku_key] = sku_reqs.get(sku_key, 0.0) + qty_ordered
+                else:
+                    missing_reference_lines.append({
+                        "product_id": prod_id,
+                        "qty_ordered": qty_ordered
+                    })
+
+        if sku_filter and not any(sku.upper() in sku_filter for sku in sku_reqs):
+            continue
+
+        evaluated_count += 1
+
+        shortages = []
+        for sku, req_qty in sorted(sku_reqs.items()):
+            available = running_stock.get(sku, 0.0)
+            if available < req_qty:
+                stock_info = stock_map.get(sku, {"description": "Non presente in magazzino", "qty_total": 0.0})
+                shortages.append({
+                    "sku": sku,
+                    "description": stock_info["description"],
+                    "qty_required": req_qty,
+                    "qty_available": available,
+                    "qty_missing": req_qty - available
+                })
+
+        can_prepare = bool(sku_reqs) and not shortages and not missing_reference_lines
+
+        if not can_prepare:
+            skipped_orders.append({
+                "order_id": str(order.order_id),
+                "customer_name": order.customer_name or "Cliente sconosciuto",
+                "date_add": order.date_add.isoformat() if order.date_add else None,
+                "current_state": order.current_state,
+                "current_state_label": order.current_state_label or f"Stato {order.current_state}",
+                "reason": "Riferimento prodotto mancante" if missing_reference_lines else "Stock insufficiente",
+                "missing_items": shortages,
+                "missing_references": missing_reference_lines
+            })
+            if strict_chronology:
+                break
+            continue
+
+        items = []
+        for sku, req_qty in sorted(sku_reqs.items(), key=lambda item: (stock_order.get(item[0], 10**9), item[0])):
+            stock_info = stock_map.get(sku, {"description": "Non presente in magazzino", "qty_total": 0.0})
+            avail_before = running_stock.get(sku, 0.0)
+            running_stock[sku] = avail_before - req_qty
+            avail_after = running_stock[sku]
+            sku_required_map[sku] = sku_required_map.get(sku, 0.0) + req_qty
+
+            items.append({
+                "sku": sku,
+                "description": stock_info["description"],
+                "qty_required": req_qty,
+                "qty_stock": stock_info["qty_total"],
+                "avail_before": avail_before,
+                "avail_after": avail_after,
+                "qty_fulfilled": req_qty,
+                "status": "disponibile"
+            })
+
+        order_payload = {
+            "order_id": str(order.order_id),
+            "customer_name": order.customer_name or "Cliente sconosciuto",
+            "date_add": order.date_add.isoformat() if order.date_add else None,
+            "current_state": order.current_state,
+            "current_state_label": order.current_state_label or f"Stato {order.current_state}",
+            "items": items
+        }
+        selected_orders.append({
+            "order_id": str(order.order_id),
+            "customer_name": order.customer_name or "Cliente sconosciuto",
+            "date_add": order.date_add.isoformat() if order.date_add else None,
+            "current_state": order.current_state,
+            "current_state_label": order.current_state_label or f"Stato {order.current_state}"
+        })
+        order_requirements.append(order_payload)
+
+    sku_requirements = []
+    for sku, qty_req in sku_required_map.items():
+        stock_info = stock_map.get(sku, {"description": "Non presente in magazzino", "qty_total": 0.0})
+        sku_requirements.append({
+            "sku": sku,
+            "description": stock_info["description"],
+            "qty_required": qty_req,
+            "qty_stock": stock_info["qty_total"],
+            "qty_remaining": running_stock.get(sku, 0.0)
+        })
+
+    sku_requirements.sort(key=lambda item: (stock_order.get(item["sku"], 10**9), item["sku"]))
+
+    return {
+        "mode": "automatic",
+        "orders_found": [int(o["order_id"]) for o in selected_orders],
+        "orders_missing": [],
+        "sku_requirements": sku_requirements,
+        "order_requirements": order_requirements,
+        "selected_orders": selected_orders,
+        "skipped_orders": skipped_orders,
+        "auto_picking": {
+            "requested_limit": limit,
+            "selected_count": len(selected_orders),
+            "skipped_count": len(skipped_orders),
+            "evaluated_count": evaluated_count,
+            "strict_chronology": strict_chronology,
+            "candidate_count": len(orders),
+            "sku_filter": sorted(sku_filter)
+        }
     }
 
 @app.post("/api/orders/analyze-files")

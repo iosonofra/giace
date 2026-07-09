@@ -133,6 +133,65 @@ const getStateBadgeClass = (label = '') => {
   return 'badge-state badge-state-default';
 };
 
+const getRequirementMeta = (req = {}) => {
+  const required = Number(req.qty_required || 0);
+  const stock = Number(req.qty_stock || 0);
+  const diff = stock - required;
+
+  if (diff < 0) {
+    return {
+      rank: 0,
+      tone: 'danger',
+      label: `Mancano ${Math.abs(diff)}`,
+      rowClass: 'picking-row-critical'
+    };
+  }
+
+  if (required > 0 && diff === 0) {
+    return {
+      rank: 1,
+      tone: 'warning',
+      label: 'Stock a zero',
+      rowClass: 'picking-row-warning'
+    };
+  }
+
+  return {
+    rank: 2,
+    tone: 'success',
+    label: `Disponibile (+${diff})`,
+    rowClass: ''
+  };
+};
+
+const getOrderPickingMeta = (ord = {}) => {
+  const items = ord.items || [];
+  const missingCount = items.filter(item => item.status === 'mancante').length;
+  const partialCount = items.filter(item => item.status === 'parziale').length;
+
+  if (missingCount > 0) {
+    return {
+      rank: 0,
+      tone: 'danger',
+      label: `${missingCount} mancanti`
+    };
+  }
+
+  if (partialCount > 0) {
+    return {
+      rank: 1,
+      tone: 'warning',
+      label: `${partialCount} parziali`
+    };
+  }
+
+  return {
+    rank: 2,
+    tone: 'success',
+    label: 'Pronto'
+  };
+};
+
 /** Reusable Confirmation Modal component to avoid code duplication */
 const ConfirmModal = ({ isOpen, title, message, warningText, onCancel, onConfirm, confirmText, variant = 'danger' }) => {
   if (!isOpen) return null;
@@ -294,10 +353,12 @@ const TableSkeleton = ({ rows = 5, cols = 4 }) => {
               display: 'flex', 
               gap: '16px', 
               padding: '12px 0', 
-              borderBottom: '1px solid rgba(255, 255, 255, 0.02)' 
+              borderBottom: '1px solid var(--border-color)' 
             }}
           >
-            {Array(cols).fill(0).map((_, colIndex) => (
+            {Array(cols).fill(0).map((_, colIndex) => {
+              const width = `${Math.max(42, 92 - colIndex * 11 - (rowIndex % 3) * 6)}%`;
+              return (
               <div 
                 key={colIndex} 
                 className="skeleton-pulse" 
@@ -306,10 +367,11 @@ const TableSkeleton = ({ rows = 5, cols = 4 }) => {
                   flex: 1, 
                   backgroundColor: 'rgba(255, 255, 255, 0.025)', 
                   borderRadius: '4px',
-                  width: colIndex === cols - 1 ? '80px' : `${Math.floor(Math.random() * 40) + 60}%`
+                  maxWidth: colIndex === cols - 1 ? '80px' : width
                 }}
               />
-            ))}
+              );
+            })}
           </div>
         ))}
       </div>
@@ -354,6 +416,8 @@ function App() {
   const [syncingOrders, setSyncingOrders] = useState(false);
   const [syncProgressText, setSyncProgressText] = useState('');
   const [copiedOrderId, setCopiedOrderId] = useState(null);
+  const [pickingCopyState, setPickingCopyState] = useState('idle');
+  const pickingCopyTimeoutRef = useRef(null);
 
   // Pagination states for Orders
   const [ordersPage, setOrdersPage] = useState(1);
@@ -383,12 +447,20 @@ function App() {
   const [pickingResults, setPickingResults] = useState(null);
   const [pickingLoading, setPickingLoading] = useState(false);
   const [pickingError, setPickingError] = useState(null);
-  const [pickingInputMode, setPickingInputMode] = useState('text'); // 'text' or 'file'
+  const [pickingInputMode, setPickingInputMode] = useState('text'); // 'text', 'file' or 'automatic'
   const [selectedPickingFiles, setSelectedPickingFiles] = useState([]);
   const [pickingFilesAnomalies, setPickingFilesAnomalies] = useState([]);
   const [pickingFilesSummary, setPickingFilesSummary] = useState([]);
   const [pickingViewMode, setPickingViewMode] = useState('aggregated'); // 'aggregated' or 'by_order'
+  const [pickingRequirementFilter, setPickingRequirementFilter] = useState('all'); // 'missing', 'all' or 'available'
+  const [autoPickingLimit, setAutoPickingLimit] = useState(20);
+  const [autoPickingStrict, setAutoPickingStrict] = useState(false);
+  const [autoPickingResultView, setAutoPickingResultView] = useState('selected');
+  const [autoPickingSkuFilter, setAutoPickingSkuFilter] = useState([]);
+  const [autoPickingSkuQuery, setAutoPickingSkuQuery] = useState('');
   const [dragOver, setDragOver] = useState(false);
+  const [syncingSpecificOrders, setSyncingSpecificOrders] = useState(false);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   
   // Backup & Restore states
   const [backupLoading, setBackupLoading] = useState(false);
@@ -447,6 +519,38 @@ function App() {
     localStorage.setItem('theme', theme);
   }, [theme]);
 
+  // Close mobile sidebar when activeTab changes
+  useEffect(() => {
+    setIsMobileSidebarOpen(false);
+  }, [activeTab]);
+
+  // Lock page scroll while the right-side orders drawer is open.
+  useEffect(() => {
+    const root = document.documentElement;
+    const body = document.body;
+
+    if (selectedSkuForOrders) {
+      root.classList.add('drawer-open');
+      body.classList.add('drawer-open');
+    } else {
+      root.classList.remove('drawer-open');
+      body.classList.remove('drawer-open');
+    }
+
+    return () => {
+      root.classList.remove('drawer-open');
+      body.classList.remove('drawer-open');
+    };
+  }, [selectedSkuForOrders]);
+
+  useEffect(() => {
+    return () => {
+      if (pickingCopyTimeoutRef.current) {
+        window.clearTimeout(pickingCopyTimeoutRef.current);
+      }
+    };
+  }, []);
+
   // Keyboard shortcuts and global key listeners
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -457,6 +561,7 @@ function App() {
         setShowRestoreConfirm(false);
         setShowClearAnomaliesConfirm(false);
         setShowDeleteAssociationConfirm(false);
+        setIsMobileSidebarOpen(false);
       }
 
       // Alt + Number switches tabs
@@ -622,6 +727,15 @@ function App() {
       setTabLoading(false);
     }
   }, [activeTab, ordersPage, ordersLimit, status?.latest_calculation?.id, status?.active_warehouse_batch?.id, status?.active_associations_batch?.id]);
+
+  useEffect(() => {
+    if (activeTab !== 'picking' || pickingInputMode !== 'automatic' || stockData.length > 0) return;
+
+    fetch('/api/stock')
+      .then(r => r.json())
+      .then(data => setStockData(data || []))
+      .catch(console.error);
+  }, [activeTab, pickingInputMode, stockData.length]);
 
   const showActionMsg = (text, type = 'success') => {
     setActionMessage({ text, type });
@@ -1212,7 +1326,6 @@ function App() {
     
     setPickingLoading(true);
     setPickingError(null);
-    setPickingResults(null);
     
     try {
       const res = await fetch('/api/orders/analyze', {
@@ -1223,6 +1336,7 @@ function App() {
       const data = await res.json();
       if (res.ok) {
         setPickingResults(data);
+        setPickingRequirementFilter('all');
       } else {
         setPickingError(data.detail || "Errore durante l'elaborazione del fabbisogno.");
       }
@@ -1242,7 +1356,6 @@ function App() {
     
     setPickingLoading(true);
     setPickingError(null);
-    setPickingResults(null);
     setPickingFilesAnomalies([]);
     setPickingFilesSummary([]);
     
@@ -1261,12 +1374,75 @@ function App() {
         setPickingResults({
           orders_found: data.orders_found,
           orders_missing: data.orders_missing,
-          sku_requirements: data.sku_requirements
+          sku_requirements: data.sku_requirements,
+          order_requirements: data.order_requirements
         });
+        setPickingRequirementFilter('all');
         setPickingFilesAnomalies(data.anomalies || []);
         setPickingFilesSummary(data.files_processed || []);
       } else {
         setPickingError(data.detail || "Errore durante l'elaborazione del file di prelievo.");
+      }
+    } catch (err) {
+      setPickingError(`Errore di connessione: ${err.message}`);
+    } finally {
+      setPickingLoading(false);
+    }
+  };
+
+  const addAutoPickingSkuFilter = (skuValue = autoPickingSkuQuery) => {
+    const rawSku = String(skuValue || '').trim();
+    if (!rawSku) return;
+
+    const stockMatch = stockData.find(item => 
+      item.sku && item.sku.trim().toUpperCase() === rawSku.toUpperCase()
+    );
+    const sku = stockMatch ? stockMatch.sku.trim() : rawSku;
+
+    setAutoPickingSkuFilter(prev => (
+      prev.some(existing => existing.toUpperCase() === sku.toUpperCase())
+        ? prev
+        : [...prev, sku]
+    ));
+    setAutoPickingSkuQuery('');
+  };
+
+  const removeAutoPickingSkuFilter = (sku) => {
+    setAutoPickingSkuFilter(prev => prev.filter(existing => existing !== sku));
+  };
+
+  const handleGenerateAutomaticPicking = async (e) => {
+    if (e) e.preventDefault();
+
+    const limit = parseInt(autoPickingLimit, 10);
+    if (!Number.isFinite(limit) || limit < 1 || limit > 500) {
+      setPickingError("Inserisci un numero ordini compreso tra 1 e 500.");
+      return;
+    }
+
+    setPickingLoading(true);
+    setPickingError(null);
+    setPickingFilesAnomalies([]);
+    setPickingFilesSummary([]);
+
+    try {
+      const res = await fetch('/api/orders/auto-picking', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          limit,
+          strict_chronology: autoPickingStrict,
+          sku_filter: autoPickingSkuFilter
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setPickingResults(data);
+        setPickingRequirementFilter('all');
+        setPickingViewMode('by_order');
+        setAutoPickingResultView('selected');
+      } else {
+        setPickingError(data.detail || "Errore durante la generazione della lista automatica.");
       }
     } catch (err) {
       setPickingError(`Errore di connessione: ${err.message}`);
@@ -1293,6 +1469,15 @@ function App() {
         "SKU | DESCRIZIONE | RICHIESTO | DISPONIBILE | STATO",
         "-------------------------------------------------------"
       ];
+
+      if (pickingResults.mode === 'automatic') {
+        textLines.splice(
+          3,
+          0,
+          `Modalità automatica: ${pickingResults.auto_picking?.strict_chronology ? 'coda rigida' : 'salta non preparabili'}`,
+          `Ordini saltati: ${pickingResults.skipped_orders?.length || 0}`
+        );
+      }
       
       pickingResults.sku_requirements.forEach(req => {
         const diff = req.qty_stock - req.qty_required;
@@ -1307,9 +1492,18 @@ function App() {
         `Data: ${new Date().toLocaleString('it-IT')}`,
         ""
       ];
+
+      if (pickingResults.mode === 'automatic') {
+        textLines.push(`Modalità automatica: ${pickingResults.auto_picking?.strict_chronology ? 'coda rigida' : 'salta non preparabili'}`);
+        textLines.push(`Ordini saltati: ${pickingResults.skipped_orders?.length || 0}`);
+        textLines.push("");
+      }
       
       pickingResults.order_requirements.forEach(ord => {
-        textLines.push(`Ordine: ${ord.order_id} - Cliente: ${ord.customer_name}`);
+        const orderDate = ord.date_add ? ` - Data: ${new Date(ord.date_add).toLocaleString('it-IT')}` : '';
+        const orderAge = ord.date_add ? ` - Eta: ${getRelativeTimeString(ord.date_add)}` : '';
+        const orderState = ord.current_state_label ? ` - Stato: ${ord.current_state_label}` : '';
+        textLines.push(`Ordine: ${ord.order_id} - Cliente: ${ord.customer_name}${orderDate}${orderAge}${orderState}`);
         textLines.push("--------------------------------------------------------------------------------");
         ord.items.forEach(req => {
           let statusText = "";
@@ -1329,11 +1523,59 @@ function App() {
     
     navigator.clipboard.writeText(clipboardText)
       .then(() => {
+        setPickingCopyState('copied');
+        if (pickingCopyTimeoutRef.current) {
+          window.clearTimeout(pickingCopyTimeoutRef.current);
+        }
+        pickingCopyTimeoutRef.current = window.setTimeout(() => {
+          setPickingCopyState('idle');
+          pickingCopyTimeoutRef.current = null;
+        }, 2000);
         showActionMsg("Lista prelievo copiata negli appunti con successo!");
       })
       .catch(err => {
         showActionMsg("Errore durante la copia negli appunti.", "danger");
       });
+  };
+
+  const handleSyncSpecificOrders = async () => {
+    if (!pickingResults || !pickingResults.orders_missing || pickingResults.orders_missing.length === 0) return;
+    setSyncingSpecificOrders(true);
+    try {
+      const res = await fetch('/api/prestashop/sync-specific-orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order_ids: pickingResults.orders_missing })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showActionMsg(`Sincronizzati con successo ${data.orders_synced} ordini mancanti!`);
+        
+        // Ricalcola il fabbisogno con gli ordini appena sincronizzati
+        const regex = /\b\d{4,8}\b/g;
+        const matches = rawPickingText.match(regex) || [];
+        const orderIds = Array.from(new Set(matches.map(Number)));
+        
+        if (orderIds.length > 0) {
+          const resAnalyze = await fetch('/api/orders/analyze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ order_ids: orderIds })
+          });
+          const dataAnalyze = await resAnalyze.json();
+          if (resAnalyze.ok) {
+            setPickingResults(dataAnalyze);
+            setPickingRequirementFilter('all');
+          }
+        }
+      } else {
+        showActionMsg(data.detail || "Errore durante la sincronizzazione degli ordini.", "danger");
+      }
+    } catch (err) {
+      showActionMsg(`Errore di connessione: ${err.message}`, "danger");
+    } finally {
+      setSyncingSpecificOrders(false);
+    }
   };
 
   const handleDownloadBackup = async () => {
@@ -1426,9 +1668,11 @@ function App() {
       .then(() => {
         setCopiedOrderId(orderId);
         setTimeout(() => setCopiedOrderId(null), 1500);
+        showActionMsg(`ID ordine ${orderId} copiato.`);
       })
       .catch((err) => {
         console.error("Errore nella copia dell'ID Ordine:", err);
+        showActionMsg("Errore durante la copia dell'ID ordine.", "danger");
       });
   };
 
@@ -1530,10 +1774,40 @@ function App() {
     state.id.toString().includes(searchStateQuery)
   );
 
+  const autoPickingSkuSuggestions = Array.from(
+    new Map(
+      stockData
+        .filter(item => item.sku && !String(item.sku).startsWith('__spacer_'))
+        .map(item => [String(item.sku).trim().toUpperCase(), String(item.sku).trim()])
+    ).values()
+  )
+    .filter(sku =>
+      !autoPickingSkuFilter.some(selected => selected.toUpperCase() === sku.toUpperCase()) &&
+      (!autoPickingSkuQuery.trim() || sku.toLowerCase().includes(autoPickingSkuQuery.trim().toLowerCase()))
+    )
+    .slice(0, 12);
+
+  const pickingRequirements = pickingResults?.sku_requirements || [];
+  const pickingOrders = pickingResults?.order_requirements || [];
+  const visiblePickingRequirements = pickingRequirements.filter(req => {
+    const tone = getRequirementMeta(req).tone;
+    if (pickingRequirementFilter === 'missing') return tone === 'danger';
+    if (pickingRequirementFilter === 'available') return tone !== 'danger';
+    return true;
+  });
+  const sortedPickingOrders = pickingResults?.mode === 'automatic'
+    ? pickingOrders
+    : [...pickingOrders].sort((a, b) => {
+      const metaA = getOrderPickingMeta(a);
+      const metaB = getOrderPickingMeta(b);
+      if (metaA.rank !== metaB.rank) return metaA.rank - metaB.rank;
+      return String(a.order_id || '').localeCompare(String(b.order_id || ''));
+    });
   return (
     <div className="app-container">
       {/* Sidebar Navigation */}
-      <aside className="sidebar">
+      {isMobileSidebarOpen && <div className="sidebar-overlay" onClick={() => setIsMobileSidebarOpen(false)}></div>}
+      <aside className={`sidebar ${isMobileSidebarOpen ? 'open' : ''}`}>
         <div className="brand-section">
           <div className="brand-logo">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" style={{ width: '100%', height: '100%' }}>
@@ -1557,25 +1831,64 @@ function App() {
           <span className="brand-name">Giacenza</span>
         </div>
 
-        <ul className="nav-list">
-          <li className={`nav-item ${activeTab === 'dashboard' ? 'active' : ''}`} onClick={() => setActiveTab('dashboard')}>
+        <ul className="nav-list" role="tablist">
+          <li role="presentation">
+          <button
+            type="button"
+            className={`nav-item ${activeTab === 'dashboard' ? 'active' : ''}`} 
+            onClick={() => setActiveTab('dashboard')}
+            role="tab"
+            aria-selected={activeTab === 'dashboard'}
+          >
             <Icons.Dashboard />
             <span>Dashboard</span>
+          </button>
           </li>
-          <li className={`nav-item ${activeTab === 'stock' ? 'active' : ''}`} onClick={() => setActiveTab('stock')}>
+          <li role="presentation">
+          <button
+            type="button"
+            className={`nav-item ${activeTab === 'stock' ? 'active' : ''}`} 
+            onClick={() => setActiveTab('stock')}
+            role="tab"
+            aria-selected={activeTab === 'stock'}
+          >
             <Icons.Stock />
             <span>Giacenza</span>
+          </button>
           </li>
 
-          <li className={`nav-item ${activeTab === 'orders' ? 'active' : ''}`} onClick={() => setActiveTab('orders')}>
+          <li role="presentation">
+          <button
+            type="button"
+            className={`nav-item ${activeTab === 'orders' ? 'active' : ''}`} 
+            onClick={() => setActiveTab('orders')}
+            role="tab"
+            aria-selected={activeTab === 'orders'}
+          >
             <Icons.Orders />
             <span>Ordini</span>
+          </button>
           </li>
-          <li className={`nav-item ${activeTab === 'picking' ? 'active' : ''}`} onClick={() => setActiveTab('picking')}>
+          <li role="presentation">
+          <button
+            type="button"
+            className={`nav-item ${activeTab === 'picking' ? 'active' : ''}`} 
+            onClick={() => setActiveTab('picking')}
+            role="tab"
+            aria-selected={activeTab === 'picking'}
+          >
             <Icons.Picking />
             <span>Lista Prelievo</span>
+          </button>
           </li>
-          <li className={`nav-item ${activeTab === 'anomalies' ? 'active' : ''}`} onClick={() => setActiveTab('anomalies')}>
+          <li role="presentation">
+          <button
+            type="button"
+            className={`nav-item ${activeTab === 'anomalies' ? 'active' : ''}`} 
+            onClick={() => setActiveTab('anomalies')}
+            role="tab"
+            aria-selected={activeTab === 'anomalies'}
+          >
             <Icons.Anomaly />
             <span className="nav-item-badge-wrapper">
               Anomalie
@@ -1585,14 +1898,31 @@ function App() {
                 </span>
               )}
             </span>
+          </button>
           </li>
-          <li className={`nav-item ${activeTab === 'associations' ? 'active' : ''}`} onClick={() => setActiveTab('associations')}>
+          <li role="presentation">
+          <button
+            type="button"
+            className={`nav-item ${activeTab === 'associations' ? 'active' : ''}`} 
+            onClick={() => setActiveTab('associations')}
+            role="tab"
+            aria-selected={activeTab === 'associations'}
+          >
             <Icons.Associations />
             <span>Editor Associazioni</span>
+          </button>
           </li>
-          <li className={`nav-item ${activeTab === 'settings' ? 'active' : ''}`} onClick={() => setActiveTab('settings')}>
+          <li role="presentation">
+          <button
+            type="button"
+            className={`nav-item ${activeTab === 'settings' ? 'active' : ''}`} 
+            onClick={() => setActiveTab('settings')}
+            role="tab"
+            aria-selected={activeTab === 'settings'}
+          >
             <Icons.Settings />
             <span>Impostazioni</span>
+          </button>
           </li>
         </ul>
 
@@ -1647,8 +1977,19 @@ function App() {
         )}
 
         {/* Dynamic Headers based on active tab */}
-        <header className="content-header">
-          <div className="page-title">
+        <header className="content-header" style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <button 
+            type="button" 
+            className="mobile-nav-toggle btn btn-secondary" 
+            onClick={() => setIsMobileSidebarOpen(true)}
+            aria-label="Apri menu"
+            style={{ padding: '8px', minWidth: '40px', minHeight: '40px', display: 'none', alignItems: 'center', justifyContent: 'center' }}
+          >
+            <svg style={{ width: '20px', height: '20px' }} fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </button>
+          <div className="page-title" style={{ flexGrow: 1 }}>
             {activeTab === 'dashboard' && (
               <>
                 <h1>Dashboard di Controllo</h1>
@@ -1759,6 +2100,32 @@ function App() {
         {/* --- DASHBOARD TAB --- */}
         {activeTab === 'dashboard' && dashboardData && (
           <>
+            {/* Onboarding Banner when no data is loaded */}
+            {dashboardData.sku_count === 0 && dashboardData.product_count === 0 && (
+              <div className="glass-panel" style={{ padding: '24px', marginBottom: '24px', border: '1px solid rgba(99,102,241,0.2)', background: 'linear-gradient(135deg, rgba(99,102,241,0.06) 0%, rgba(168,85,247,0.03) 100%)', borderRadius: '12px' }}>
+                <h3 style={{ fontSize: '1.15rem', fontWeight: '700', marginBottom: '8px', color: 'var(--color-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  👋 Benvenuto nel Gestore Giacenze PrestaShop!
+                </h3>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', lineHeight: '1.6', marginBottom: '16px' }}>
+                  Questo strumento ti permette di sincronizzare e calcolare in tempo reale le giacenze fisiche di magazzino con le quantità vendute o impegnate sul tuo portale e-commerce. Per iniziare, segui questi passaggi consigliati:
+                </p>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
+                  <div style={{ padding: '12px', background: 'rgba(255,255,255,0.01)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                    <strong style={{ fontSize: '0.82rem', display: 'block', marginBottom: '4px', color: 'var(--text-primary)' }}>1. Configura Connessione</strong>
+                    <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Vai su <strong>Impostazioni</strong> per inserire le credenziali API PrestaShop e i filtri di stato ordine.</span>
+                  </div>
+                  <div style={{ padding: '12px', background: 'rgba(255,255,255,0.01)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                    <strong style={{ fontSize: '0.82rem', display: 'block', marginBottom: '4px', color: 'var(--text-primary)' }}>2. Importa Giacenze Magazzino</strong>
+                    <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Carica il file Excel <code>giacenza.xlsx</code> o configura un Google Sheet pubblico per il polling automatico.</span>
+                  </div>
+                  <div style={{ padding: '12px', background: 'rgba(255,255,255,0.01)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                    <strong style={{ fontSize: '0.82rem', display: 'block', marginBottom: '4px', color: 'var(--text-primary)' }}>3. Crea Associazioni Kit</strong>
+                    <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Definisci la composizione dei tuoi prodotti composti (kit/bundle) caricando <code>associazione.xlsx</code>.</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* KPI Cards Grid */}
             <section className="kpi-grid">
               <div className="glass-panel kpi-card">
@@ -2513,45 +2880,60 @@ function App() {
 
         {/* --- PICKING LIST TAB --- */}
         {activeTab === 'picking' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-            <div className="glass-panel widget-card">
-              <span className="widget-title">Pianificazione Prelievo</span>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '16px', lineHeight: '1.5' }}>
-                Seleziona la modalità di inserimento per pianificare il prelievo. Puoi incollare un elenco testuale di ID ordini oppure caricare uno o più file Excel contenenti le colonne <strong>ID prodotto</strong> e <strong>Quantità del prodotto</strong>.
-              </p>
+          <div className="picking-page">
+            <div className="glass-panel widget-card picking-input-panel">
+              <div className="picking-section-head">
+                <div>
+                  <span className="widget-title">Pianificazione Prelievo</span>
+                  <p>Inserisci ordini da testo oppure importa uno o più Excel di prelievo.</p>
+                </div>
+              </div>
 
               {/* Tab Selector */}
-              <div className="tab-pill-container" style={{ display: 'flex', gap: '8px', marginBottom: '20px', background: 'rgba(255,255,255,0.02)', padding: '4px', borderRadius: '8px', border: '1px solid var(--border-color)', width: 'fit-content' }}>
+              <div className="picking-mode-switch" role="tablist" aria-label="Modalità inserimento lista prelievo">
                 <button
                   type="button"
-                  className={`btn btn-sm ${pickingInputMode === 'text' ? 'btn-primary' : 'btn-neutral'}`}
-                  style={{ borderRadius: '6px', height: '30px', padding: '0 16px', fontSize: '0.8rem', border: 'none', cursor: 'pointer' }}
+                  className={`picking-mode-btn ${pickingInputMode === 'text' ? 'active' : ''}`}
+                  role="tab"
+                  aria-selected={pickingInputMode === 'text'}
                   onClick={() => {
                     setPickingInputMode('text');
                     setPickingError(null);
                   }}
                 >
-                  Incolla Testo (ID Ordini)
+                  Incolla ID
                 </button>
                 <button
                   type="button"
-                  className={`btn btn-sm ${pickingInputMode === 'file' ? 'btn-primary' : 'btn-neutral'}`}
-                  style={{ borderRadius: '6px', height: '30px', padding: '0 16px', fontSize: '0.8rem', border: 'none', cursor: 'pointer' }}
+                  className={`picking-mode-btn ${pickingInputMode === 'file' ? 'active' : ''}`}
+                  role="tab"
+                  aria-selected={pickingInputMode === 'file'}
                   onClick={() => {
                     setPickingInputMode('file');
                     setPickingError(null);
                   }}
                 >
-                  Carica Excel (Ordini)
+                  Carica Excel
+                </button>
+                <button
+                  type="button"
+                  className={`picking-mode-btn ${pickingInputMode === 'automatic' ? 'active' : ''}`}
+                  role="tab"
+                  aria-selected={pickingInputMode === 'automatic'}
+                  onClick={() => {
+                    setPickingInputMode('automatic');
+                    setPickingError(null);
+                  }}
+                >
+                  Automatica
                 </button>
               </div>
               
               {pickingInputMode === 'text' ? (
-                <form onSubmit={handleCalculatePicking} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <form onSubmit={handleCalculatePicking} className="picking-workflow-form">
                   <div className="form-group">
                     <textarea
-                      className="settings-input"
-                      style={{ width: '100%', minHeight: '140px', fontFamily: 'monospace', fontSize: '0.9rem', padding: '12px', resize: 'vertical' }}
+                      className="settings-input picking-textarea"
                       placeholder={`Esempio di testo incollato:
 206542 > Meesseman 
 206794 > Wallbruch 
@@ -2563,17 +2945,17 @@ function App() {
                   </div>
                   
                   {pickingError && (
-                    <div className="anomaly-bar danger-theme" style={{ display: 'flex', padding: '10px 14px', borderRadius: '8px', border: '1px solid rgba(220, 38, 38, 0.2)', backgroundColor: 'rgba(220, 38, 38, 0.05)', color: 'var(--color-danger)', fontSize: '0.85rem' }}>
-                      {pickingError}
+                    <div className="picking-alert picking-alert-danger">
+                      <strong>Input non valido.</strong>
+                      <span>{pickingError}</span>
                     </div>
                   )}
                   
-                  <div style={{ display: 'flex', gap: '12px' }}>
+                  <div className="picking-form-actions">
                     <button 
                       type="submit" 
                       className="btn btn-primary" 
                       disabled={pickingLoading}
-                      style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
                     >
                       {pickingLoading ? (
                         <>
@@ -2600,25 +2982,10 @@ function App() {
                     )}
                   </div>
                 </form>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              ) : pickingInputMode === 'file' ? (
+                <div className="picking-workflow-form">
                   <div 
-                    className={`upload-card ${dragOver ? 'drag-over' : ''}`}
-                    style={{ 
-                      width: '100%', 
-                      cursor: 'pointer',
-                      borderColor: dragOver ? 'var(--color-primary)' : 'var(--border-color)',
-                      backgroundColor: dragOver ? 'rgba(99, 102, 241, 0.05)' : 'rgba(255, 255, 255, 0.01)',
-                      borderStyle: 'dashed',
-                      borderWidth: '2px',
-                      padding: '24px',
-                      borderRadius: '8px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      transition: 'all 0.2s ease'
-                    }}
+                    className={`picking-upload-target ${dragOver ? 'drag-over' : ''}`}
                     onDragOver={(e) => {
                       e.preventDefault();
                       setDragOver(true);
@@ -2643,15 +3010,13 @@ function App() {
                     }}
                     onClick={() => document.getElementById('picking-file-input').click()}
                   >
-                    <svg width="32" height="32" fill="none" stroke="var(--color-primary)" strokeWidth="2" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <svg width="24" height="24" fill="none" stroke="var(--color-primary)" strokeWidth="2" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                     </svg>
-                    <span style={{ fontWeight: '600', fontSize: '0.85rem', marginTop: '8px', color: 'var(--text-primary)' }}>
-                      Trascina o clicca per caricare i file Excel degli ordini
-                    </span>
-                    <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                      Supporta selezione singola o multipla di file Excel (.xlsx, .xls)
-                    </span>
+                    <div>
+                      <span>Trascina o clicca per caricare Excel</span>
+                      <small>File .xlsx o .xls, anche multipli</small>
+                    </div>
                     <input 
                       id="picking-file-input"
                       type="file" 
@@ -2668,33 +3033,24 @@ function App() {
                   
                   {/* Selected files list */}
                   {selectedPickingFiles.length > 0 && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      <span style={{ fontSize: '0.75rem', fontWeight: '600', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>
+                    <div className="picking-file-list">
+                      <span className="picking-list-label">
                         File Selezionati ({selectedPickingFiles.length})
                       </span>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <div className="picking-file-stack">
                         {selectedPickingFiles.map((file, idx) => (
                           <div 
                             key={idx} 
-                            style={{ 
-                              display: 'flex', 
-                              justifyContent: 'space-between', 
-                              alignItems: 'center', 
-                              padding: '8px 12px', 
-                              background: 'rgba(255,255,255,0.02)', 
-                              borderRadius: '6px', 
-                              border: '1px solid var(--border-color)',
-                              fontSize: '0.82rem'
-                            }}
+                            className="picking-file-row"
                           >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <div className="picking-file-name">
                               <svg style={{ width: '16px', height: '16px', color: 'var(--color-primary)' }} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                               </svg>
-                              <span style={{ fontWeight: '500', color: 'var(--text-primary)' }}>{file.name}</span>
-                              <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
+                              <span>{file.name}</span>
+                              <small>
                                 ({(file.size / 1024).toFixed(1)} KB)
-                              </span>
+                              </small>
                             </div>
                             <button 
                               type="button" 
@@ -2703,14 +3059,7 @@ function App() {
                                 setSelectedPickingFiles(prev => prev.filter((_, i) => i !== idx));
                               }}
                               className="btn btn-neutral"
-                              style={{ 
-                                height: '24px',
-                                padding: '0 8px',
-                                fontSize: '0.75rem',
-                                color: 'var(--color-danger)',
-                                border: '1px solid rgba(239, 68, 68, 0.15)',
-                                backgroundColor: 'rgba(239, 68, 68, 0.05)'
-                              }}
+                              style={{ color: 'var(--color-danger)', borderColor: 'rgba(239, 68, 68, 0.15)', backgroundColor: 'rgba(239, 68, 68, 0.05)' }}
                             >
                               Rimuovi
                             </button>
@@ -2721,18 +3070,18 @@ function App() {
                   )}
 
                   {pickingError && (
-                    <div className="anomaly-bar danger-theme" style={{ display: 'flex', padding: '10px 14px', borderRadius: '8px', border: '1px solid rgba(220, 38, 38, 0.2)', backgroundColor: 'rgba(220, 38, 38, 0.05)', color: 'var(--color-danger)', fontSize: '0.85rem' }}>
-                      {pickingError}
+                    <div className="picking-alert picking-alert-danger">
+                      <strong>File non elaborato.</strong>
+                      <span>{pickingError}</span>
                     </div>
                   )}
 
-                  <div style={{ display: 'flex', gap: '12px' }}>
+                  <div className="picking-form-actions">
                     <button 
                       type="button" 
                       className="btn btn-primary" 
                       disabled={pickingLoading || selectedPickingFiles.length === 0}
                       onClick={handleUploadPickingFiles}
-                      style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
                     >
                       {pickingLoading ? (
                         <>
@@ -2761,85 +3110,207 @@ function App() {
                     )}
                   </div>
                 </div>
+              ) : (
+                <form onSubmit={handleGenerateAutomaticPicking} className="picking-workflow-form">
+                  <div className="picking-auto-grid">
+                    <div className="form-group">
+                      <label className="picking-field-label" htmlFor="auto-picking-limit">
+                        Numero ordini da proporre
+                      </label>
+                      <input
+                        id="auto-picking-limit"
+                        className="settings-input"
+                        type="number"
+                        min="1"
+                        max="500"
+                        step="1"
+                        value={autoPickingLimit}
+                        onChange={(e) => setAutoPickingLimit(e.target.value)}
+                      />
+                    </div>
+
+                    <div className="form-group">
+                      <span className="picking-field-label">Criterio cronologico</span>
+                      <div className="picking-choice-group" role="group" aria-label="Criterio cronologico lista automatica">
+                        <button
+                          type="button"
+                          className={!autoPickingStrict ? 'active' : ''}
+                          onClick={() => setAutoPickingStrict(false)}
+                        >
+                          Salta non preparabili
+                        </button>
+                        <button
+                          type="button"
+                          className={autoPickingStrict ? 'active' : ''}
+                          onClick={() => setAutoPickingStrict(true)}
+                        >
+                          Coda rigida
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="picking-auto-sku-filter">
+                    <label className="picking-field-label" htmlFor="auto-picking-sku-filter">
+                      Filtra per SKU
+                    </label>
+                    <div className="picking-sku-picker-row">
+                      <input
+                        id="auto-picking-sku-filter"
+                        className="settings-input"
+                        type="text"
+                        list="auto-picking-sku-options"
+                        placeholder="Cerca o inserisci SKU componente"
+                        value={autoPickingSkuQuery}
+                        onChange={(e) => setAutoPickingSkuQuery(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            addAutoPickingSkuFilter(autoPickingSkuQuery);
+                          }
+                        }}
+                      />
+                      <datalist id="auto-picking-sku-options">
+                        {autoPickingSkuSuggestions.map(sku => (
+                          <option key={sku} value={sku} />
+                        ))}
+                      </datalist>
+                      <button
+                        type="button"
+                        className="btn btn-neutral"
+                        onClick={() => addAutoPickingSkuFilter(autoPickingSkuQuery)}
+                        disabled={!autoPickingSkuQuery.trim()}
+                      >
+                        Aggiungi
+                      </button>
+                    </div>
+                    {autoPickingSkuFilter.length > 0 && (
+                      <div className="picking-sku-filter-chips" aria-label="SKU filtrati">
+                        {autoPickingSkuFilter.map(sku => (
+                          <button
+                            key={sku}
+                            type="button"
+                            className="picking-sku-filter-chip"
+                            onClick={() => removeAutoPickingSkuFilter(sku)}
+                            title="Rimuovi filtro SKU"
+                          >
+                            <span>{sku}</span>
+                            <strong aria-hidden="true">x</strong>
+                          </button>
+                        ))}
+                        <button
+                          type="button"
+                          className="picking-sku-filter-clear"
+                          onClick={() => setAutoPickingSkuFilter([])}
+                        >
+                          Pulisci filtro
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {pickingError && (
+                    <div className="picking-alert picking-alert-danger">
+                      <strong>Lista non generata.</strong>
+                      <span>{pickingError}</span>
+                    </div>
+                  )}
+
+                  <div className="picking-form-actions">
+                    <button 
+                      type="submit" 
+                      className="btn btn-primary" 
+                      disabled={pickingLoading}
+                    >
+                      {pickingLoading ? (
+                        <>
+                          <div className="spinner" style={{ width: '16px', height: '16px', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff' }}></div>
+                          Generazione in corso...
+                        </>
+                      ) : (
+                        "Genera lista automatica"
+                      )}
+                    </button>
+
+                    {pickingResults && pickingResults.mode === 'automatic' && (
+                      <button 
+                        type="button" 
+                        className="btn btn-neutral" 
+                        onClick={() => {
+                          setPickingResults(null);
+                          setPickingError(null);
+                        }}
+                      >
+                        Nuovo Calcolo
+                      </button>
+                    )}
+                  </div>
+                </form>
               )}
             </div>
 
+            {pickingLoading && !pickingResults && (
+              <div className="glass-panel widget-card picking-loading-panel" aria-live="polite">
+                <div className="picking-loading-header">
+                  <span className="widget-title" style={{ margin: 0 }}>Analisi del fabbisogno in corso</span>
+                  <span className="badge badge-neutral">Caricamento</span>
+                </div>
+                <TableSkeleton rows={6} cols={5} />
+              </div>
+            )}
+
             {/* Results sections */}
             {pickingResults && (
-              <div className="glass-panel widget-card" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
-                    <span className="widget-title" style={{ margin: 0 }}>Analisi del Fabbisogno di Prelievo</span>
-                    
-                    {/* View Mode Toggle */}
-                    <div style={{ display: 'inline-flex', padding: '3px', borderRadius: '8px', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)' }}>
+              <div className="glass-panel widget-card picking-results-panel">
+                {pickingLoading && (
+                  <div className="info-box info-box-primary" aria-live="polite">
+                    Aggiornamento dell'analisi in corso. I risultati precedenti restano visibili.
+                  </div>
+                )}
+                <div className="picking-results-header">
+                  <div className="picking-title-row">
+                    <span className="widget-title">Analisi del Fabbisogno di Prelievo</span>
+                    <div className="picking-view-toggle" role="tablist" aria-label="Vista risultati prelievo">
                       <button 
                         type="button"
-                        className="tab-btn"
+                        className={pickingViewMode === 'aggregated' ? 'active' : ''}
+                        role="tab"
+                        aria-selected={pickingViewMode === 'aggregated'}
                         onClick={() => setPickingViewMode('aggregated')}
-                        style={{ 
-                          padding: '6px 12px', 
-                          fontSize: '0.8rem', 
-                          border: 0, 
-                          borderRadius: '6px', 
-                          background: pickingViewMode === 'aggregated' ? 'var(--bg-primary)' : 'transparent', 
-                          color: pickingViewMode === 'aggregated' ? 'var(--text-primary)' : 'var(--text-secondary)', 
-                          fontWeight: pickingViewMode === 'aggregated' ? '600' : 'normal', 
-                          cursor: 'pointer', 
-                          transition: 'all 0.2s' 
-                        }}
                       >
                         Vista Aggregata
                       </button>
                       <button 
                         type="button"
-                        className="tab-btn"
+                        className={pickingViewMode === 'by_order' ? 'active' : ''}
+                        role="tab"
+                        aria-selected={pickingViewMode === 'by_order'}
                         onClick={() => setPickingViewMode('by_order')}
-                        style={{ 
-                          padding: '6px 12px', 
-                          fontSize: '0.8rem', 
-                          border: 0, 
-                          borderRadius: '6px', 
-                          background: pickingViewMode === 'by_order' ? 'var(--bg-primary)' : 'transparent', 
-                          color: pickingViewMode === 'by_order' ? 'var(--text-primary)' : 'var(--text-secondary)', 
-                          fontWeight: pickingViewMode === 'by_order' ? '600' : 'normal', 
-                          cursor: 'pointer', 
-                          transition: 'all 0.2s' 
-                        }}
                       >
                         Vista per Ordini
                       </button>
                     </div>
                   </div>
-                  
-                  <button 
-                    className="btn btn-secondary" 
-                    onClick={handleCopyPickingList}
-                    style={{ display: 'flex', alignItems: 'center', gap: '8px', height: '36px', padding: '0 16px', fontSize: '0.85rem' }}
-                  >
-                    Copia Lista Prelievo (Testo)
-                  </button>
+                  <div className="picking-toolbar">
+                    <button 
+                      className={`btn ${pickingCopyState === 'copied' ? 'btn-success' : 'btn-secondary'}`}
+                      onClick={handleCopyPickingList}
+                    >
+                      {pickingCopyState === 'copied' ? 'Copiato!' : 'Copia Lista Prelievo (Testo)'}
+                    </button>
+                  </div>
                 </div>
 
                 {/* Warnings / File Anomalies specific block */}
                 {pickingInputMode === 'file' && pickingFilesAnomalies.length > 0 && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    <span style={{ fontSize: '0.78rem', fontWeight: '600', color: 'var(--color-warning)', textTransform: 'uppercase' }}>
+                  <div className="picking-anomaly-panel">
+                    <span>
                       Avvisi ed Anomalie File ({pickingFilesAnomalies.length})
                     </span>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '150px', overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '8px' }}>
+                    <div className="picking-anomaly-list">
                       {pickingFilesAnomalies.map((anom, idx) => (
                         <div 
                           key={idx} 
-                          style={{ 
-                            fontSize: '0.78rem', 
-                            padding: '6px 10px', 
-                            borderRadius: '6px', 
-                            border: '1px solid rgba(245, 158, 11, 0.2)', 
-                            backgroundColor: 'rgba(245, 158, 11, 0.03)', 
-                            color: 'var(--color-warning)',
-                            lineHeight: '1.4'
-                          }}
                         >
                           <strong>{anom.record_key}:</strong> {anom.message}
                         </div>
@@ -2848,53 +3319,75 @@ function App() {
                   </div>
                 )}
 
-                {/* Orders match summary cards */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px' }}>
-                  {pickingInputMode === 'text' ? (
+                <div className={`picking-context-grid ${pickingResults.mode === 'automatic' ? 'auto' : ''}`}>
+                  {pickingResults.mode === 'automatic' ? (
                     <>
-                      <div style={{ padding: '12px 16px', borderRadius: '8px', backgroundColor: 'rgba(16, 185, 129, 0.05)', border: '1px solid rgba(16, 185, 129, 0.15)' }}>
-                        <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-secondary)', fontWeight: '600' }}>Ordini Trovati nel Database</div>
-                        <div style={{ fontSize: '1.2rem', fontWeight: '700', marginTop: '4px', color: 'var(--color-success)' }}>
-                          {pickingResults.orders_found.length} ordini
-                        </div>
-                        <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px', wordBreak: 'break-all' }}>
-                          {pickingResults.orders_found.length > 0 ? pickingResults.orders_found.join(', ') : 'Nessuno'}
-                        </div>
+                      <div className="picking-context-card success">
+                        <div>Ordini proposti</div>
+                        <strong>{pickingResults.auto_picking?.selected_count || 0} ordini</strong>
+                        <p>
+                          {pickingResults.orders_found.length > 0 ? pickingResults.orders_found.join(', ') : 'Nessun ordine preparabile'}
+                        </p>
                       </div>
-
-                      <div style={{ padding: '12px 16px', borderRadius: '8px', backgroundColor: pickingResults.orders_missing.length > 0 ? 'rgba(239, 68, 68, 0.05)' : 'rgba(71, 85, 105, 0.03)', border: pickingResults.orders_missing.length > 0 ? '1px solid rgba(239, 68, 68, 0.15)' : '1px solid var(--border-color)' }}>
-                        <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-secondary)', fontWeight: '600' }}>Ordini Non Trovati</div>
-                        <div style={{ fontSize: '1.2rem', fontWeight: '700', marginTop: '4px', color: pickingResults.orders_missing.length > 0 ? 'var(--color-danger)' : 'var(--text-secondary)' }}>
-                          {pickingResults.orders_missing.length} ordini
-                        </div>
-                        {pickingResults.orders_missing.length > 0 && (
-                          <div style={{ fontSize: '0.8rem', color: 'var(--color-danger)', marginTop: '4px', wordBreak: 'break-all' }}>
-                            {pickingResults.orders_missing.join(', ')}
-                          </div>
+                      <div className={`picking-context-card ${(pickingResults.auto_picking?.skipped_count || 0) > 0 ? 'danger' : 'success'}`}>
+                        <div>Ordini saltati</div>
+                        <strong>{pickingResults.auto_picking?.skipped_count || 0} ordini</strong>
+                        <p>{pickingResults.auto_picking?.evaluated_count || 0} ordini valutati su {pickingResults.auto_picking?.candidate_count || 0}</p>
+                      </div>
+                      <div className="picking-context-card file">
+                        <div>Criterio</div>
+                        <strong>{pickingResults.auto_picking?.strict_chronology ? 'Coda rigida' : 'Salto intelligente'}</strong>
+                        <p>
+                          Richiesta: {pickingResults.auto_picking?.requested_limit || 0} ordini
+                          {pickingResults.auto_picking?.sku_filter?.length > 0
+                            ? ` | SKU: ${pickingResults.auto_picking.sku_filter.join(', ')}`
+                            : ''}
+                        </p>
+                      </div>
+                    </>
+                  ) : pickingInputMode === 'text' ? (
+                    <>
+                      <div className="picking-context-card success">
+                        <div>Riferimenti ordini rilevati</div>
+                        <strong>{pickingResults.orders_found.length} ordini</strong>
+                        <p>{pickingResults.orders_found.length > 0 ? pickingResults.orders_found.join(', ') : 'Nessuno'}</p>
+                      </div>
+                      <div className={`picking-context-card ${pickingResults.orders_missing.length > 0 ? 'danger' : ''}`}>
+                        <div>Ordini non trovati</div>
+                        <strong>{pickingResults.orders_missing.length} ordini</strong>
+                        {pickingResults.orders_missing.length > 0 ? (
+                          <>
+                            <p>{pickingResults.orders_missing.join(', ')}</p>
+                            <div className="picking-context-action">
+                              <button
+                                type="button"
+                                className="btn btn-danger btn-sm"
+                                disabled={syncingSpecificOrders}
+                                onClick={handleSyncSpecificOrders}
+                              >
+                                {syncingSpecificOrders ? 'Sincronizzazione...' : 'Recupera e ricalcola'}
+                              </button>
+                            </div>
+                          </>
+                        ) : (
+                          <p>Tutti gli ordini sono presenti nel database locale.</p>
                         )}
                       </div>
                     </>
                   ) : (
                     <>
-                      <div style={{ padding: '12px 16px', borderRadius: '8px', backgroundColor: 'rgba(16, 185, 129, 0.05)', border: '1px solid rgba(16, 185, 129, 0.15)' }}>
-                        <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-secondary)', fontWeight: '600' }}>Riferimenti Ordini Rilevati</div>
-                        <div style={{ fontSize: '1.2rem', fontWeight: '700', marginTop: '4px', color: 'var(--color-success)' }}>
-                          {pickingResults.orders_found.length} ordini
-                        </div>
-                        <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px', wordBreak: 'break-all', maxHeight: '60px', overflowY: 'auto' }}>
-                          {pickingResults.orders_found.length > 0 ? pickingResults.orders_found.join(', ') : 'Nessuno'}
-                        </div>
+                      <div className="picking-context-card success">
+                        <div>Riferimenti ordini rilevati</div>
+                        <strong>{pickingResults.orders_found.length} ordini</strong>
+                        <p>{pickingResults.orders_found.length > 0 ? pickingResults.orders_found.join(', ') : 'Nessuno'}</p>
                       </div>
-
-                      <div style={{ padding: '12px 16px', borderRadius: '8px', backgroundColor: 'rgba(99, 102, 241, 0.05)', border: '1px solid rgba(99, 102, 241, 0.15)' }}>
-                        <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-secondary)', fontWeight: '600' }}>File Excel Inclusi</div>
-                        <div style={{ fontSize: '1.2rem', fontWeight: '700', marginTop: '4px', color: 'var(--color-primary)' }}>
-                          {pickingFilesSummary.length} file
-                        </div>
-                        <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px', display: 'flex', flexDirection: 'column', gap: '2px', maxHeight: '60px', overflowY: 'auto' }}>
+                      <div className="picking-context-card file">
+                        <div>File Excel inclusi</div>
+                        <strong>{pickingFilesSummary.length} file</strong>
+                        <div className="picking-file-summary">
                           {pickingFilesSummary.map((f, i) => (
-                            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: '10px' }}>
-                              <span style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', maxWidth: '140px' }} title={f.filename}>{f.filename}</span>
+                            <div key={i}>
+                              <span title={f.filename}>{f.filename}</span>
                               <strong>{f.rows_count} righe</strong>
                             </div>
                           ))}
@@ -2904,43 +3397,128 @@ function App() {
                   )}
                 </div>
 
+                {pickingResults.mode === 'automatic' && pickingViewMode === 'aggregated' && pickingResults.skipped_orders?.length > 0 && (
+                  <div className="picking-skipped-panel">
+                    <div className="picking-skipped-head">
+                      <span>Ordini saltati</span>
+                      <strong>{pickingResults.skipped_orders.length}</strong>
+                    </div>
+                    <div className="picking-skipped-list">
+                      {pickingResults.skipped_orders.slice(0, 12).map(order => (
+                        <div key={order.order_id} className="picking-skipped-row">
+                          <div>
+                            <button
+                              type="button"
+                              className="picking-skipped-order-id-btn"
+                              onClick={() => handleCopyOrderId(order.order_id)}
+                              title="Clicca per copiare l'ID ordine"
+                            >
+                              Ordine {order.order_id}
+                            </button>
+                            {copiedOrderId === order.order_id && (
+                              <span className="picking-order-copied">Copiato</span>
+                            )}
+                            <span>{order.customer_name}</span>
+                            {order.date_add && (
+                              <span className="picking-skipped-date">
+                                {new Date(order.date_add).toLocaleString('it-IT')} · {getRelativeTimeString(order.date_add)}
+                              </span>
+                            )}
+                            {order.current_state_label && (
+                              <span className={getStateBadgeClass(order.current_state_label)}>
+                                {order.current_state_label}
+                              </span>
+                            )}
+                          </div>
+                          <div className="picking-skip-reason">
+                            <span className="picking-skip-reason-label">
+                              {order.reason || 'Non preparabile'}
+                            </span>
+                            {order.missing_items?.length > 0 ? (
+                              <div className="picking-skip-missing-list">
+                                {order.missing_items.map(item => (
+                                  <span key={item.sku} className="picking-skip-missing-chip">
+                                    <strong>{item.sku}</strong>
+                                    <span>-{item.qty_missing}</span>
+                                  </span>
+                                ))}
+                              </div>
+                            ) : order.missing_references?.length > 0 ? (
+                              <div className="picking-skip-missing-list">
+                                {order.missing_references.map(item => (
+                                  <span key={`${item.product_id}-${item.qty_ordered}`} className="picking-skip-missing-chip">
+                                    <strong>ID {item.product_id}</strong>
+                                    <span>ref mancante</span>
+                                  </span>
+                                ))}
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Requirements Rendering based on view mode */}
                 {pickingViewMode === 'aggregated' ? (
-                  <div className="table-container">
-                    {pickingResults.sku_requirements && pickingResults.sku_requirements.length > 0 ? (
-                      <table className="custom-table">
+                  <>
+                    <div className="picking-table-controls">
+                      <span className="picking-filter-label">Mostra:</span>
+                      <div className="picking-filter-group" aria-label="Filtro SKU prelievo">
+                        <button
+                          type="button"
+                          className={pickingRequirementFilter === 'missing' ? 'active' : ''}
+                          onClick={() => setPickingRequirementFilter('missing')}
+                        >
+                          Solo mancanti
+                        </button>
+                        <button
+                          type="button"
+                          className={pickingRequirementFilter === 'all' ? 'active' : ''}
+                          onClick={() => setPickingRequirementFilter('all')}
+                        >
+                          Tutti
+                        </button>
+                        <button
+                          type="button"
+                          className={pickingRequirementFilter === 'available' ? 'active' : ''}
+                          onClick={() => setPickingRequirementFilter('available')}
+                        >
+                          Disponibili
+                        </button>
+                      </div>
+                      <span className="picking-visible-count">{visiblePickingRequirements.length} righe visibili</span>
+                    </div>
+
+                    <div className="table-container">
+                    {visiblePickingRequirements.length > 0 ? (
+                      <table className="custom-table picking-table">
                         <thead>
                           <tr>
                             <th>SKU Componente</th>
                             <th>Descrizione Magazzino</th>
-                            <th style={{ textAlign: 'right', width: '120px' }}>Quantità Richiesta</th>
-                            <th style={{ textAlign: 'right', width: '120px' }}>Disponibile Magazzino</th>
-                            <th style={{ textAlign: 'center', width: '140px' }}>Stato Prelievo</th>
+                            <th className="num-col">Quantità Richiesta</th>
+                            <th className="num-col">Disponibile Magazzino</th>
+                            <th className="status-col">Stato Prelievo</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {pickingResults.sku_requirements.map(req => {
-                            const diff = req.qty_stock - req.qty_required;
-                            const hasEnough = diff >= 0;
+                          {visiblePickingRequirements.map(req => {
+                            const meta = getRequirementMeta(req);
                             
                             return (
-                              <tr key={req.sku}>
+                              <tr key={req.sku} className={meta.rowClass}>
                                 <td style={{ fontWeight: '700' }}>{req.sku}</td>
-                                <td style={{ color: 'var(--text-secondary)', maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                <td className="picking-description-cell">
                                   {req.description}
                                 </td>
-                                <td style={{ textAlign: 'right', fontWeight: '600' }}>{req.qty_required}</td>
-                                <td style={{ textAlign: 'right', color: 'var(--text-secondary)' }}>{req.qty_stock}</td>
-                                <td style={{ textAlign: 'center' }}>
-                                  {hasEnough ? (
-                                    <span className="badge badge-success" style={{ display: 'inline-block', width: '90%' }}>
-                                      Disponibile (+{diff})
-                                    </span>
-                                  ) : (
-                                    <span className="badge badge-danger" style={{ display: 'inline-block', width: '90%' }}>
-                                      Mancano {Math.abs(diff)}
-                                    </span>
-                                  )}
+                                <td className="num-col strong-num">{req.qty_required}</td>
+                                <td className="num-col muted-num">{req.qty_stock}</td>
+                                <td className="status-col">
+                                  <span className={`picking-status-chip ${meta.tone}`}>
+                                    {meta.label}
+                                  </span>
                                 </td>
                               </tr>
                             );
@@ -2949,98 +3527,133 @@ function App() {
                       </table>
                     ) : (
                       <p style={{ textAlign: 'center', padding: '20px', color: 'var(--text-secondary)' }}>
-                        Nessun articolo o SKU richiesto per gli ordini trovati.
+                        Nessuna riga corrisponde al filtro selezionato.
                       </p>
                     )}
-                  </div>
+                    </div>
+                  </>
                 ) : (
                   /* Detailed View by Order */
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                    {pickingResults.order_requirements && pickingResults.order_requirements.length > 0 ? (
-                      pickingResults.order_requirements.map(ord => {
-                        // Calculate overall order status
-                        const allAvailable = ord.items.every(item => item.status === 'disponibile');
-                        const noneAvailable = ord.items.every(item => item.status === 'mancante');
-                        
-                        let orderBadge = null;
-                        if (allAvailable) {
-                          orderBadge = <span className="badge badge-success" style={{ padding: '4px 10px', fontSize: '0.75rem' }}>Pronto per il prelievo</span>;
-                        } else if (noneAvailable) {
-                          orderBadge = <span className="badge badge-danger" style={{ padding: '4px 10px', fontSize: '0.75rem' }}>Mancano tutti i componenti</span>;
-                        } else {
-                          orderBadge = <span className="badge badge-warning" style={{ padding: '4px 10px', fontSize: '0.75rem' }}>Parzialmente pronto</span>;
-                        }
-                        
-                        return (
-                          <div 
-                            key={ord.order_id} 
-                            style={{ 
-                              padding: '16px', 
-                              borderRadius: '10px', 
-                              border: '1px solid var(--border-color)', 
-                              backgroundColor: 'rgba(255, 255, 255, 0.01)',
-                              display: 'flex',
-                              flexDirection: 'column',
-                              gap: '12px'
-                            }}
-                          >
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                                <span style={{ fontSize: '0.9rem', fontWeight: '700', color: 'var(--text-primary)' }}>
-                                  Ordine: {ord.order_id}
-                                </span>
-                                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                                  — Cliente: <strong>{ord.customer_name}</strong>
-                                </span>
+                  <div className={pickingResults.mode === 'automatic' ? 'picking-automatic-split' : ''}>
+                    {pickingResults.mode === 'automatic' && (
+                      <div className="picking-auto-result-switch" role="tablist" aria-label="Risultati lista prelievo automatica">
+                        <button
+                          type="button"
+                          className={autoPickingResultView === 'selected' ? 'active success' : ''}
+                          role="tab"
+                          aria-selected={autoPickingResultView === 'selected'}
+                          onClick={() => setAutoPickingResultView('selected')}
+                        >
+                          <span>Proposti</span>
+                          <strong>{sortedPickingOrders.length}</strong>
+                        </button>
+                        <button
+                          type="button"
+                          className={autoPickingResultView === 'skipped' ? 'active danger' : ''}
+                          role="tab"
+                          aria-selected={autoPickingResultView === 'skipped'}
+                          onClick={() => setAutoPickingResultView('skipped')}
+                        >
+                          <span>Saltati</span>
+                          <strong>{pickingResults.skipped_orders?.length || 0}</strong>
+                        </button>
+                      </div>
+                    )}
+
+                    {(pickingResults.mode !== 'automatic' || autoPickingResultView === 'selected') && (
+                      <>
+                      {pickingResults.mode === 'automatic' && (
+                        <div className="picking-split-head success">
+                          <div>
+                            <span>Ordini proposti</span>
+                            <strong>{sortedPickingOrders.length} preparabili</strong>
+                          </div>
+                          <span>Disponibili con la giacenza attuale</span>
+                        </div>
+                      )}
+
+                    <div className="picking-order-list">
+                      {sortedPickingOrders.length > 0 ? (
+                        sortedPickingOrders.map(ord => {
+                          const orderMeta = getOrderPickingMeta(ord);
+                          
+                          return (
+                            <div 
+                              key={ord.order_id} 
+                              className={`picking-order-block ${orderMeta.tone}`}
+                            >
+                            <div className="picking-order-head">
+                              <div className="picking-order-identity">
+                                <div className="picking-order-mainline">
+                                  <button
+                                    type="button"
+                                    className="picking-order-id-btn"
+                                    onClick={() => handleCopyOrderId(ord.order_id)}
+                                    title="Clicca per copiare l'ID ordine"
+                                  >
+                                    Ordine {ord.order_id}
+                                  </button>
+                                  {copiedOrderId === ord.order_id && (
+                                    <span className="picking-order-copied">Copiato</span>
+                                  )}
+                                  <span>{ord.customer_name}</span>
+                                </div>
+                                {(ord.date_add || ord.current_state_label) && (
+                                  <div className="picking-order-meta-row">
+                                    {ord.date_add && (
+                                      <>
+                                        <span className="picking-order-date">
+                                          {new Date(ord.date_add).toLocaleString('it-IT')}
+                                        </span>
+                                        <span className="picking-order-age">
+                                          {getRelativeTimeString(ord.date_add)}
+                                        </span>
+                                      </>
+                                    )}
+                                    {ord.current_state_label && (
+                                      <span className={getStateBadgeClass(ord.current_state_label)}>
+                                        {ord.current_state_label}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
                               </div>
-                              {orderBadge}
+                              <span className={`picking-status-chip ${orderMeta.tone}`}>
+                                {orderMeta.label}
+                              </span>
                             </div>
                             
                             <div className="table-container" style={{ margin: 0, border: 'none' }}>
-                              <table className="custom-table" style={{ fontSize: '0.82rem' }}>
+                              <table className="custom-table picking-table picking-order-table">
                                 <thead>
                                   <tr>
                                     <th>SKU Componente</th>
                                     <th>Descrizione Magazzino</th>
-                                    <th style={{ textAlign: 'right', width: '100px' }}>Richiesto</th>
-                                    <th style={{ textAlign: 'right', width: '120px' }}>Stock Totale</th>
-                                    <th style={{ textAlign: 'center', width: '220px' }}>Giacenza Progressiva (Stato)</th>
+                                    <th className="num-col">Quantità Richiesta</th>
+                                    <th className="num-col">Disponibile Magazzino</th>
+                                    <th className="status-col">Stato Prelievo</th>
                                   </tr>
                                 </thead>
                                 <tbody>
                                   {ord.items.map(item => {
-                                    let progressBadge = null;
-                                    
-                                    if (item.status === 'disponibile') {
-                                      progressBadge = (
-                                        <span className="badge badge-success" style={{ display: 'inline-block', width: '95%', fontSize: '0.72rem' }}>
-                                          Disp. (Residua: {item.avail_after})
-                                        </span>
-                                      );
-                                    } else if (item.status === 'parziale') {
-                                      progressBadge = (
-                                        <span className="badge badge-warning" style={{ display: 'inline-block', width: '95%', fontSize: '0.72rem' }}>
-                                          Parziale ({item.qty_fulfilled} su {item.qty_required})
-                                        </span>
-                                      );
-                                    } else {
-                                      progressBadge = (
-                                        <span className="badge badge-danger" style={{ display: 'inline-block', width: '95%', fontSize: '0.72rem' }}>
-                                          Mancano {item.qty_required}
-                                        </span>
-                                      );
-                                    }
+                                    const itemMeta = item.status === 'disponibile'
+                                      ? { tone: 'success', label: `OK ${item.avail_after}` }
+                                      : item.status === 'parziale'
+                                        ? { tone: 'warning', label: `${item.qty_fulfilled}/${item.qty_required}` }
+                                        : { tone: 'danger', label: `-${item.qty_required}` };
                                     
                                     return (
-                                      <tr key={item.sku}>
+                                      <tr key={item.sku} className={item.status === 'mancante' ? 'picking-row-critical' : item.status === 'parziale' ? 'picking-row-warning' : ''}>
                                         <td style={{ fontWeight: '600' }}>{item.sku}</td>
-                                        <td style={{ color: 'var(--text-secondary)', maxWidth: '280px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                        <td className="picking-description-cell">
                                           {item.description}
                                         </td>
-                                        <td style={{ textAlign: 'right', fontWeight: '600' }}>{item.qty_required}</td>
-                                        <td style={{ textAlign: 'right', color: 'var(--text-secondary)' }}>{item.qty_stock}</td>
-                                        <td style={{ textAlign: 'center' }}>
-                                          {progressBadge}
+                                        <td className="num-col strong-num">{item.qty_required}</td>
+                                        <td className="num-col muted-num">{item.qty_stock}</td>
+                                        <td className="status-col">
+                                          <span className={`picking-status-chip ${itemMeta.tone}`}>
+                                            {itemMeta.label}
+                                          </span>
                                         </td>
                                       </tr>
                                     );
@@ -3049,12 +3662,90 @@ function App() {
                               </table>
                             </div>
                           </div>
-                        );
-                      })
-                    ) : (
-                      <p style={{ textAlign: 'center', padding: '20px', color: 'var(--text-secondary)' }}>
-                        Nessun dettaglio per ordine disponibile.
-                      </p>
+                          );
+                        })
+                      ) : (
+                        <p style={{ textAlign: 'center', padding: '20px', color: 'var(--text-secondary)' }}>
+                          Nessun dettaglio per ordine disponibile.
+                        </p>
+                      )}
+                    </div>
+                      </>
+                    )}
+
+                    {pickingResults.mode === 'automatic' && autoPickingResultView === 'skipped' && (
+                      <div className="picking-skipped-section">
+                        <div className="picking-split-head danger">
+                          <div>
+                            <span>Ordini saltati</span>
+                            <strong>{pickingResults.skipped_orders?.length || 0} non preparabili</strong>
+                          </div>
+                          <span>Dettaglio motivo esclusione</span>
+                        </div>
+
+                        {pickingResults.skipped_orders?.length > 0 ? (
+                          <div className="picking-skipped-panel full">
+                            <div className="picking-skipped-list full">
+                              {pickingResults.skipped_orders.map(order => (
+                                <div key={order.order_id} className="picking-skipped-row full">
+                                  <div>
+                                    <button
+                                      type="button"
+                                      className="picking-skipped-order-id-btn"
+                                      onClick={() => handleCopyOrderId(order.order_id)}
+                                      title="Clicca per copiare l'ID ordine"
+                                    >
+                                      Ordine {order.order_id}
+                                    </button>
+                                    {copiedOrderId === order.order_id && (
+                                      <span className="picking-order-copied">Copiato</span>
+                                    )}
+                                    <span>{order.customer_name}</span>
+                                    {order.date_add && (
+                                      <span className="picking-skipped-date">
+                                        {new Date(order.date_add).toLocaleString('it-IT')} · {getRelativeTimeString(order.date_add)}
+                                      </span>
+                                    )}
+                                    {order.current_state_label && (
+                                      <span className={getStateBadgeClass(order.current_state_label)}>
+                                        {order.current_state_label}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="picking-skip-reason">
+                                    <span className="picking-skip-reason-label">
+                                      {order.reason || 'Non preparabile'}
+                                    </span>
+                                    {order.missing_items?.length > 0 ? (
+                                      <div className="picking-skip-missing-list">
+                                        {order.missing_items.map(item => (
+                                          <span key={item.sku} className="picking-skip-missing-chip">
+                                            <strong>{item.sku}</strong>
+                                            <span>-{item.qty_missing}</span>
+                                          </span>
+                                        ))}
+                                      </div>
+                                    ) : order.missing_references?.length > 0 ? (
+                                      <div className="picking-skip-missing-list">
+                                        {order.missing_references.map(item => (
+                                          <span key={`${item.product_id}-${item.qty_ordered}`} className="picking-skip-missing-chip">
+                                            <strong>ID {item.product_id}</strong>
+                                            <span>ref mancante</span>
+                                          </span>
+                                        ))}
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="picking-skipped-empty">
+                            Nessun ordine saltato: tutti gli ordini valutati sono preparabili.
+                          </div>
+                        )}
+                      </div>
                     )}
                   </div>
                 )}
