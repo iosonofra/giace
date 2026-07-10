@@ -7,7 +7,7 @@ import threading
 import time
 import re
 from typing import List, Optional
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from fastapi import FastAPI, Depends, UploadFile, File, Form, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -67,6 +67,41 @@ class SyncProgress:
             self.error_message = error_msg or "Errore sconosciuto"
 
 sync_progress = SyncProgress()
+google_sheets_sync_lock = threading.Lock()
+prestashop_sync_lock = threading.Lock()
+AUTO_SYNC_CHECK_SECONDS = 5
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+def _parse_setting_datetime(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    normalized = value.strip()
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
+    parsed = datetime.fromisoformat(normalized)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+def _get_setting_int(db: Session, key: str, default: int = 10, minimum: int = 1) -> int:
+    setting = db.query(AppSetting).filter(AppSetting.key == key).first()
+    if setting and setting.value and setting.value.isdigit():
+        return max(int(setting.value), minimum)
+    return default
+
+def _auto_sync_delay_seconds(db: Session, interval_key: str, last_sync_key: str) -> float:
+    interval_mins = _get_setting_int(db, interval_key)
+    last_sync_setting = db.query(AppSetting).filter(AppSetting.key == last_sync_key).first()
+    try:
+        last_sync = _parse_setting_datetime(last_sync_setting.value if last_sync_setting else "")
+    except Exception:
+        return 0
+    if not last_sync:
+        return 0
+    next_sync_at = last_sync + timedelta(minutes=interval_mins)
+    return max(0.0, (next_sync_at - datetime.now(timezone.utc)).total_seconds())
 
 # Initialize DB Tables
 Base.metadata.create_all(bind=engine)
@@ -114,161 +149,153 @@ def convert_google_sheets_url(url: str) -> str:
     return f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/export?format=xlsx"
 
 def sync_stock_from_google_sheets(db: Session, force: bool = False) -> dict:
-    source_setting = db.query(AppSetting).filter(AppSetting.key == "stock_source").first()
-    url_setting = db.query(AppSetting).filter(AppSetting.key == "google_sheet_url").first()
-    sheet_name_setting = db.query(AppSetting).filter(AppSetting.key == "google_sheet_name").first()
-    hash_setting = db.query(AppSetting).filter(AppSetting.key == "google_sheet_hash").first()
-    
-    # Load mapping settings
-    m_sku_setting = db.query(AppSetting).filter(AppSetting.key == "mapping_sku").first()
-    m_qty_setting = db.query(AppSetting).filter(AppSetting.key == "mapping_qty").first()
-    m_desc_setting = db.query(AppSetting).filter(AppSetting.key == "mapping_desc").first()
-    m_lotto_setting = db.query(AppSetting).filter(AppSetting.key == "mapping_lotto").first()
-    
-    col_sku = m_sku_setting.value if m_sku_setting else "Sku"
-    col_qty = m_qty_setting.value if m_qty_setting else "Qta Tot."
-    col_desc = m_desc_setting.value if m_desc_setting else "Descrizione Sku"
-    col_lotto = m_lotto_setting.value if m_lotto_setting else "Lotto"
-    
-    source = source_setting.value if source_setting else "local_upload"
-    url = url_setting.value if url_setting else ""
-    sheet_name = sheet_name_setting.value if sheet_name_setting else "ROSATE"
-    old_hash = hash_setting.value if hash_setting else ""
-    
-    if not url:
-        raise ValueError("L'URL del Google Sheet non è impostato nelle impostazioni.")
-        
-    try:
-        export_url = convert_google_sheets_url(url)
-    except Exception as e:
-        raise ValueError(f"URL di Google Sheets non valido: {str(e)}")
-        
-    try:
-        response = requests.get(export_url, timeout=30)
-        if response.status_code != 200:
-            raise ValueError(f"HTTP {response.status_code} durante il download dal Google Sheet.")
-        file_content = response.content
-    except Exception as e:
-        raise ValueError(f"Errore nella connessione/scaricamento del Google Sheet: {str(e)}")
-        
-    new_hash = hashlib.md5(file_content).hexdigest()
-    
-    if new_hash == old_hash and not force:
-        # Update google_sheet_last_sync to prevent repeated polling when skipped
-        setting = db.query(AppSetting).filter(AppSetting.key == "google_sheet_last_sync").first()
-        if setting:
-            setting.value = datetime.utcnow().isoformat() + "Z"
-        else:
-            db.add(AppSetting(key="google_sheet_last_sync", value=datetime.utcnow().isoformat() + "Z"))
-        db.commit()
-        
+    if not google_sheets_sync_lock.acquire(blocking=False):
         return {
             "status": "skipped",
-            "message": "Nessun cambiamento rilevato nel Google Sheet rispetto all'ultimo calcolo.",
+            "message": "Sincronizzazione Google Sheets già in corso."
+        }
+    try:
+        source_setting = db.query(AppSetting).filter(AppSetting.key == "stock_source").first()
+        url_setting = db.query(AppSetting).filter(AppSetting.key == "google_sheet_url").first()
+        sheet_name_setting = db.query(AppSetting).filter(AppSetting.key == "google_sheet_name").first()
+        hash_setting = db.query(AppSetting).filter(AppSetting.key == "google_sheet_hash").first()
+
+        # Load mapping settings
+        m_sku_setting = db.query(AppSetting).filter(AppSetting.key == "mapping_sku").first()
+        m_qty_setting = db.query(AppSetting).filter(AppSetting.key == "mapping_qty").first()
+        m_desc_setting = db.query(AppSetting).filter(AppSetting.key == "mapping_desc").first()
+        m_lotto_setting = db.query(AppSetting).filter(AppSetting.key == "mapping_lotto").first()
+
+        col_sku = m_sku_setting.value if m_sku_setting else "Sku"
+        col_qty = m_qty_setting.value if m_qty_setting else "Qta Tot."
+        col_desc = m_desc_setting.value if m_desc_setting else "Descrizione Sku"
+        col_lotto = m_lotto_setting.value if m_lotto_setting else "Lotto"
+
+        source = source_setting.value if source_setting else "local_upload"
+        url = url_setting.value if url_setting else ""
+        sheet_name = sheet_name_setting.value if sheet_name_setting else "ROSATE"
+        old_hash = hash_setting.value if hash_setting else ""
+
+        if not url:
+            raise ValueError("L'URL del Google Sheet non è impostato nelle impostazioni.")
+
+        try:
+            export_url = convert_google_sheets_url(url)
+        except Exception as e:
+            raise ValueError(f"URL di Google Sheets non valido: {str(e)}")
+
+        try:
+            response = requests.get(export_url, timeout=30)
+            if response.status_code != 200:
+                raise ValueError(f"HTTP {response.status_code} durante il download dal Google Sheet.")
+            file_content = response.content
+        except Exception as e:
+            raise ValueError(f"Errore nella connessione/scaricamento del Google Sheet: {str(e)}")
+
+        new_hash = hashlib.md5(file_content).hexdigest()
+
+        if new_hash == old_hash and not force:
+            # Update google_sheet_last_sync to prevent repeated polling when skipped
+            setting = db.query(AppSetting).filter(AppSetting.key == "google_sheet_last_sync").first()
+            if setting:
+                setting.value = _utc_now_iso()
+            else:
+                db.add(AppSetting(key="google_sheet_last_sync", value=_utc_now_iso()))
+            db.commit()
+
+            return {
+                "status": "skipped",
+                "message": "Nessun cambiamento rilevato nel Google Sheet rispetto all'ultimo calcolo.",
+                "hash": new_hash
+            }
+
+        try:
+            valid_rows, anomalies = parse_warehouse_excel(
+                file_content,
+                sheet_name,
+                col_sku=col_sku,
+                col_qty=col_qty,
+                col_desc=col_desc,
+                col_lotto=col_lotto
+            )
+        except Exception as e:
+            raise ValueError(f"Errore nel parsing del Google Sheet: {str(e)}")
+
+        db.query(ImportBatch).filter(ImportBatch.file_type == "warehouse").update({ImportBatch.is_active: False})
+
+        batch = ImportBatch(
+            file_type="warehouse",
+            filename="Google Sheet Sincronizzato",
+            sheet_name=sheet_name,
+            record_count=len([r for r in valid_rows if not r["sku"].startswith("__spacer_")]),
+            is_active=True
+        )
+        db.add(batch)
+        db.commit()
+        db.refresh(batch)
+
+        stock_items = []
+        for r in valid_rows:
+            stock_items.append(WarehouseStock(
+                import_batch_id=batch.id,
+                sku=r["sku"],
+                description=r["description"],
+                lotto=r["lotto"],
+                qty_total=r["qty_total"]
+            ))
+
+        db.bulk_save_objects(stock_items)
+
+        # Save anomalies
+        for an in anomalies:
+            db.add(ImportAnomaly(
+                source=an["source"],
+                record_key=an["record_key"],
+                anomaly_type=an["anomaly_type"],
+                message=an["message"]
+            ))
+
+        for key, val in [
+            ("google_sheet_hash", new_hash),
+            ("google_sheet_last_sync", _utc_now_iso()),
+            ("google_sheet_last_error", "")
+        ]:
+            setting = db.query(AppSetting).filter(AppSetting.key == key).first()
+            if setting:
+                setting.value = val
+            else:
+                db.add(AppSetting(key=key, value=val))
+
+        db.commit()
+
+        try:
+            run_calculation(db, warehouse_batch_id=batch.id)
+        except Exception as calc_err:
+            logger.error(f"Errore nel calcolo automatico dopo sincronizzazione Google Sheet: {calc_err}")
+
+        return {
+            "status": "success",
+            "batch_id": batch.id,
+            "records_imported": len([r for r in valid_rows if not r["sku"].startswith("__spacer_")]),
             "hash": new_hash
         }
-        
-    try:
-        valid_rows, anomalies = parse_warehouse_excel(
-            file_content, 
-            sheet_name,
-            col_sku=col_sku,
-            col_qty=col_qty,
-            col_desc=col_desc,
-            col_lotto=col_lotto
-        )
-    except Exception as e:
-        raise ValueError(f"Errore nel parsing del Google Sheet: {str(e)}")
-        
-    db.query(ImportBatch).filter(ImportBatch.file_type == "warehouse").update({ImportBatch.is_active: False})
-    
-    batch = ImportBatch(
-        file_type="warehouse",
-        filename="Google Sheet Sincronizzato",
-        sheet_name=sheet_name,
-        record_count=len([r for r in valid_rows if not r["sku"].startswith("__spacer_")]),
-        is_active=True
-    )
-    db.add(batch)
-    db.commit()
-    db.refresh(batch)
-    
-    stock_items = []
-    for r in valid_rows:
-        stock_items.append(WarehouseStock(
-            import_batch_id=batch.id,
-            sku=r["sku"],
-            description=r["description"],
-            lotto=r["lotto"],
-            qty_total=r["qty_total"]
-        ))
-    
-    db.bulk_save_objects(stock_items)
-    
-    # Save anomalies
-    for an in anomalies:
-        db.add(ImportAnomaly(
-            source=an["source"],
-            record_key=an["record_key"],
-            anomaly_type=an["anomaly_type"],
-            message=an["message"]
-        ))
-        
-    for key, val in [
-        ("google_sheet_hash", new_hash),
-        ("google_sheet_last_sync", datetime.utcnow().isoformat() + "Z"),
-        ("google_sheet_last_error", "")
-    ]:
-        setting = db.query(AppSetting).filter(AppSetting.key == key).first()
-        if setting:
-            setting.value = val
-        else:
-            db.add(AppSetting(key=key, value=val))
-            
-    db.commit()
-    
-    try:
-        run_calculation(db, warehouse_batch_id=batch.id)
-    except Exception as calc_err:
-        logger.error(f"Errore nel calcolo automatico dopo sincronizzazione Google Sheet: {calc_err}")
-        
-    return {
-        "status": "success",
-        "batch_id": batch.id,
-        "records_imported": len([r for r in valid_rows if not r["sku"].startswith("__spacer_")]),
-        "hash": new_hash
-    }
+    finally:
+        google_sheets_sync_lock.release()
 
 def google_sheets_polling_worker():
     logger.info("Google Sheets polling worker avviato.")
     while True:
-        time.sleep(60) # controlla ogni minuto
-        
+        sleep_seconds = AUTO_SYNC_CHECK_SECONDS
         db = SessionLocal()
         try:
             source_setting = db.query(AppSetting).filter(AppSetting.key == "stock_source").first()
             if source_setting and source_setting.value == "google_sheets":
-                interval_setting = db.query(AppSetting).filter(AppSetting.key == "google_sheet_sync_interval").first()
-                last_sync_setting = db.query(AppSetting).filter(AppSetting.key == "google_sheet_last_sync").first()
-                
-                interval_mins = int(interval_setting.value) if (interval_setting and interval_setting.value.isdigit()) else 10
-                
-                should_sync = False
-                now_utc = datetime.now(timezone.utc)
-                if not last_sync_setting or not last_sync_setting.value:
-                    should_sync = True
-                else:
-                    try:
-                        last_sync = datetime.fromisoformat(last_sync_setting.value)
-                        if last_sync.tzinfo is None:
-                            last_sync = last_sync.replace(tzinfo=timezone.utc)
-                        elapsed = (now_utc - last_sync).total_seconds() / 60.0
-                        if elapsed >= interval_mins:
-                            should_sync = True
-                    except Exception:
-                        should_sync = True
-                        
-                if should_sync:
+                delay_seconds = _auto_sync_delay_seconds(
+                    db,
+                    "google_sheet_sync_interval",
+                    "google_sheet_last_sync"
+                )
+                if delay_seconds <= 0:
                     logger.info("Avvio sincronizzazione automatica da Google Sheets...")
                     try:
                         res = sync_stock_from_google_sheets(db, force=False)
@@ -281,39 +308,27 @@ def google_sheets_polling_worker():
                         else:
                             db.add(AppSetting(key="google_sheet_last_error", value=str(sync_err)))
                         db.commit()
+                    sleep_seconds = AUTO_SYNC_CHECK_SECONDS
+                else:
+                    sleep_seconds = min(delay_seconds, AUTO_SYNC_CHECK_SECONDS)
         except Exception as loop_err:
             logger.error(f"Errore nel ciclo del worker Google Sheets: {loop_err}")
         finally:
             db.close()
+        time.sleep(sleep_seconds)
 
 def prestashop_orders_polling_worker():
     logger.info("PrestaShop orders polling worker avviato.")
     while True:
-        time.sleep(60) # controlla ogni minuto
-        
+        sleep_seconds = AUTO_SYNC_CHECK_SECONDS
         db = SessionLocal()
         try:
-            interval_setting = db.query(AppSetting).filter(AppSetting.key == "prestashop_sync_interval").first()
-            last_sync_setting = db.query(AppSetting).filter(AppSetting.key == "prestashop_last_sync").first()
-            
-            interval_mins = int(interval_setting.value) if (interval_setting and interval_setting.value.isdigit()) else 10
-            
-            should_sync = False
-            now_utc = datetime.now(timezone.utc)
-            if not last_sync_setting or not last_sync_setting.value:
-                should_sync = True
-            else:
-                try:
-                    last_sync = datetime.fromisoformat(last_sync_setting.value)
-                    if last_sync.tzinfo is None:
-                        last_sync = last_sync.replace(tzinfo=timezone.utc)
-                    elapsed = (now_utc - last_sync).total_seconds() / 60.0
-                    if elapsed >= interval_mins:
-                        should_sync = True
-                except Exception:
-                    should_sync = True
-                    
-            if should_sync:
+            delay_seconds = _auto_sync_delay_seconds(
+                db,
+                "prestashop_sync_interval",
+                "prestashop_last_sync"
+            )
+            if delay_seconds <= 0:
                 logger.info("Avvio sincronizzazione automatica ordini da PrestaShop...")
                 try:
                     client = get_ps_client(db)
@@ -321,10 +336,14 @@ def prestashop_orders_polling_worker():
                     logger.info(f"Sincronizzazione automatica ordini completata: {res}")
                 except Exception as sync_err:
                     logger.error(f"Errore nella sincronizzazione automatica ordini: {sync_err}")
+                sleep_seconds = AUTO_SYNC_CHECK_SECONDS
+            else:
+                sleep_seconds = min(delay_seconds, AUTO_SYNC_CHECK_SECONDS)
         except Exception as loop_err:
             logger.error(f"Errore nel ciclo del worker PrestaShop: {loop_err}")
         finally:
             db.close()
+        time.sleep(sleep_seconds)
 
 # Initialize default settings if they don't exist
 @app.on_event("startup")
@@ -424,9 +443,15 @@ def get_status(db: Session = Depends(get_db), client: PrestaShopClient = Depends
     
     latest_calc = db.query(CalcRun).filter(CalcRun.status == "completed").order_by(CalcRun.completed_at.desc()).first()
     
-    # Get last orders sync from PrestashopOrder
+    # Prefer the scheduler checkpoint, because it is updated even when a sync
+    # is skipped due to no remote changes.
+    p_last_sync_setting = db.query(AppSetting).filter(AppSetting.key == "prestashop_last_sync").first()
+    prestashop_last_sync = p_last_sync_setting.value if p_last_sync_setting and p_last_sync_setting.value else None
+
+    # Keep the last data write available separately for diagnostics.
     latest_order = db.query(PrestashopOrder).order_by(PrestashopOrder.synced_at.desc()).first()
-    last_orders_sync = latest_order.synced_at.isoformat() + "Z" if latest_order and latest_order.synced_at else None
+    last_orders_data_sync = latest_order.synced_at.isoformat() + "Z" if latest_order and latest_order.synced_at else None
+    last_orders_sync = prestashop_last_sync or last_orders_data_sync
     
     # Get last google sheet sync check
     g_last_sync_setting = db.query(AppSetting).filter(AppSetting.key == "google_sheet_last_sync").first()
@@ -445,6 +470,7 @@ def get_status(db: Session = Depends(get_db), client: PrestaShopClient = Depends
         "prestashop_url": client.url if not client.mock_mode else "Simulato (Mock Mode)",
         "database": "SQLite (attivo)",
         "last_orders_sync": last_orders_sync,
+        "last_orders_data_sync": last_orders_data_sync,
         "google_sheet_last_sync": google_sheet_last_sync,
         "prestashop_orders_count": orders_count,
         "active_warehouse_batch": {
@@ -1095,6 +1121,18 @@ def import_associations(
 # ----------------- PRESTASHOP SYNC & RECALC -----------------
 
 def sync_orders_internal(db: Session, client: PrestaShopClient, force: bool = False) -> dict:
+    if not prestashop_sync_lock.acquire(blocking=False):
+        return {
+            "status": "skipped",
+            "message": "Sincronizzazione ordini PrestaShop già in corso.",
+            "mock_mode": client.mock_mode
+        }
+    try:
+        return _sync_orders_internal_unlocked(db, client, force=force)
+    finally:
+        prestashop_sync_lock.release()
+
+def _sync_orders_internal_unlocked(db: Session, client: PrestaShopClient, force: bool = False) -> dict:
     sync_progress.start()
     # 1. Get states to sync
     setting = db.query(AppSetting).filter(AppSetting.key == "included_state_ids").first()
@@ -1162,7 +1200,7 @@ def sync_orders_internal(db: Session, client: PrestaShopClient, force: bool = Fa
                     if all_match:
                         logger.info("Nessuna modifica rilevata negli ordini PrestaShop. Sincronizzazione saltata.")
                         # Save last sync setting anyway
-                        last_sync_val = datetime.now(timezone.utc).isoformat()
+                        last_sync_val = _utc_now_iso()
                         ls_setting = db.query(AppSetting).filter(AppSetting.key == "prestashop_last_sync").first()
                         if ls_setting:
                             ls_setting.value = last_sync_val
@@ -1246,7 +1284,7 @@ def sync_orders_internal(db: Session, client: PrestaShopClient, force: bool = Fa
         db.commit()
         
         # Save last sync setting
-        last_sync_val = datetime.now(timezone.utc).isoformat()
+        last_sync_val = _utc_now_iso()
         ls_setting = db.query(AppSetting).filter(AppSetting.key == "prestashop_last_sync").first()
         if ls_setting:
             ls_setting.value = last_sync_val
