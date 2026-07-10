@@ -453,8 +453,12 @@ function App() {
   const [pickingFilesSummary, setPickingFilesSummary] = useState([]);
   const [pickingViewMode, setPickingViewMode] = useState('aggregated'); // 'aggregated' or 'by_order'
   const [pickingRequirementFilter, setPickingRequirementFilter] = useState('all'); // 'missing', 'all' or 'available'
+  const [pickingCountingMode, setPickingCountingMode] = useState(false);
+  const [countedPickingSkus, setCountedPickingSkus] = useState(() => new Set());
   const [autoPickingLimit, setAutoPickingLimit] = useState(20);
   const [autoPickingStrict, setAutoPickingStrict] = useState(false);
+  const [autoPickingStrategy, setAutoPickingStrategy] = useState('chronological');
+  const [autoPickingMinResidual, setAutoPickingMinResidual] = useState(0);
   const [autoPickingResultView, setAutoPickingResultView] = useState('selected');
   const [autoPickingSkuFilter, setAutoPickingSkuFilter] = useState([]);
   const [autoPickingSkuQuery, setAutoPickingSkuQuery] = useState('');
@@ -493,6 +497,10 @@ function App() {
   const [selectedSkuForOrders, setSelectedSkuForOrders] = useState(null);
   const [skuOrdersData, setSkuOrdersData] = useState([]);
   const [loadingSkuOrders, setLoadingSkuOrders] = useState(false);
+  const [skuOrdersSortDirection, setSkuOrdersSortDirection] = useState('asc');
+  const [smartSkuCounterEnabled, setSmartSkuCounterEnabled] = useState(false);
+  const [smartSkuCounterData, setSmartSkuCounterData] = useState(null);
+  const [loadingSmartSkuCounter, setLoadingSmartSkuCounter] = useState(false);
 
   // States for Google Sheets integration
   const [stockSource, setStockSource] = useState('local_upload');
@@ -550,6 +558,11 @@ function App() {
       }
     };
   }, []);
+
+  useEffect(() => {
+    setCountedPickingSkus(new Set());
+    setPickingCountingMode(false);
+  }, [pickingResults]);
 
   // Keyboard shortcuts and global key listeners
   useEffect(() => {
@@ -1021,6 +1034,11 @@ function App() {
   const fetchSkuOrders = async (sku) => {
     setLoadingSkuOrders(true);
     setSelectedSkuForOrders(sku);
+    setSkuOrdersSortDirection('asc');
+    setSmartSkuCounterData(null);
+    if (smartSkuCounterEnabled) {
+      fetchSmartSkuCounter(sku);
+    }
     try {
       const res = await fetch(`/api/stock/${encodeURIComponent(sku)}/orders`);
       if (res.ok) {
@@ -1035,6 +1053,39 @@ function App() {
     } finally {
       setLoadingSkuOrders(false);
     }
+  };
+
+  const fetchSmartSkuCounter = async (sku) => {
+    if (!sku) return;
+
+    setLoadingSmartSkuCounter(true);
+    try {
+      const res = await fetch(`/api/stock/${encodeURIComponent(sku)}/orders/smart-counter`);
+      if (res.ok) {
+        const data = await res.json();
+        setSmartSkuCounterData(data);
+      } else {
+        setSmartSkuCounterData(null);
+      }
+    } catch (err) {
+      console.error("Errore nel recupero del contatore smart:", err);
+      setSmartSkuCounterData(null);
+    } finally {
+      setLoadingSmartSkuCounter(false);
+    }
+  };
+
+  const toggleSmartSkuCounter = () => {
+    setSmartSkuCounterEnabled(prev => {
+      const next = !prev;
+      if (next) {
+        setSkuOrdersSortDirection('asc');
+        fetchSmartSkuCounter(selectedSkuForOrders);
+      } else {
+        setSmartSkuCounterData(null);
+      }
+      return next;
+    });
   };
 
   const handleTestConnection = async () => {
@@ -1420,6 +1471,12 @@ function App() {
       return;
     }
 
+    const minResidual = Number(autoPickingMinResidual || 0);
+    if (!Number.isFinite(minResidual) || minResidual < 0) {
+      setPickingError("Inserisci una scorta minima SKU valida, pari a 0 o superiore.");
+      return;
+    }
+
     setPickingLoading(true);
     setPickingError(null);
     setPickingFilesAnomalies([]);
@@ -1432,6 +1489,8 @@ function App() {
         body: JSON.stringify({
           limit,
           strict_chronology: autoPickingStrict,
+          selection_strategy: autoPickingStrategy,
+          min_sku_residual: minResidual,
           sku_filter: autoPickingSkuFilter
         })
       });
@@ -1449,6 +1508,33 @@ function App() {
     } finally {
       setPickingLoading(false);
     }
+  };
+
+  const togglePickingSkuCounted = (sku) => {
+    if (!pickingCountingMode || !sku) return;
+
+    setCountedPickingSkus(prev => {
+      const next = new Set(prev);
+      if (next.has(sku)) {
+        next.delete(sku);
+      } else {
+        next.add(sku);
+      }
+      return next;
+    });
+  };
+
+  const clearCountedPickingSkus = () => {
+    setCountedPickingSkus(new Set());
+  };
+
+  const togglePickingCountingMode = () => {
+    setPickingCountingMode(prev => {
+      if (prev) {
+        setCountedPickingSkus(new Set());
+      }
+      return !prev;
+    });
   };
 
   const handleCopyPickingList = () => {
@@ -1474,7 +1560,8 @@ function App() {
         textLines.splice(
           3,
           0,
-          `Modalità automatica: ${pickingResults.auto_picking?.strict_chronology ? 'coda rigida' : 'salta non preparabili'}`,
+          `Modalità automatica: ${pickingResults.auto_picking?.selection_strategy === 'maximize_orders' ? 'massimizza ordini' : (pickingResults.auto_picking?.strict_chronology ? 'coda rigida' : 'salta non preparabili')}`,
+          `Scorta minima SKU: ${pickingResults.auto_picking?.min_sku_residual || 0}`,
           `Ordini saltati: ${pickingResults.skipped_orders?.length || 0}`
         );
       }
@@ -1494,7 +1581,8 @@ function App() {
       ];
 
       if (pickingResults.mode === 'automatic') {
-        textLines.push(`Modalità automatica: ${pickingResults.auto_picking?.strict_chronology ? 'coda rigida' : 'salta non preparabili'}`);
+        textLines.push(`Modalità automatica: ${pickingResults.auto_picking?.selection_strategy === 'maximize_orders' ? 'massimizza ordini' : (pickingResults.auto_picking?.strict_chronology ? 'coda rigida' : 'salta non preparabili')}`);
+        textLines.push(`Scorta minima SKU: ${pickingResults.auto_picking?.min_sku_residual || 0}`);
         textLines.push(`Ordini saltati: ${pickingResults.skipped_orders?.length || 0}`);
         textLines.push("");
       }
@@ -1789,6 +1877,7 @@ function App() {
 
   const pickingRequirements = pickingResults?.sku_requirements || [];
   const pickingOrders = pickingResults?.order_requirements || [];
+  const countedPickingCount = pickingRequirements.filter(req => countedPickingSkus.has(req.sku)).length;
   const visiblePickingRequirements = pickingRequirements.filter(req => {
     const tone = getRequirementMeta(req).tone;
     if (pickingRequirementFilter === 'missing') return tone === 'danger';
@@ -3130,23 +3219,60 @@ function App() {
                     </div>
 
                     <div className="form-group">
-                      <span className="picking-field-label">Criterio cronologico</span>
-                      <div className="picking-choice-group" role="group" aria-label="Criterio cronologico lista automatica">
+                      <span className="picking-field-label">Strategia selezione</span>
+                      <div className="picking-choice-group" role="group" aria-label="Strategia lista automatica">
                         <button
                           type="button"
-                          className={!autoPickingStrict ? 'active' : ''}
-                          onClick={() => setAutoPickingStrict(false)}
+                          className={autoPickingStrategy === 'chronological' ? 'active' : ''}
+                          onClick={() => setAutoPickingStrategy('chronological')}
                         >
-                          Salta non preparabili
+                          Cronologico
                         </button>
                         <button
                           type="button"
-                          className={autoPickingStrict ? 'active' : ''}
-                          onClick={() => setAutoPickingStrict(true)}
+                          className={autoPickingStrategy === 'maximize_orders' ? 'active' : ''}
+                          onClick={() => setAutoPickingStrategy('maximize_orders')}
                         >
-                          Coda rigida
+                          Massimizza ordini
                         </button>
                       </div>
+                    </div>
+
+                    {autoPickingStrategy === 'chronological' && (
+                      <div className="form-group">
+                        <span className="picking-field-label">Criterio cronologico</span>
+                        <div className="picking-choice-group" role="group" aria-label="Criterio cronologico lista automatica">
+                          <button
+                            type="button"
+                            className={!autoPickingStrict ? 'active' : ''}
+                            onClick={() => setAutoPickingStrict(false)}
+                          >
+                            Salta non preparabili
+                          </button>
+                          <button
+                            type="button"
+                            className={autoPickingStrict ? 'active' : ''}
+                            onClick={() => setAutoPickingStrict(true)}
+                          >
+                            Coda rigida
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="form-group">
+                      <label className="picking-field-label" htmlFor="auto-picking-min-residual">
+                        Scorta minima per SKU
+                      </label>
+                      <input
+                        id="auto-picking-min-residual"
+                        className="settings-input"
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={autoPickingMinResidual}
+                        onChange={(e) => setAutoPickingMinResidual(e.target.value)}
+                      />
                     </div>
                   </div>
 
@@ -3292,6 +3418,26 @@ function App() {
                     </div>
                   </div>
                   <div className="picking-toolbar">
+                    {pickingViewMode === 'aggregated' && (
+                      <>
+                        <button
+                          type="button"
+                          className={`btn ${pickingCountingMode ? 'btn-success' : 'btn-neutral'}`}
+                          onClick={togglePickingCountingMode}
+                        >
+                          {pickingCountingMode ? 'Conteggio attivo' : 'Conteggio'}
+                        </button>
+                        {countedPickingSkus.size > 0 && (
+                          <button
+                            type="button"
+                            className="btn btn-neutral"
+                            onClick={clearCountedPickingSkus}
+                          >
+                            Azzera contati ({countedPickingSkus.size})
+                          </button>
+                        )}
+                      </>
+                    )}
                     <button 
                       className={`btn ${pickingCopyState === 'copied' ? 'btn-success' : 'btn-secondary'}`}
                       onClick={handleCopyPickingList}
@@ -3336,9 +3482,16 @@ function App() {
                       </div>
                       <div className="picking-context-card file">
                         <div>Criterio</div>
-                        <strong>{pickingResults.auto_picking?.strict_chronology ? 'Coda rigida' : 'Salto intelligente'}</strong>
+                        <strong>
+                          {pickingResults.auto_picking?.selection_strategy === 'maximize_orders'
+                            ? 'Massimizza ordini'
+                            : (pickingResults.auto_picking?.strict_chronology ? 'Coda rigida' : 'Salto intelligente')}
+                        </strong>
                         <p>
                           Richiesta: {pickingResults.auto_picking?.requested_limit || 0} ordini
+                          {Number(pickingResults.auto_picking?.min_sku_residual || 0) > 0
+                            ? ` | Scorta min: ${pickingResults.auto_picking.min_sku_residual}`
+                            : ''}
                           {pickingResults.auto_picking?.sku_filter?.length > 0
                             ? ` | SKU: ${pickingResults.auto_picking.sku_filter.join(', ')}`
                             : ''}
@@ -3439,7 +3592,14 @@ function App() {
                                 {order.missing_items.map(item => (
                                   <span key={item.sku} className="picking-skip-missing-chip">
                                     <strong>{item.sku}</strong>
-                                    <span>-{item.qty_missing}</span>
+                                    <span>
+                                      {item.violation_type === 'protected_residual'
+                                        ? `dopo ${item.qty_available_after} < min ${item.min_residual}`
+                                        : `manca ${item.qty_missing}`}
+                                    </span>
+                                    <small>
+                                      richiesti {item.qty_required} / disp. {item.qty_available}
+                                    </small>
                                   </span>
                                 ))}
                               </div>
@@ -3489,6 +3649,11 @@ function App() {
                         </button>
                       </div>
                       <span className="picking-visible-count">{visiblePickingRequirements.length} righe visibili</span>
+                      {pickingCountingMode && (
+                        <span className="picking-counted-summary">
+                          {countedPickingCount}/{pickingRequirements.length} contate
+                        </span>
+                      )}
                     </div>
 
                     <div className="table-container">
@@ -3506,9 +3671,15 @@ function App() {
                         <tbody>
                           {visiblePickingRequirements.map(req => {
                             const meta = getRequirementMeta(req);
+                            const isCounted = countedPickingSkus.has(req.sku);
                             
                             return (
-                              <tr key={req.sku} className={meta.rowClass}>
+                              <tr
+                                key={req.sku}
+                                className={`${meta.rowClass} ${isCounted ? 'picking-row-counted' : ''} ${pickingCountingMode ? 'picking-row-countable' : ''}`}
+                                onClick={() => togglePickingSkuCounted(req.sku)}
+                                title={pickingCountingMode ? (isCounted ? 'Clicca per segnare come non contata' : 'Clicca per segnare come contata') : undefined}
+                              >
                                 <td style={{ fontWeight: '700' }}>{req.sku}</td>
                                 <td className="picking-description-cell">
                                   {req.description}
@@ -3516,8 +3687,8 @@ function App() {
                                 <td className="num-col strong-num">{req.qty_required}</td>
                                 <td className="num-col muted-num">{req.qty_stock}</td>
                                 <td className="status-col">
-                                  <span className={`picking-status-chip ${meta.tone}`}>
-                                    {meta.label}
+                                  <span className={`picking-status-chip ${isCounted ? 'counted' : meta.tone}`}>
+                                    {isCounted ? 'Contata' : meta.label}
                                   </span>
                                 </td>
                               </tr>
@@ -3721,7 +3892,14 @@ function App() {
                                         {order.missing_items.map(item => (
                                           <span key={item.sku} className="picking-skip-missing-chip">
                                             <strong>{item.sku}</strong>
-                                            <span>-{item.qty_missing}</span>
+                                            <span>
+                                              {item.violation_type === 'protected_residual'
+                                                ? `dopo ${item.qty_available_after} < min ${item.min_residual}`
+                                                : `manca ${item.qty_missing}`}
+                                            </span>
+                                            <small>
+                                              richiesti {item.qty_required} / disp. {item.qty_available}
+                                            </small>
                                           </span>
                                         ))}
                                       </div>
@@ -4305,6 +4483,23 @@ function App() {
         const totalOrders = skuOrdersData.length;
         const totalCommitted = skuOrdersData.reduce((sum, o) => sum + (o.contribution || 0), 0);
         const totalValue = skuOrdersData.reduce((sum, o) => sum + (o.total_paid || 0), 0);
+        const selectedSkuStockRows = stockData.filter(item =>
+          !item.is_spacer &&
+          !item.is_missing &&
+          item.sku === selectedSkuForOrders
+        );
+        const hasSelectedSkuStock = selectedSkuStockRows.length > 0;
+        const remainingStock = selectedSkuStockRows.reduce((sum, item) => sum + Number(item.qty_residual || 0), 0);
+        const formatQty = (value) => Number(value).toLocaleString('it-IT', { maximumFractionDigits: 2 });
+        const formatSmartNote = (value) => String(value || '').replace(/(\d+)\.0(?!\d)/g, '$1');
+        const smartSummary = smartSkuCounterData?.summary || null;
+        const baseRows = smartSkuCounterEnabled ? (smartSkuCounterData?.orders || []) : skuOrdersData;
+        const displayedSkuOrders = [...baseRows].sort((a, b) => {
+          const dateA = a.date_add ? new Date(a.date_add).getTime() : 0;
+          const dateB = b.date_add ? new Date(b.date_add).getTime() : 0;
+          return skuOrdersSortDirection === 'asc' ? dateA - dateB : dateB - dateA;
+        });
+        const drawerIsLoading = loadingSkuOrders || (smartSkuCounterEnabled && loadingSmartSkuCounter);
 
         return (
           <>
@@ -4312,7 +4507,7 @@ function App() {
             <div className="order-drawer-overlay" onClick={() => setSelectedSkuForOrders(null)} />
 
             {/* Drawer panel */}
-            <div className="order-drawer">
+            <div className={`order-drawer ${smartSkuCounterEnabled ? 'order-drawer-expanded' : ''}`}>
 
               {/* Header */}
               <div className="order-drawer-header">
@@ -4321,9 +4516,26 @@ function App() {
                     Ordini impegnati — SKU:{' '}
                     <span style={{ color: 'var(--color-primary)' }}>{selectedSkuForOrders}</span>
                   </h3>
-                  <button className="order-drawer-close" onClick={() => setSelectedSkuForOrders(null)}>
-                    &times;
-                  </button>
+                  <div className="order-drawer-title-actions">
+                    {!loadingSkuOrders && skuOrdersData.length > 0 && (
+                      <span
+                        className="smart-counter-tooltip-wrap"
+                        data-tooltip="Simula gli ordini attivi in ordine cronologico, scala le giacenze di tutte le SKU collegate e indica quali ordini sono preparabili."
+                      >
+                        <button
+                          type="button"
+                          className={`btn btn-sm ${smartSkuCounterEnabled ? 'btn-success' : 'btn-neutral'}`}
+                          onClick={toggleSmartSkuCounter}
+                          disabled={loadingSmartSkuCounter}
+                        >
+                          {loadingSmartSkuCounter ? 'Calcolo Smart...' : smartSkuCounterEnabled ? 'Conteggio Smart attivo' : 'Conteggio Smart'}
+                        </button>
+                      </span>
+                    )}
+                    <button className="order-drawer-close" onClick={() => setSelectedSkuForOrders(null)}>
+                      &times;
+                    </button>
+                  </div>
                 </div>
 
                 {/* Stat chips */}
@@ -4337,41 +4549,90 @@ function App() {
                       <span className="stat-value">{totalCommitted}</span>
                       <span className="stat-label">SKU Impegnate</span>
                     </div>
+                    {hasSelectedSkuStock && (
+                      <div className={`drawer-stat-chip ${remainingStock <= 0 ? 'stat-danger' : 'stat-success'}`}>
+                        <span className="stat-value">{formatQty(remainingStock)}</span>
+                        <span className="stat-label">Giacenza Rimanente</span>
+                      </div>
+                    )}
                     {totalValue > 0 && (
                       <div className="drawer-stat-chip">
                         <span className="stat-value">€ {totalValue.toFixed(2)}</span>
                         <span className="stat-label">Valore Stimato</span>
                       </div>
                     )}
+                    {smartSkuCounterEnabled && smartSummary && (
+                      <>
+                        <div className="drawer-stat-chip stat-success">
+                          <span className="stat-value">{smartSummary.counted || 0}</span>
+                          <span className="stat-label">Conteggiati</span>
+                        </div>
+                        <div className={`drawer-stat-chip ${(smartSummary.blocked || 0) + (smartSummary.selected_sku_shortage || 0) > 0 ? 'stat-danger' : 'stat-success'}`}>
+                          <span className="stat-value">{(smartSummary.blocked || 0) + (smartSummary.selected_sku_shortage || 0)}</span>
+                          <span className="stat-label">Non conteggiati</span>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+                {!loadingSkuOrders && smartSkuCounterEnabled && smartSummary && (
+                  <div className="order-drawer-controls">
+                    <span className="order-drawer-smart-summary">
+                      {formatQty(smartSummary.initial_selected_stock || 0)} {'->'} {formatQty(smartSummary.final_selected_stock || 0)} disponibili
+                    </span>
                   </div>
                 )}
               </div>
 
               {/* Body */}
               <div className="order-drawer-body">
-                {loadingSkuOrders ? (
+                {drawerIsLoading ? (
                   <div className="spinner-container" style={{ paddingTop: '60px' }}>
                     <div className="spinner"></div>
-                    <p style={{ color: 'var(--text-secondary)', marginTop: '12px' }}>Caricamento ordini in corso...</p>
+                    <p style={{ color: 'var(--text-secondary)', marginTop: '12px' }}>
+                      {smartSkuCounterEnabled ? 'Calcolo Conteggio Smart in corso...' : 'Caricamento ordini in corso...'}
+                    </p>
                   </div>
-                ) : skuOrdersData.length > 0 ? (
+                ) : displayedSkuOrders.length > 0 ? (
                   <table className="custom-table">
                     <thead>
                       <tr>
                         <th>Ordine</th>
-                        <th>Data</th>
+                        <th>
+                          <button
+                            type="button"
+                            className="table-sort-header"
+                            onClick={() => setSkuOrdersSortDirection(prev => prev === 'asc' ? 'desc' : 'asc')}
+                            aria-label={`Ordina per data ${skuOrdersSortDirection === 'asc' ? 'dal piu recente al meno recente' : 'dal meno recente al piu recente'}`}
+                            title={skuOrdersSortDirection === 'asc' ? 'Dal meno recente al piu recente' : 'Dal piu recente al meno recente'}
+                          >
+                            <span>Data</span>
+                            <span className="sort-arrow" aria-hidden="true">
+                              {skuOrdersSortDirection === 'asc' ? '↑' : '↓'}
+                            </span>
+                          </button>
+                        </th>
                         <th>Cliente</th>
                         <th>Stato</th>
                         <th>Prodotto</th>
                         <th style={{ textAlign: 'right' }}>Qta</th>
                         <th style={{ textAlign: 'right' }}>×SKU</th>
                         <th style={{ textAlign: 'right' }}>Impegnato</th>
+                        {smartSkuCounterEnabled && (
+                          <>
+                            <th>Esito</th>
+                            <th>Residuo / Note</th>
+                          </>
+                        )}
                         <th style={{ textAlign: 'right' }}>Valore</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {skuOrdersData.map((order, i) => (
-                        <tr key={`${order.order_id}-${order.product_id}-${i}`}>
+                      {displayedSkuOrders.map((order, i) => (
+                        <tr
+                          key={`${order.order_id}-${order.product_id}-${i}`}
+                          className={smartSkuCounterEnabled ? `smart-counter-row ${order.smart_status || ''}` : ''}
+                        >
                           {/* ID */}
                           <td 
                             style={{ position: 'relative', fontWeight: '700', color: 'var(--color-primary)', whiteSpace: 'nowrap', cursor: 'pointer' }}
@@ -4430,6 +4691,32 @@ function App() {
                           <td style={{ textAlign: 'right', fontWeight: '700', color: 'var(--color-primary)' }}>
                             {order.contribution}
                           </td>
+                          {smartSkuCounterEnabled && (
+                            <>
+                              <td>
+                                <span className={`smart-counter-chip ${order.smart_status || ''}`}>
+                                  {order.smart_label || 'Da valutare'}
+                                </span>
+                              </td>
+                              <td className={`smart-counter-residue ${order.smart_status === 'counted' ? 'counted' : ''}`}>
+                                <span className="smart-counter-residue-value">
+                                  {formatQty(order.selected_qty_before || 0)} {'->'} {formatQty(order.selected_qty_after || 0)}
+                                </span>
+                                {order.smart_status !== 'counted' && order.smart_note && !order.component_issues?.length && (
+                                  <span className="smart-counter-note-text">{formatSmartNote(order.smart_note)}</span>
+                                )}
+                                {order.component_issues?.length > 0 && (
+                                  <div className="smart-counter-issues">
+                                    {order.component_issues.map(issue => (
+                                      <span key={issue.sku}>
+                                        {issue.sku}: richiesti {formatQty(issue.qty_required)}, disp. {formatQty(issue.qty_available)}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                              </td>
+                            </>
+                          )}
                           {/* Valore */}
                           <td style={{ textAlign: 'right', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
                             {order.total_paid != null ? `€ ${Number(order.total_paid).toFixed(2)}` : '—'}
@@ -4442,14 +4729,17 @@ function App() {
                       <tr className="table-total-row">
                         <td colSpan={5} style={{ fontWeight: '700' }}>Totali</td>
                         <td style={{ textAlign: 'right' }}>
-                          {skuOrdersData.reduce((s, o) => s + (o.product_quantity || 0), 0)}
+                          {displayedSkuOrders.reduce((s, o) => s + (o.product_quantity || 0), 0)}
                         </td>
                         <td></td>
                         <td style={{ textAlign: 'right', color: 'var(--color-primary)' }}>
-                          {totalCommitted}
+                          {displayedSkuOrders.reduce((s, o) => s + (o.contribution || 0), 0)}
                         </td>
+                        {smartSkuCounterEnabled && <td colSpan={2}></td>}
                         <td style={{ textAlign: 'right' }}>
-                          {totalValue > 0 ? `€ ${totalValue.toFixed(2)}` : '—'}
+                          {displayedSkuOrders.reduce((s, o) => s + (o.total_paid || 0), 0) > 0
+                            ? `€ ${displayedSkuOrders.reduce((s, o) => s + (o.total_paid || 0), 0).toFixed(2)}`
+                            : '—'}
                         </td>
                       </tr>
                     </tfoot>

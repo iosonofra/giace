@@ -1856,6 +1856,212 @@ def get_stock_orders(sku: str, db: Session = Depends(get_db)):
     orders_contrib.sort(key=lambda x: x["date_add"] or datetime.min, reverse=True)
     return orders_contrib
 
+@app.get("/api/stock/{sku:path}/orders/smart-counter")
+def get_stock_orders_smart_counter(sku: str, db: Session = Depends(get_db)):
+    active_a = db.query(ImportBatch).filter(
+        ImportBatch.file_type == "associations",
+        ImportBatch.is_active == True
+    ).first()
+    if not active_a:
+        return {"orders": [], "summary": {"counted": 0, "blocked": 0, "selected_sku_shortage": 0}}
+
+    components = db.query(ProductComponent).filter(ProductComponent.import_batch_id == active_a.id).all()
+    components_map = {}
+    selected_product_ids = set()
+    for comp in components:
+        components_map.setdefault(comp.product_id, []).append(comp)
+        if comp.sku == sku:
+            selected_product_ids.add(comp.product_id)
+
+    if not selected_product_ids:
+        return {"orders": [], "summary": {"counted": 0, "blocked": 0, "selected_sku_shortage": 0}}
+
+    active_w = db.query(ImportBatch).filter(
+        ImportBatch.file_type == "warehouse",
+        ImportBatch.is_active == True
+    ).first()
+    stock_map = {}
+    if active_w:
+        stock_items = db.query(WarehouseStock).filter(WarehouseStock.import_batch_id == active_w.id).all()
+        for item in stock_items:
+            sku_key = item.sku.strip()
+            if not sku_key or sku_key.startswith("__spacer_"):
+                continue
+            if sku_key not in stock_map:
+                stock_map[sku_key] = {
+                    "description": item.description or "",
+                    "qty_total": 0.0
+                }
+            stock_map[sku_key]["qty_total"] += item.qty_total
+
+    running_stock = {sku_key: info["qty_total"] for sku_key, info in stock_map.items()}
+
+    state_setting = db.query(AppSetting).filter(AppSetting.key == "included_state_ids").first()
+    try:
+        included_states = json.loads(state_setting.value) if state_setting else [12]
+    except Exception:
+        included_states = [12]
+
+    orders_query = db.query(PrestashopOrder)
+    if included_states:
+        orders_query = orders_query.filter(PrestashopOrder.current_state.in_(included_states))
+    else:
+        orders_query = orders_query.filter(False)
+
+    active_orders = orders_query.order_by(
+        asc(PrestashopOrder.date_add),
+        asc(PrestashopOrder.order_id)
+    ).all()
+
+    order_ids = [order.order_id for order in active_orders]
+    lines_by_order = {}
+    if order_ids:
+        all_lines = db.query(PrestashopOrderLine).filter(
+            PrestashopOrderLine.order_id.in_(order_ids)
+        ).order_by(
+            asc(PrestashopOrderLine.order_id),
+            asc(PrestashopOrderLine.id)
+        ).all()
+        for line in all_lines:
+            lines_by_order.setdefault(line.order_id, []).append(line)
+
+    rows = []
+    summary = {
+        "counted": 0,
+        "blocked": 0,
+        "selected_sku_shortage": 0,
+        "initial_selected_stock": running_stock.get(sku, 0.0),
+        "final_selected_stock": running_stock.get(sku, 0.0)
+    }
+
+    def format_smart_qty(value):
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            return value
+        return int(numeric) if numeric.is_integer() else round(numeric, 2)
+
+    def build_line_requirements(line):
+        product_qty = line.product_quantity or 1
+        reqs = {}
+
+        if line.product_id in components_map:
+            for comp in components_map.get(line.product_id, []):
+                sku_key = comp.sku.strip()
+                if sku_key:
+                    reqs[sku_key] = reqs.get(sku_key, 0.0) + (comp.qty_required * product_qty)
+        else:
+            sku_key = (line.product_reference or "").strip()
+            if sku_key:
+                reqs[sku_key] = reqs.get(sku_key, 0.0) + product_qty
+
+        return reqs
+
+    for order in active_orders:
+        order_lines = lines_by_order.get(order.order_id, [])
+        selected_lines = [line for line in order_lines if line.product_id in selected_product_ids]
+        order_reqs = {}
+        selected_required_by_line_id = {}
+
+        for line in order_lines:
+            line_reqs = build_line_requirements(line)
+            for req_sku, req_qty in line_reqs.items():
+                order_reqs[req_sku] = order_reqs.get(req_sku, 0.0) + req_qty
+
+            if line.product_id in selected_product_ids:
+                selected_required_by_line_id[line.id] = line_reqs.get(sku, 0.0)
+
+        if not order_reqs:
+            continue
+
+        selected_before = running_stock.get(sku, 0.0)
+        issues = []
+        component_requirements = []
+
+        for req_sku, req_qty in sorted(order_reqs.items()):
+            available_before = running_stock.get(req_sku, 0.0)
+            available_after_if_counted = available_before - req_qty
+            stock_info = stock_map.get(req_sku, {"description": "Non presente in magazzino", "qty_total": 0.0})
+            is_available = available_before >= req_qty
+            component_requirements.append({
+                "sku": req_sku,
+                "description": stock_info["description"],
+                "qty_required": req_qty,
+                "qty_available_before": available_before,
+                "qty_available_after_if_counted": available_after_if_counted,
+                "status": "available" if is_available else "missing"
+            })
+            if not is_available:
+                issues.append({
+                    "sku": req_sku,
+                    "description": stock_info["description"],
+                    "qty_required": req_qty,
+                    "qty_available": available_before,
+                    "qty_missing": req_qty - available_before,
+                    "is_selected_sku": req_sku == sku
+                })
+
+        can_count = not issues
+        if can_count:
+            for req_sku, req_qty in order_reqs.items():
+                running_stock[req_sku] = running_stock.get(req_sku, 0.0) - req_qty
+            selected_after = running_stock.get(sku, 0.0)
+            smart_status = "counted"
+            smart_label = "Conteggiato"
+            smart_note = f"{sku}: {selected_before} -> {selected_after}"
+        else:
+            selected_after = selected_before
+            selected_issue = next((issue for issue in issues if issue["is_selected_sku"]), None)
+            if selected_issue:
+                smart_status = "selected_sku_shortage"
+                smart_label = "SKU insufficiente"
+                smart_note = f"{sku}: richiesti {format_smart_qty(selected_issue['qty_required'])}, disponibili {format_smart_qty(selected_issue['qty_available'])}"
+            else:
+                smart_status = "blocked_combo"
+                smart_label = "Bloccato da altra SKU"
+                if issues:
+                    smart_note = "Manca " + ", ".join(
+                        f"{issue['sku']} ({format_smart_qty(issue['qty_missing'])})" for issue in issues[:3]
+                    )
+                else:
+                    smart_note = "Nessun componente SKU ricavabile"
+
+        for line in selected_lines:
+            selected_required = selected_required_by_line_id.get(line.id, 0.0)
+            if selected_required <= 0:
+                continue
+
+            if smart_status == "counted":
+                summary["counted"] += 1
+            elif smart_status == "selected_sku_shortage":
+                summary["selected_sku_shortage"] += 1
+            else:
+                summary["blocked"] += 1
+
+            rows.append({
+                "order_id": line.order_id,
+                "current_state_label": order.current_state_label if order else "",
+                "date_add": order.date_add.isoformat() if order and order.date_add else None,
+                "product_id": line.product_id,
+                "product_reference": line.product_reference or f"ID {line.product_id}",
+                "product_quantity": line.product_quantity,
+                "qty_required": selected_required,
+                "contribution": selected_required,
+                "customer_name": order.customer_name if order else None,
+                "total_paid": round((order.total_paid or 0), 2) if order else None,
+                "smart_status": smart_status,
+                "smart_label": smart_label,
+                "smart_note": smart_note,
+                "selected_qty_before": selected_before,
+                "selected_qty_after": selected_after,
+                "component_issues": issues,
+                "component_requirements": component_requirements
+            })
+
+    summary["final_selected_stock"] = running_stock.get(sku, 0.0)
+    summary["simulated_orders"] = len(rows)
+    return {"orders": rows, "summary": summary}
+
 @app.get("/api/products")
 def get_products(db: Session = Depends(get_db)):
     active_a = db.query(ImportBatch).filter(ImportBatch.file_type == "associations", ImportBatch.is_active == True).first()
@@ -2193,6 +2399,17 @@ def auto_picking_orders(payload: dict, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Il numero ordini deve essere compreso tra 1 e 500.")
 
     strict_chronology = bool(payload.get("strict_chronology", False))
+    selection_strategy = str(payload.get("selection_strategy", "chronological")).strip().lower()
+    if selection_strategy not in ("chronological", "maximize_orders"):
+        raise HTTPException(status_code=400, detail="Strategia lista automatica non valida.")
+
+    try:
+        min_sku_residual = float(payload.get("min_sku_residual", 0) or 0)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="La scorta minima SKU deve essere un numero valido.")
+    if min_sku_residual < 0:
+        raise HTTPException(status_code=400, detail="La scorta minima SKU non può essere negativa.")
+
     sku_filter_raw = payload.get("sku_filter", [])
     if isinstance(sku_filter_raw, str):
         sku_filter_raw = [s.strip() for s in sku_filter_raw.split(",")]
@@ -2259,11 +2476,9 @@ def auto_picking_orders(payload: dict, db: Session = Depends(get_db)):
     order_requirements = []
     sku_required_map = {}
     evaluated_count = 0
+    candidate_orders = []
 
     for order in orders:
-        if len(selected_orders) >= limit:
-            break
-
         sku_reqs = {}
         missing_reference_lines = []
 
@@ -2289,38 +2504,78 @@ def auto_picking_orders(payload: dict, db: Session = Depends(get_db)):
         if sku_filter and not any(sku.upper() in sku_filter for sku in sku_reqs):
             continue
 
-        evaluated_count += 1
+        candidate_orders.append({
+            "order": order,
+            "sku_reqs": sku_reqs,
+            "missing_reference_lines": missing_reference_lines
+        })
 
-        shortages = []
+    def _stock_violations(sku_reqs, stock_snapshot):
+        violations = []
         for sku, req_qty in sorted(sku_reqs.items()):
-            available = running_stock.get(sku, 0.0)
+            available = stock_snapshot.get(sku, 0.0)
+            available_after = available - req_qty
+            stock_info = stock_map.get(sku, {"description": "Non presente in magazzino", "qty_total": 0.0})
             if available < req_qty:
-                stock_info = stock_map.get(sku, {"description": "Non presente in magazzino", "qty_total": 0.0})
-                shortages.append({
+                violations.append({
                     "sku": sku,
                     "description": stock_info["description"],
                     "qty_required": req_qty,
                     "qty_available": available,
-                    "qty_missing": req_qty - available
+                    "qty_stock": stock_info["qty_total"],
+                    "qty_available_after": available_after,
+                    "qty_missing": req_qty - available,
+                    "min_residual": min_sku_residual,
+                    "violation_type": "insufficient_stock",
+                    "detail": f"Richiesti {req_qty}, disponibili {available}: mancano {req_qty - available}."
                 })
+            elif min_sku_residual > 0 and available_after < min_sku_residual:
+                violations.append({
+                    "sku": sku,
+                    "description": stock_info["description"],
+                    "qty_required": req_qty,
+                    "qty_available": available,
+                    "qty_stock": stock_info["qty_total"],
+                    "qty_available_after": available_after,
+                    "qty_missing": 0,
+                    "min_residual": min_sku_residual,
+                    "violation_type": "protected_residual",
+                    "detail": f"Dopo il prelievo resterebbero {available_after}, sotto la scorta minima {min_sku_residual}."
+                })
+        return violations
 
-        can_prepare = bool(sku_reqs) and not shortages and not missing_reference_lines
+    def _skip_payload(candidate, violations):
+        order = candidate["order"]
+        missing_refs = candidate["missing_reference_lines"]
+        has_protected = any(v.get("violation_type") == "protected_residual" for v in violations)
+        if missing_refs:
+            reason = "Riferimento prodotto mancante"
+            reason_detail = "Una o più righe ordine non hanno un riferimento SKU o associazione utilizzabile."
+        elif has_protected:
+            reason = "SKU protetta da scorta minima"
+            reason_detail = "L'ordine è preparabile, ma consumerebbe una SKU sotto la scorta minima impostata."
+        elif not candidate["sku_reqs"]:
+            reason = "Nessuna SKU ricavabile"
+            reason_detail = "L'ordine non genera componenti SKU utili per il prelievo."
+        else:
+            reason = "Stock insufficiente"
+            reason_detail = "Una o più SKU non hanno disponibilità sufficiente."
 
-        if not can_prepare:
-            skipped_orders.append({
-                "order_id": str(order.order_id),
-                "customer_name": order.customer_name or "Cliente sconosciuto",
-                "date_add": order.date_add.isoformat() if order.date_add else None,
-                "current_state": order.current_state,
-                "current_state_label": order.current_state_label or f"Stato {order.current_state}",
-                "reason": "Riferimento prodotto mancante" if missing_reference_lines else "Stock insufficiente",
-                "missing_items": shortages,
-                "missing_references": missing_reference_lines
-            })
-            if strict_chronology:
-                break
-            continue
+        return {
+            "order_id": str(order.order_id),
+            "customer_name": order.customer_name or "Cliente sconosciuto",
+            "date_add": order.date_add.isoformat() if order.date_add else None,
+            "current_state": order.current_state,
+            "current_state_label": order.current_state_label or f"Stato {order.current_state}",
+            "reason": reason,
+            "reason_detail": reason_detail,
+            "missing_items": violations,
+            "missing_references": missing_refs
+        }
 
+    def _apply_selected_order(candidate):
+        order = candidate["order"]
+        sku_reqs = candidate["sku_reqs"]
         items = []
         for sku, req_qty in sorted(sku_reqs.items(), key=lambda item: (stock_order.get(item[0], 10**9), item[0])):
             stock_info = stock_map.get(sku, {"description": "Non presente in magazzino", "qty_total": 0.0})
@@ -2340,14 +2595,14 @@ def auto_picking_orders(payload: dict, db: Session = Depends(get_db)):
                 "status": "disponibile"
             })
 
-        order_payload = {
+        order_requirements.append({
             "order_id": str(order.order_id),
             "customer_name": order.customer_name or "Cliente sconosciuto",
             "date_add": order.date_add.isoformat() if order.date_add else None,
             "current_state": order.current_state,
             "current_state_label": order.current_state_label or f"Stato {order.current_state}",
             "items": items
-        }
+        })
         selected_orders.append({
             "order_id": str(order.order_id),
             "customer_name": order.customer_name or "Cliente sconosciuto",
@@ -2355,7 +2610,49 @@ def auto_picking_orders(payload: dict, db: Session = Depends(get_db)):
             "current_state": order.current_state,
             "current_state_label": order.current_state_label or f"Stato {order.current_state}"
         })
-        order_requirements.append(order_payload)
+
+    if selection_strategy == "maximize_orders":
+        remaining_candidates = list(candidate_orders)
+        evaluated_count = len(remaining_candidates)
+        while len(selected_orders) < limit and remaining_candidates:
+            preparable = []
+            blocked = []
+
+            for candidate in remaining_candidates:
+                violations = _stock_violations(candidate["sku_reqs"], running_stock)
+                can_prepare = bool(candidate["sku_reqs"]) and not violations and not candidate["missing_reference_lines"]
+                if can_prepare:
+                    total_required = sum(candidate["sku_reqs"].values())
+                    distinct_skus = len(candidate["sku_reqs"])
+                    oldest = candidate["order"].date_add or datetime.min
+                    preparable.append((total_required, distinct_skus, oldest, candidate["order"].order_id, candidate))
+                else:
+                    blocked.append((candidate, violations))
+
+            if not preparable:
+                skipped_orders.extend(_skip_payload(candidate, violations) for candidate, violations in blocked)
+                break
+
+            preparable.sort(key=lambda item: (item[0], item[1], item[2], item[3]))
+            selected_candidate = preparable[0][4]
+            _apply_selected_order(selected_candidate)
+            remaining_candidates = [candidate for candidate in remaining_candidates if candidate is not selected_candidate]
+    else:
+        for candidate in candidate_orders:
+            if len(selected_orders) >= limit:
+                break
+
+            evaluated_count += 1
+            violations = _stock_violations(candidate["sku_reqs"], running_stock)
+            can_prepare = bool(candidate["sku_reqs"]) and not violations and not candidate["missing_reference_lines"]
+
+            if not can_prepare:
+                skipped_orders.append(_skip_payload(candidate, violations))
+                if strict_chronology:
+                    break
+                continue
+
+            _apply_selected_order(candidate)
 
     sku_requirements = []
     for sku, qty_req in sku_required_map.items():
@@ -2384,7 +2681,9 @@ def auto_picking_orders(payload: dict, db: Session = Depends(get_db)):
             "skipped_count": len(skipped_orders),
             "evaluated_count": evaluated_count,
             "strict_chronology": strict_chronology,
-            "candidate_count": len(orders),
+            "selection_strategy": selection_strategy,
+            "min_sku_residual": min_sku_residual,
+            "candidate_count": len(candidate_orders),
             "sku_filter": sorted(sku_filter)
         }
     }
