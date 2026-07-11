@@ -394,6 +394,8 @@ function App() {
   // States settings
   const [orderStates, setOrderStates] = useState([]);
   const [selectedStates, setSelectedStates] = useState([]);
+  const [savedSelectedStates, setSavedSelectedStates] = useState([]);
+  const [settingsSection, setSettingsSection] = useState('connection');
   
   // PrestaShop connection settings
   const [prestashopUrl, setPrestashopUrl] = useState('');
@@ -402,13 +404,16 @@ function App() {
   const [prestashopMockMode, setPrestashopMockMode] = useState(true);
   const [prestashopSyncInterval, setPrestashopSyncInterval] = useState(10);
   const [showApiKey, setShowApiKey] = useState(false);
-  const [savingSettings, setSavingSettings] = useState(false);
+  const [savingConnectionSettings, setSavingConnectionSettings] = useState(false);
+  const [savingStockSettings, setSavingStockSettings] = useState(false);
+  const [savingStateSettings, setSavingStateSettings] = useState(false);
   const [settingsError, setSettingsError] = useState(null);
   const [testingConnection, setTestingConnection] = useState(false);
   const [testConnectionResult, setTestConnectionResult] = useState(null);
   const [pendingRestoreFile, setPendingRestoreFile] = useState(null);
   const [showRestoreConfirm, setShowRestoreConfirm] = useState(false);
   const [searchStateQuery, setSearchStateQuery] = useState('');
+  const [showOnlySelectedStates, setShowOnlySelectedStates] = useState(false);
   const [showClearAnomaliesConfirm, setShowClearAnomaliesConfirm] = useState(false);
   const [associationToDelete, setAssociationToDelete] = useState(null);
   const [showDeleteAssociationConfirm, setShowDeleteAssociationConfirm] = useState(false);
@@ -432,6 +437,10 @@ function App() {
   // Pagination states for Anomalies
   const [anomaliesPage, setAnomaliesPage] = useState(1);
   const [anomaliesLimit, setAnomaliesLimit] = useState(50);
+  const [anomalySearch, setAnomalySearch] = useState('');
+  const [anomalySourceFilter, setAnomalySourceFilter] = useState('all');
+  const [anomalyTypeFilter, setAnomalyTypeFilter] = useState('all');
+  const [anomalyOnlyActionable, setAnomalyOnlyActionable] = useState(false);
   
   // Modal Editor states for Associations
   const [isAssociationModalOpen, setIsAssociationModalOpen] = useState(false);
@@ -668,7 +677,7 @@ function App() {
   // Reset anomaliesPage to 1 when anomalies length changes
   useEffect(() => {
     setAnomaliesPage(1);
-  }, [anomalyData.length]);
+  }, [anomalyData.length, anomalySearch, anomalySourceFilter, anomalyTypeFilter, anomalyOnlyActionable]);
 
   // Fetch specific tab data
   useEffect(() => {
@@ -714,7 +723,9 @@ function App() {
         fetch('/api/settings').then(r => r.json())
       ]).then(([states, currentSettings]) => {
         setOrderStates(states);
-        setSelectedStates(currentSettings.included_state_ids || []);
+        const includedStateIds = currentSettings.included_state_ids || [];
+        setSelectedStates(includedStateIds);
+        setSavedSelectedStates(includedStateIds);
         setPrestashopUrl(currentSettings.prestashop_url || '');
         setPrestashopAdminUrl(currentSettings.prestashop_admin_url || '');
         setPrestashopApiKey(currentSettings.prestashop_api_key || '');
@@ -1004,30 +1015,12 @@ function App() {
     }
   };
 
-  // Update Settings checkbox handler
   const handleToggleState = async (stateId) => {
     const isSelected = selectedStates.includes(stateId);
-    let updated;
     if (isSelected) {
-      updated = selectedStates.filter(id => id !== stateId);
+      setSelectedStates(selectedStates.filter(id => id !== stateId));
     } else {
-      updated = [...selectedStates, stateId];
-    }
-    
-    setSelectedStates(updated);
-    
-    // Save settings
-    try {
-      const res = await fetch('/api/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ included_state_ids: updated })
-      });
-      if (res.ok) {
-        showActionMsg("Impostazioni salvate con successo.");
-      }
-    } catch (e) {
-       console.error("Failed to save settings", e);
+      setSelectedStates([...selectedStates, stateId]);
     }
   };
 
@@ -1118,39 +1111,58 @@ function App() {
   const handleSelectAllStates = async () => {
     const allIds = orderStates.map(s => s.id);
     setSelectedStates(allIds);
-    try {
-      const res = await fetch('/api/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ included_state_ids: allIds })
-      });
-      if (res.ok) {
-        showActionMsg("Tutti gli stati selezionati con successo.");
-      }
-    } catch (e) {
-      console.error(e);
-    }
+  };
+
+  const handleSelectRecommendedStates = async () => {
+    setSelectedStates(Array.from(new Set([...selectedStates, ...recommendedOrderStateIds])));
   };
 
   const handleDeselectAllStates = async () => {
     setSelectedStates([]);
+  };
+
+  const handleSaveOrderStates = async () => {
+    setSavingStateSettings(true);
+    setSettingsError(null);
     try {
       const res = await fetch('/api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ included_state_ids: [] })
+        body: JSON.stringify({ included_state_ids: selectedStates })
       });
+      const data = await res.json();
       if (res.ok) {
-        showActionMsg("Tutti gli stati deselezionati.");
+        setSavedSelectedStates(selectedStates);
+        showActionMsg("Stati ordine salvati con successo.");
+        fetchData();
+      } else {
+        setSettingsError(data.detail || "Errore nel salvataggio degli stati ordine.");
       }
     } catch (e) {
       console.error(e);
+      setSettingsError("Errore di rete durante il salvataggio degli stati ordine.");
+    } finally {
+      setSavingStateSettings(false);
     }
   };
 
   const handleSaveConnectionSettings = async (e) => {
     e.preventDefault();
-    setSavingSettings(true);
+    if (!prestashopMockMode) {
+      if (!prestashopUrl.trim().endsWith('/api/')) {
+        setSettingsError("L'URL API PrestaShop deve terminare con /api/.");
+        return;
+      }
+      if (!prestashopApiKey.trim()) {
+        setSettingsError("Inserisci la chiave API Webservice oppure abilita la modalità simulazione.");
+        return;
+      }
+    }
+    if (Number(prestashopSyncInterval) < 1) {
+      setSettingsError("L'intervallo sincronizzazione ordini deve essere almeno 1 minuto.");
+      return;
+    }
+    setSavingConnectionSettings(true);
     setSettingsError(null);
     
     try {
@@ -1181,13 +1193,31 @@ function App() {
       console.error(err);
       setSettingsError("Errore di rete durante il salvataggio.");
     } finally {
-      setSavingSettings(false);
+      setSavingConnectionSettings(false);
     }
   };
 
   const handleSaveGoogleSheetsSettings = async (e) => {
     e.preventDefault();
-    setSavingSettings(true);
+    if (stockSource === 'google_sheets') {
+      if (!googleSheetUrl.trim().startsWith('https://docs.google.com/spreadsheets/')) {
+        setSettingsError("Inserisci un URL Google Sheets valido.");
+        return;
+      }
+      if (!googleSheetName.trim()) {
+        setSettingsError("Inserisci il nome del foglio Google Sheets.");
+        return;
+      }
+      if (Number(googleSheetSyncInterval) < 1) {
+        setSettingsError("L'intervallo verifica Google Sheets deve essere almeno 1 minuto.");
+        return;
+      }
+    }
+    if (!mappingSku.trim() || !mappingQty.trim()) {
+      setSettingsError("Le colonne SKU e Quantità sono obbligatorie.");
+      return;
+    }
+    setSavingStockSettings(true);
     setSettingsError(null);
     try {
       const res = await fetch('/api/settings', {
@@ -1215,7 +1245,7 @@ function App() {
       console.error(err);
       setSettingsError("Errore nella richiesta di salvataggio delle impostazioni.");
     } finally {
-      setSavingSettings(false);
+      setSavingStockSettings(false);
     }
   };
 
@@ -1751,6 +1781,81 @@ function App() {
     return d.toLocaleString('it-IT');
   };
 
+  const getAnomalySourceLabel = (source) => ({
+    stock_import: 'Import giacenze',
+    associations_import: 'Import associazioni',
+    orders_sync: 'Sync PrestaShop',
+    calculation: 'Calcolo disponibilita'
+  }[source] || source || 'Origine sconosciuta');
+
+  const getAnomalyTypeLabel = (type) => ({
+    missing_sku: 'SKU mancante',
+    missing_sku_in_stock: 'SKU non in giacenza',
+    missing_association: 'Associazione mancante',
+    negative_quantity: 'Quantita negativa',
+    invalid_quantity: 'Quantita non valida',
+    duplicate_sku: 'SKU duplicato',
+    missing_product_id: 'Product ID mancante',
+    invalid_product_id: 'Product ID non valido',
+    empty_sku_list: 'Lista SKU vuota',
+    duplicate_association: 'Associazione duplicata',
+    parse_error: 'Errore lettura file',
+    sync_error: 'Errore sincronizzazione',
+    calculation_error: 'Errore calcolo',
+    missing_reference: 'Riferimento mancante'
+  }[type] || type || 'Anomalia');
+
+  const getAnomalyMeta = (anomaly) => {
+    const type = anomaly?.anomaly_type || '';
+    const source = anomaly?.source || '';
+    const isCritical = ['parse_error', 'sync_error', 'calculation_error', 'missing_association', 'missing_sku_in_stock'].includes(type);
+    const isWarning = ['invalid_quantity', 'negative_quantity', 'missing_sku', 'missing_product_id', 'invalid_product_id', 'empty_sku_list'].includes(type);
+    const actionLabel = type.includes('missing_association')
+      ? 'Crea associazione'
+      : type.includes('missing_sku_in_stock') || type.includes('missing_sku') || (source === 'stock_import' && type !== 'duplicate_sku')
+        ? 'Controlla giacenze'
+        : type.includes('sync_error')
+          ? 'Controlla connessione'
+          : source === 'associations_import'
+            ? 'Controlla associazioni'
+            : type.includes('calculation_error')
+              ? 'Ricalcola'
+              : '';
+
+    return {
+      sourceLabel: getAnomalySourceLabel(source),
+      typeLabel: getAnomalyTypeLabel(type),
+      severity: isCritical ? 'critical' : isWarning ? 'warning' : 'info',
+      severityLabel: isCritical ? 'Critica' : isWarning ? 'Da verificare' : 'Info',
+      actionLabel,
+      actionable: Boolean(actionLabel)
+    };
+  };
+
+  const handleExportAnomaliesCsv = (rows) => {
+    const headers = ['Origine', 'Oggetto', 'Problema', 'Gravita', 'Dettaglio', 'Rilevata il'];
+    const escapeCell = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+    const lines = rows.map(anomaly => {
+      const meta = getAnomalyMeta(anomaly);
+      return [
+        meta.sourceLabel,
+        anomaly.record_key || '',
+        meta.typeLabel,
+        meta.severityLabel,
+        anomaly.message || '',
+        formatDate(anomaly.created_at)
+      ].map(escapeCell).join(',');
+    });
+    const csv = [headers.map(escapeCell).join(','), ...lines].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `registro-anomalie-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   const handleCopyOrderId = (orderId) => {
     navigator.clipboard.writeText(String(orderId))
       .then(() => {
@@ -1857,10 +1962,76 @@ function App() {
     order.lines.some(l => String(l.product_id).includes(searchOrder))
   );
 
-  const filteredOrderStates = orderStates.filter(state => 
-    state.name.toLowerCase().includes(searchStateQuery.toLowerCase()) ||
-    state.id.toString().includes(searchStateQuery)
-  );
+  const recommendedOrderStates = orderStates.filter(state => {
+    const name = String(state.name || '').toLowerCase();
+    return (
+      [2, 3, 12, 89].includes(Number(state.id)) ||
+      name.includes('pagamento accettato') ||
+      name.includes('preparazione in corso') ||
+      name.includes('magazzino rosate')
+    );
+  });
+  const recommendedOrderStateIds = recommendedOrderStates.map(state => state.id);
+  const filteredOrderStates = orderStates.filter(state => {
+    const matchesSearch = (
+      state.name.toLowerCase().includes(searchStateQuery.toLowerCase()) ||
+      state.id.toString().includes(searchStateQuery)
+    );
+    const matchesSelectedFilter = !showOnlySelectedStates || selectedStates.includes(state.id);
+    return matchesSearch && matchesSelectedFilter;
+  });
+  const selectedStatesKey = [...selectedStates].sort((a, b) => a - b).join(',');
+  const savedSelectedStatesKey = [...savedSelectedStates].sort((a, b) => a - b).join(',');
+  const orderStatesDirty = selectedStatesKey !== savedSelectedStatesKey;
+  const settingsSections = [
+    { id: 'connection', label: 'Connessione' },
+    { id: 'stock', label: 'Giacenze' },
+    { id: 'orders', label: 'Ordini' },
+    { id: 'backup', label: 'Backup' }
+  ];
+  const prestashopUrlValid = prestashopUrl.trim().endsWith('/api/');
+  const prestashopApiKeyPresent = prestashopApiKey.trim().length > 0;
+  const prestashopRealReady = !prestashopMockMode && prestashopUrlValid && prestashopApiKeyPresent;
+  const prestashopStatusLabel = prestashopMockMode
+    ? 'Simulazione'
+    : (prestashopRealReady ? 'API reale configurata' : 'Connessione da completare');
+  const prestashopStatusTone = prestashopMockMode
+    ? 'warning'
+    : (prestashopRealReady ? 'success' : 'danger');
+  const dashboardHasStock = (dashboardData?.sku_count || 0) > 0;
+  const dashboardHasAssociations = (dashboardData?.product_count || 0) > 0;
+  const dashboardHasOrders = (dashboardData?.order_count || 0) > 0;
+  const dashboardHasAnomalies = (dashboardData?.anomalies_count || 0) > 0;
+  const dashboardHasCalculation = Boolean(dashboardData?.latest_calculation_run);
+  const dashboardHasOrdersSync = Boolean(status?.last_orders_sync);
+  const dashboardHealthTone = !dashboardHasStock || !dashboardHasAssociations || dashboardHasAnomalies
+    ? 'danger'
+    : (!dashboardHasCalculation || !dashboardHasOrdersSync ? 'warning' : 'success');
+  const dashboardHealthLabel = dashboardHealthTone === 'success'
+    ? 'Sistema operativo'
+    : dashboardHealthTone === 'warning'
+      ? 'Da aggiornare'
+      : 'Richiede attenzione';
+  const dashboardHealthText = !dashboardHasStock
+    ? 'Manca il file giacenze: importa o collega la sorgente prima di lavorare sulla disponibilita.'
+    : !dashboardHasAssociations
+      ? 'Mancano le associazioni kit: carica la composizione dei prodotti composti.'
+      : dashboardHasAnomalies
+        ? `${dashboardData.anomalies_count} anomalie aperte richiedono verifica.`
+        : !dashboardHasCalculation
+          ? 'Dati presenti: esegui il primo ricalcolo per aggiornare la disponibilita.'
+          : !dashboardHasOrdersSync
+            ? "Dati presenti: sincronizza gli ordini PrestaShop per aggiornare l'impegnato."
+            : 'Giacenze, associazioni, ordini e calcolo risultano aggiornati.';
+  const dashboardNextAction = !dashboardHasStock
+    ? { label: 'Importa giacenze', action: () => setActiveTab('stock') }
+    : !dashboardHasAssociations
+      ? { label: 'Carica associazioni', action: () => setActiveTab('associations') }
+      : dashboardHasAnomalies
+        ? { label: `Risolvi ${dashboardData.anomalies_count} anomalie`, action: () => setActiveTab('anomalies') }
+        : !dashboardHasCalculation
+          ? { label: 'Esegui ricalcolo', action: handleRunCalculation }
+          : { label: 'Aggiorna tutto', action: handleSyncAll };
 
   const autoPickingSkuSuggestions = Array.from(
     new Map(
@@ -2215,32 +2386,48 @@ function App() {
               </div>
             )}
 
+            <section className={`dashboard-health-panel ${dashboardHealthTone}`}>
+              <div className="dashboard-health-main">
+                <span className="dashboard-health-kicker">Stato sistema</span>
+                <h2>{dashboardHealthLabel}</h2>
+                <p>{dashboardHealthText}</p>
+              </div>
+              <div className="dashboard-next-action">
+                <span>Prossima azione</span>
+                <button className={`btn ${dashboardHealthTone === 'danger' ? 'btn-danger' : 'btn-primary'}`} onClick={dashboardNextAction.action} disabled={loading || syncingGoogleSheets || syncingOrders}>
+                  {dashboardNextAction.label}
+                </button>
+              </div>
+            </section>
+
             {/* KPI Cards Grid */}
             <section className="kpi-grid">
-              <div className="glass-panel kpi-card">
-                <span className="kpi-title">SKU in Stock</span>
+              <div className={`glass-panel kpi-card ${dashboardHasStock ? 'success' : 'danger'}`}>
+                <span className="kpi-title">Giacenze</span>
                 <span className="kpi-value">{dashboardData.sku_count}</span>
                 <span className="kpi-desc">
-                  Ultimo import: {formatDate(dashboardData.latest_import_warehouse)}
+                  {dashboardHasStock ? `Ultimo import: ${formatDate(dashboardData.latest_import_warehouse)}` : 'Import giacenze mancante'}
                 </span>
               </div>
-              <div className="glass-panel kpi-card">
-                <span className="kpi-title">Prodotti Composti</span>
+              <div className={`glass-panel kpi-card ${dashboardHasAssociations ? 'success' : 'danger'}`}>
+                <span className="kpi-title">Composizione kit</span>
                 <span className="kpi-value">{dashboardData.product_count}</span>
                 <span className="kpi-desc">
-                  Ultimo import: {formatDate(dashboardData.latest_import_associations)}
+                  {dashboardHasAssociations ? `Ultimo import: ${formatDate(dashboardData.latest_import_associations)}` : 'Associazioni mancanti'}
                 </span>
               </div>
-              <div className="glass-panel kpi-card warning">
-                <span className="kpi-title">Ordini Attivi</span>
+              <div className={`glass-panel kpi-card ${dashboardHasOrdersSync ? 'success' : 'warning'}`}>
+                <span className="kpi-title">Ordini impegnati</span>
                 <span className="kpi-value">{dashboardData.order_count}</span>
-                <span className="kpi-desc">{dashboardData.items_ordered} righe vendute</span>
+                <span className="kpi-desc">
+                  {dashboardData.items_ordered} righe vendute · Sync {status?.last_orders_sync ? getRelativeTimeString(status.last_orders_sync) : 'mai'}
+                </span>
               </div>
               <div className={`glass-panel kpi-card ${dashboardData.anomalies_count > 0 ? 'danger' : 'success'}`}>
                 <span className="kpi-title">Anomalie</span>
                 <span className="kpi-value">{dashboardData.anomalies_count}</span>
                 <span className="kpi-desc">
-                  {dashboardData.anomalies_count > 0 ? 'Richiede attenzione' : 'Dati integri e coerenti'}
+                  {dashboardData.anomalies_count > 0 ? 'Aperte nel registro' : 'Nessuna anomalia aperta'}
                 </span>
               </div>
             </section>
@@ -2748,69 +2935,191 @@ function App() {
 
         {/* --- ANOMALIES TAB --- */}
         {activeTab === 'anomalies' && (() => {
-          const totalAnomaliesPages = Math.ceil(anomalyData.length / anomaliesLimit) || 1;
-          const paginatedAnomalies = anomalyData.slice(
+          const anomalySources = Array.from(new Set(anomalyData.map(an => an.source).filter(Boolean)));
+          const anomalyTypes = Array.from(new Set(anomalyData.map(an => an.anomaly_type).filter(Boolean)));
+          const anomalyStats = anomalyData.reduce((acc, anomaly) => {
+            const meta = getAnomalyMeta(anomaly);
+            acc.total += 1;
+            acc[meta.severity] += 1;
+            if (meta.actionable) acc.actionable += 1;
+            return acc;
+          }, { total: 0, critical: 0, warning: 0, info: 0, actionable: 0 });
+          const filteredAnomalies = anomalyData.filter(anomaly => {
+            const meta = getAnomalyMeta(anomaly);
+            const text = [
+              anomaly.source,
+              meta.sourceLabel,
+              anomaly.record_key,
+              anomaly.anomaly_type,
+              meta.typeLabel,
+              anomaly.message
+            ].join(' ').toLowerCase();
+            return (
+              (!anomalySearch.trim() || text.includes(anomalySearch.trim().toLowerCase())) &&
+              (anomalySourceFilter === 'all' || anomaly.source === anomalySourceFilter) &&
+              (anomalyTypeFilter === 'all' || anomaly.anomaly_type === anomalyTypeFilter) &&
+              (!anomalyOnlyActionable || meta.actionable)
+            );
+          });
+          const totalAnomaliesPages = Math.ceil(filteredAnomalies.length / anomaliesLimit) || 1;
+          const paginatedAnomalies = filteredAnomalies.slice(
             (anomaliesPage - 1) * anomaliesLimit,
             anomaliesPage * anomaliesLimit
           );
+          const handleAnomalyAction = (anomaly, meta) => {
+            if (anomaly.anomaly_type.includes('missing_association') && anomaly.record_key) {
+              handleResolveMissingAssociation(anomaly.record_key);
+              return;
+            }
+            if (anomaly.anomaly_type.includes('sync_error')) {
+              setSettingsSection('connection');
+              setActiveTab('settings');
+              return;
+            }
+            if (anomaly.source === 'associations_import') {
+              setActiveTab('associations');
+              return;
+            }
+            if (anomaly.anomaly_type.includes('calculation_error')) {
+              handleRunCalculation();
+              return;
+            }
+            if (meta.actionable) {
+              setActiveTab('stock');
+            }
+          };
           return (
-            <div className="glass-panel widget-card">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                <span style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-                  Anomalie totali nel registro: {anomalyData.length}
-                </span>
+            <div className="glass-panel widget-card anomalies-workbench">
+              <div className="anomalies-header">
+                <div>
+                  <h2>Registro Anomalie</h2>
+                  <p>Controlla problemi rilevati da import, sincronizzazione e calcolo disponibilita.</p>
+                </div>
                 {anomalyData.length > 0 && (
-                  <button className="btn btn-danger" onClick={handleClearAnomalies}>
-                    Pulisci Registro
-                  </button>
+                  <div className="anomalies-header-actions">
+                    <button className="btn btn-secondary" onClick={() => handleExportAnomaliesCsv(filteredAnomalies)} disabled={filteredAnomalies.length === 0}>
+                      Esporta CSV
+                    </button>
+                    <button className="btn btn-danger" onClick={handleClearAnomalies}>
+                      Svuota registro
+                    </button>
+                  </div>
                 )}
               </div>
+
+              <div className="anomaly-summary-grid">
+                <div className="anomaly-summary-card danger">
+                  <span>Critiche</span>
+                  <strong>{anomalyStats.critical}</strong>
+                </div>
+                <div className="anomaly-summary-card warning">
+                  <span>Da verificare</span>
+                  <strong>{anomalyStats.warning}</strong>
+                </div>
+                <div className="anomaly-summary-card neutral">
+                  <span>Info</span>
+                  <strong>{anomalyStats.info}</strong>
+                </div>
+                <div className="anomaly-summary-card primary">
+                  <span>Con azione</span>
+                  <strong>{anomalyStats.actionable}</strong>
+                </div>
+              </div>
+
+              {anomalyData.length > 0 && (
+                <div className="anomaly-filter-panel">
+                  <div className="search-wrapper anomaly-search">
+                    <input
+                      type="text"
+                      className="search-input"
+                      placeholder="Cerca codice, SKU, problema o dettaglio..."
+                      value={anomalySearch}
+                      onChange={(e) => setAnomalySearch(e.target.value)}
+                    />
+                  </div>
+                  <select className="select-control" value={anomalySourceFilter} onChange={(e) => setAnomalySourceFilter(e.target.value)}>
+                    <option value="all">Tutte le origini</option>
+                    {anomalySources.map(source => (
+                      <option key={source} value={source}>{getAnomalySourceLabel(source)}</option>
+                    ))}
+                  </select>
+                  <select className="select-control" value={anomalyTypeFilter} onChange={(e) => setAnomalyTypeFilter(e.target.value)}>
+                    <option value="all">Tutti i problemi</option>
+                    {anomalyTypes.map(type => (
+                      <option key={type} value={type}>{getAnomalyTypeLabel(type)}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    className={`btn-small-link anomaly-toggle ${anomalyOnlyActionable ? 'active' : ''}`}
+                    onClick={() => setAnomalyOnlyActionable(!anomalyOnlyActionable)}
+                  >
+                    {anomalyOnlyActionable ? 'Mostra tutte' : 'Solo risolvibili'}
+                  </button>
+                </div>
+              )}
+
               <div className="table-container">
                 {tabLoading ? (
                   <TableSkeleton rows={5} cols={6} />
                 ) : anomalyData.length > 0 ? (
                   <>
-                    <table className="custom-table">
+                    <div className="anomaly-results-line">
+                      {filteredAnomalies.length} di {anomalyData.length} anomalie visualizzate
+                    </div>
+                    {filteredAnomalies.length > 0 ? (
+                    <>
+                    <table className="custom-table anomaly-table">
                       <thead>
                         <tr>
-                          <th>Sorgente</th>
-                          <th>Codice/Chiave</th>
-                          <th>Tipo Anomalia</th>
-                          <th>Descrizione Errore</th>
-                          <th>Data Rilevazione</th>
-                          <th style={{ textAlign: 'center', width: '100px' }}>Azioni</th>
+                          <th>Problema</th>
+                          <th>Oggetto</th>
+                          <th>Origine</th>
+                          <th>Impatto</th>
+                          <th>Dettaglio</th>
+                          <th>Rilevata il</th>
+                          <th style={{ textAlign: 'center', width: '140px' }}>Prossima azione</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {paginatedAnomalies.map(an => (
-                          <tr key={an.id} style={{ backgroundColor: an.anomaly_type.includes('missing') || an.anomaly_type.includes('error') ? 'rgba(239, 68, 68, 0.02)' : '' }}>
+                        {paginatedAnomalies.map(an => {
+                          const meta = getAnomalyMeta(an);
+                          return (
+                          <tr key={an.id} className={`anomaly-row ${meta.severity}`}>
                             <td>
-                              <span className={`badge ${an.source === 'stock_import' ? 'badge-neutral' : an.source === 'orders_sync' ? 'badge-warning' : 'badge-danger'}`}>
-                                {an.source}
+                              <span className={`anomaly-problem ${meta.severity}`}>
+                                {meta.typeLabel}
                               </span>
                             </td>
-                            <td style={{ fontWeight: '600', fontFamily: 'monospace' }}>{an.record_key || "-"}</td>
                             <td>
-                              <span className="badge badge-danger" style={{ backgroundColor: 'transparent', border: '1px solid var(--color-danger)', color: '#fca5a5' }}>
-                                {an.anomaly_type}
+                              <span className="anomaly-record-key">{an.record_key || "Nessuna chiave"}</span>
+                            </td>
+                            <td>
+                              <span className="badge badge-neutral">
+                                {meta.sourceLabel}
                               </span>
                             </td>
-                            <td style={{ color: 'var(--text-primary)', maxWidth: '400px' }}>{an.message}</td>
+                            <td>
+                              <span className={`anomaly-severity ${meta.severity}`}>
+                                {meta.severityLabel}
+                              </span>
+                            </td>
+                            <td className="anomaly-message">{an.message}</td>
                             <td style={{ color: 'var(--text-secondary)' }}>{formatDate(an.created_at)}</td>
                             <td style={{ textAlign: 'center' }}>
-                              {an.anomaly_type.includes('missing_association') && an.record_key ? (
+                              {meta.actionable ? (
                                 <button 
                                   className="btn btn-neutral btn-sm" 
-                                  onClick={() => handleResolveMissingAssociation(an.record_key)}
-                                  title="Crea associazione per questo prodotto composto"
-                                  style={{ padding: '4px 8px', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                  onClick={() => handleAnomalyAction(an, meta)}
+                                  title={meta.actionLabel}
                                 >
-                                  <Icons.Plus style={{ width: '12px', height: '12px' }} /> Risolvi
+                                  {meta.actionLabel}
                                 </button>
                               ) : "-"}
                             </td>
                           </tr>
-                        ))}
+                          );
+                        })}
                       </tbody>
                     </table>
 
@@ -2820,12 +3129,19 @@ function App() {
                       onPageChange={setAnomaliesPage}
                       disabled={tabLoading}
                     />
+                    </>
+                    ) : (
+                      <div className="anomaly-empty-state compact">
+                        <p>Nessuna anomalia corrisponde ai filtri</p>
+                        <span>Allarga la ricerca o disattiva il filtro “Solo risolvibili”.</span>
+                      </div>
+                    )}
                   </>
                 ) : (
-                  <div style={{ textAlign: 'center', padding: '48px', color: 'var(--text-secondary)' }}>
+                  <div className="anomaly-empty-state">
                     <svg className="w-12 h-12 mx-auto mb-4 text-emerald-500" style={{ color: 'var(--color-success)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                    <p style={{ fontSize: '1.05rem', fontWeight: '500', color: 'var(--text-primary)' }}>Nessuna anomalia riscontrata</p>
-                    <p style={{ fontSize: '0.85rem', marginTop: '4px' }}>I dati importati e gli ordini sincronizzati sono perfettamente coerenti.</p>
+                    <p>Nessuna anomalia nel registro corrente</p>
+                    <span>Import e sincronizzazioni recenti non hanno prodotto avvisi.</span>
                   </div>
                 )}
               </div>
@@ -3934,143 +4250,218 @@ function App() {
 
         {/* --- SETTINGS TAB --- */}
         {activeTab === 'settings' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-            {/* Card 1: Configurazione Connessione PrestaShop */}
-            <div className="glass-panel widget-card">
-              <h2 style={{ fontSize: '1.2rem', marginBottom: '8px' }}>Configurazione Connessione PrestaShop</h2>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '24px' }}>
-                Imposta l'indirizzo web dell'API del tuo PrestaShop e la chiave Webservice generata dal pannello di amministrazione.
-              </p>
-              
-              {settingsError && (
-                <div style={{ padding: '12px 16px', borderRadius: '8px', background: 'var(--color-danger-bg)', border: '1px solid rgba(239, 68, 68, 0.2)', color: '#fca5a5', fontSize: '0.85rem', marginBottom: '20px' }}>
-                  {settingsError}
-                </div>
-              )}
-              
-              <form onSubmit={handleSaveConnectionSettings} style={{ display: 'flex', flexDirection: 'column', gap: '20px', maxWidth: '600px' }}>
-                <div className="form-group">
-                  <label style={{ fontWeight: '600', fontSize: '0.9rem', color: 'var(--text-primary)', marginBottom: '6px' }}>
-                    URL API PrestaShop
-                  </label>
-                  <input 
-                    type="text" 
-                    className="settings-input" 
-                    placeholder="Esempio: https://mio-sito.it/api/" 
-                    value={prestashopUrl} 
-                    onChange={(e) => setPrestashopUrl(e.target.value)}
-                    disabled={prestashopMockMode}
-                  />
-                  <small style={{ color: 'var(--text-secondary)', fontSize: '0.75rem', marginTop: '4px' }}>
-                    Deve terminare con <code>/api/</code>. Ad esempio: <code>https://www.tuonegozio.it/api/</code>
-                  </small>
-                </div>
-
-                <div className="form-group">
-                  <label style={{ fontWeight: '600', fontSize: '0.9rem', color: 'var(--text-primary)', marginBottom: '6px' }}>
-                    Chiave API Webservice
-                  </label>
-                  <div style={{ position: 'relative' }}>
-                    <input 
-                      type={showApiKey ? "text" : "password"} 
-                      className="settings-input" 
-                      placeholder="Inserisci la chiave API del webservice" 
-                      value={prestashopApiKey} 
-                      onChange={(e) => setPrestashopApiKey(e.target.value)}
-                      disabled={prestashopMockMode}
-                      style={{ paddingRight: '70px' }}
-                    />
-                    <button 
-                      type="button" 
-                      onClick={() => setShowApiKey(!showApiKey)}
-                      disabled={prestashopMockMode}
-                      style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', outline: 'none', fontSize: '0.8rem', fontWeight: '600' }}
-                    >
-                      {showApiKey ? "NASCONDI" : "MOSTRA"}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="form-group" style={{ marginTop: '8px' }}>
-                  <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <input 
-                      type="checkbox" 
-                      className="checkbox-control" 
-                      checked={prestashopMockMode} 
-                      onChange={(e) => setPrestashopMockMode(e.target.checked)} 
-                    />
-                    <div>
-                      <div style={{ fontWeight: '600' }}>Abilita Modalità Simulazione (Mock Mode)</div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                        Se attiva, l'applicazione utilizzerà dati di test simulati senza connettersi al server reale di PrestaShop.
-                      </div>
-                    </div>
-                  </label>
-                </div>
-
-                <div className="form-group" style={{ marginTop: '10px' }}>
-                  <label style={{ fontWeight: '600', fontSize: '0.9rem', color: 'var(--text-primary)', marginBottom: '6px' }}>
-                    Intervallo Sincronizzazione Ordini (minuti)
-                  </label>
-                  <input 
-                    type="number" 
-                    min="1" 
-                    className="settings-input" 
-                    placeholder="Esempio: 10" 
-                    value={prestashopSyncInterval} 
-                    onChange={(e) => setPrestashopSyncInterval(parseInt(e.target.value) || 10)}
-                  />
-                  <small style={{ color: 'var(--text-secondary)', fontSize: '0.75rem', marginTop: '4px' }}>
-                    Frequenza con cui il backend interroga periodicamente PrestaShop per scaricare nuovi ordini in background.
-                  </small>
-                </div>
-
-                <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginTop: '10px', flexWrap: 'wrap' }}>
-                  <button type="submit" className="btn btn-primary" disabled={savingSettings || testingConnection}>
-                    {savingSettings ? "Salvataggio..." : "Salva Configurazione Connessione"}
-                  </button>
-                  
-                  {!prestashopMockMode && (
-                    <button
-                      type="button"
-                      className="btn btn-secondary"
-                      onClick={handleTestConnection}
-                      disabled={testingConnection || savingSettings}
-                      style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-                    >
-                      {testingConnection ? (
-                        <>
-                          <div className="spinner" style={{ width: '14px', height: '14px', border: '2px solid rgba(255,255,255,0.2)', borderTopColor: 'var(--text-primary)' }}></div>
-                          Verifica...
-                        </>
-                      ) : (
-                        "Test Connessione"
-                      )}
-                    </button>
-                  )}
-                </div>
-
-                {testConnectionResult && (
-                  <div style={{ 
-                    padding: '10px 14px', 
-                    borderRadius: '6px', 
-                    fontSize: '0.8rem', 
-                    background: testConnectionResult.status === 'success' ? 'rgba(16, 185, 129, 0.08)' : 'rgba(239, 68, 68, 0.08)',
-                    border: testConnectionResult.status === 'success' ? '1px solid rgba(16, 185, 129, 0.2)' : '1px solid rgba(239, 68, 68, 0.2)',
-                    color: testConnectionResult.status === 'success' ? '#a7f3d0' : '#fca5a5',
-                    marginTop: '12px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px'
-                  }}>
-                    <span>{testConnectionResult.status === 'success' ? '✅' : '❌'}</span>
-                    <span>{testConnectionResult.message}</span>
-                  </div>
-                )}
-              </form>
+          <div className="settings-page">
+            <div className="settings-summary-grid">
+              <div className={`settings-summary-item ${prestashopStatusTone}`}>
+                <span className="settings-summary-label">PrestaShop</span>
+                <strong><span className="settings-status-dot" />{prestashopStatusLabel}</strong>
+              </div>
+              <div className={`settings-summary-item ${stockSource === 'google_sheets' ? 'success' : 'neutral'}`}>
+                <span className="settings-summary-label">Giacenze</span>
+                <strong><span className="settings-status-dot" />{stockSource === 'google_sheets' ? 'Google Sheets' : 'Excel manuale'}</strong>
+              </div>
+              <div className={`settings-summary-item ${status?.last_orders_sync ? 'success' : 'neutral'}`}>
+                <span className="settings-summary-label">Ultima sync ordini</span>
+                <strong><span className="settings-status-dot" />{status?.last_orders_sync ? getRelativeTimeString(status.last_orders_sync) : 'Mai'}</strong>
+              </div>
+              <div className={`settings-summary-item ${orderStatesDirty ? 'warning' : 'success'}`}>
+                <span className="settings-summary-label">Stati impegnato</span>
+                <strong><span className="settings-status-dot" />{selectedStates.length} selezionati{orderStatesDirty ? ' - non salvati' : ''}</strong>
+              </div>
             </div>
 
+            <div className="settings-section-tabs" role="tablist" aria-label="Sezioni impostazioni">
+              {settingsSections.map(section => (
+                <button
+                  key={section.id}
+                  type="button"
+                  className={`settings-section-tab ${settingsSection === section.id ? 'active' : ''}`}
+                  onClick={() => setSettingsSection(section.id)}
+                  role="tab"
+                  aria-selected={settingsSection === section.id}
+                >
+                  <span>{section.label}</span>
+                </button>
+              ))}
+            </div>
+
+            {settingsError && (
+              <div className="settings-alert settings-alert-danger">
+                {settingsError}
+              </div>
+            )}
+
+            {/* Card 1: Configurazione Connessione PrestaShop */}
+            {settingsSection === 'connection' && (
+            <div className="glass-panel widget-card settings-workbench">
+              <div className="settings-card-header">
+                <div>
+                  <h2>Configurazione Connessione PrestaShop</h2>
+                  <p>
+                    Imposta endpoint Webservice, chiave API e frequenza di aggiornamento ordini.
+                  </p>
+                </div>
+                <span className={`settings-status-pill ${prestashopStatusTone}`}>
+                  <span className="settings-status-dot" />
+                  {prestashopStatusLabel}
+                </span>
+              </div>
+
+              <form onSubmit={handleSaveConnectionSettings} className="settings-connection-form">
+                <div className="settings-form-stack">
+                  <div className="form-group">
+                    <label className="settings-label">
+                      URL API PrestaShop
+                    </label>
+                    <input 
+                      type="text" 
+                      className="settings-input" 
+                      placeholder="https://mio-sito.it/api/" 
+                      value={prestashopUrl} 
+                      onChange={(e) => setPrestashopUrl(e.target.value)}
+                      disabled={prestashopMockMode}
+                    />
+                    <small className="settings-help">
+                      Formato richiesto: <code>https://www.tuonegozio.it/api/</code>
+                    </small>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="settings-label">
+                      Chiave API Webservice
+                    </label>
+                    <div className="settings-secret-field">
+                      <input 
+                        type={showApiKey ? "text" : "password"} 
+                        className="settings-input" 
+                        placeholder="Inserisci la chiave API del webservice" 
+                        value={prestashopApiKey} 
+                        onChange={(e) => setPrestashopApiKey(e.target.value)}
+                        disabled={prestashopMockMode}
+                      />
+                      <button 
+                        type="button" 
+                        className="settings-secret-toggle"
+                        onClick={() => setShowApiKey(!showApiKey)}
+                        disabled={prestashopMockMode}
+                        title={showApiKey ? "Nascondi chiave" : "Mostra chiave"}
+                        aria-label={showApiKey ? "Nascondi chiave API" : "Mostra chiave API"}
+                      >
+                        <Icons.Eye />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="settings-label">
+                      Intervallo Sincronizzazione Ordini
+                    </label>
+                    <div className="settings-inline-input">
+                      <input 
+                        type="number" 
+                        min="1" 
+                        className="settings-input" 
+                        placeholder="10" 
+                        value={prestashopSyncInterval} 
+                        onChange={(e) => setPrestashopSyncInterval(parseInt(e.target.value) || 10)}
+                      />
+                      <span>minuti</span>
+                    </div>
+                    <small className="settings-help">
+                      Frequenza con cui il backend scarica nuovi ordini in background.
+                    </small>
+                  </div>
+                </div>
+
+                <aside className="settings-side-panel">
+                  <label className={`settings-switch-card ${prestashopMockMode ? 'active' : ''}`}>
+                    <div>
+                      <strong>Modalità simulazione</strong>
+                      <span>
+                        {prestashopMockMode
+                          ? 'Attiva: usa dati di test, nessuna chiamata reale.'
+                          : 'Disattiva: usa il Webservice PrestaShop reale.'}
+                      </span>
+                    </div>
+                    <span className="settings-switch">
+                      <input 
+                        type="checkbox" 
+                        checked={prestashopMockMode} 
+                        onChange={(e) => setPrestashopMockMode(e.target.checked)} 
+                      />
+                      <span />
+                    </span>
+                  </label>
+
+                  <div className="connection-health-panel">
+                    <div className="connection-health-header">
+                      <span>Checklist configurazione</span>
+                      <strong>{prestashopMockMode ? 'Mock' : `${[prestashopUrlValid, prestashopApiKeyPresent].filter(Boolean).length}/2`}</strong>
+                    </div>
+                    <div className={`settings-check-item ${prestashopMockMode || prestashopUrlValid ? 'complete' : ''}`}>
+                      <span className="settings-check-dot" />
+                      <span>URL API termina con <code>/api/</code></span>
+                    </div>
+                    <div className={`settings-check-item ${prestashopMockMode || prestashopApiKeyPresent ? 'complete' : ''}`}>
+                      <span className="settings-check-dot" />
+                      <span>Chiave Webservice presente</span>
+                    </div>
+                    <div className={`settings-check-item ${!prestashopMockMode ? 'complete' : ''}`}>
+                      <span className="settings-check-dot" />
+                      <span>Modalità reale abilitata</span>
+                    </div>
+                  </div>
+
+                  <div className={`connection-test-panel ${testConnectionResult?.status || (prestashopMockMode ? 'skipped' : 'idle')}`}>
+                    <span className="settings-panel-label">Stato test</span>
+                    <strong>
+                      {prestashopMockMode
+                        ? 'Non necessario in simulazione'
+                        : testConnectionResult
+                          ? testConnectionResult.message
+                          : 'Connessione non verificata'}
+                    </strong>
+                  </div>
+                </aside>
+
+                <div className="settings-action-footer">
+                  <span>
+                    {prestashopMockMode
+                      ? 'Salva per mantenere la modalità simulazione.'
+                      : prestashopRealReady
+                        ? 'Configurazione pronta per verifica e salvataggio.'
+                        : 'Completa URL e chiave prima del test.'}
+                  </span>
+                  <div className="settings-action-buttons">
+                    {!prestashopMockMode && (
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        onClick={handleTestConnection}
+                        disabled={testingConnection || savingConnectionSettings || !prestashopRealReady}
+                      >
+                        {testingConnection ? (
+                          <>
+                            <div className="spinner" style={{ width: '14px', height: '14px', border: '2px solid rgba(255,255,255,0.2)', borderTopColor: 'var(--text-primary)' }}></div>
+                            Verifica...
+                          </>
+                        ) : (
+                          "Test Connessione"
+                        )}
+                      </button>
+                    )}
+                    <button type="submit" className="btn btn-primary" disabled={savingConnectionSettings || testingConnection}>
+                      {savingConnectionSettings ? "Salvataggio..." : "Salva Configurazione"}
+                    </button>
+                  </div>
+                </div>
+              </form>
+            </div>
+            )}
+
             {/* Card 1b: Sincronizzazione Manuale Ordini PrestaShop */}
+            {settingsSection === 'orders' && (
+            <>
             <div className="glass-panel widget-card">
               <h2 style={{ fontSize: '1.2rem', marginBottom: '8px' }}>Sincronizzazione Ordini PrestaShop</h2>
               <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '20px' }}>
@@ -4112,6 +4503,9 @@ function App() {
             </div>
 
             {/* Card 2: Sorgente Giacenze (SKU) e Sincronizzazione */}
+            </>
+            )}
+            {settingsSection === 'stock' && (
             <div className="glass-panel widget-card">
               <h2 style={{ fontSize: '1.2rem', marginBottom: '8px' }}>Sorgente Giacenze (SKU) e Sincronizzazione</h2>
               <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '20px' }}>
@@ -4280,8 +4674,8 @@ function App() {
                 </div>
 
                 <div style={{ display: 'flex', gap: '12px', marginTop: '20px' }}>
-                  <button type="submit" className="btn btn-primary" disabled={savingSettings}>
-                    Salva Impostazioni Giacenze
+                  <button type="submit" className="btn btn-primary" disabled={savingStockSettings}>
+                    {savingStockSettings ? "Salvataggio..." : "Salva Impostazioni Giacenze"}
                   </button>
                   
                   {stockSource === 'google_sheets' && (
@@ -4297,18 +4691,42 @@ function App() {
                 </div>
               </form>
             </div>
+            )}
 
             {/* Card 3: Stati Ordini da Includere nell'Impegnato */}
-            <div className="glass-panel widget-card">
-              <h2 style={{ fontSize: '1.2rem', marginBottom: '8px' }}>Stati Ordini da Includere nell'Impegnato</h2>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '16px' }}>
-                Gli ordini che si trovano in uno degli stati selezionati di seguito verranno estratti dal Webservice PrestaShop. 
-                Le SKU dei relativi prodotti venduti verranno aggregate e sottratte come "impegnate" dalla giacenza fisica totale.
-              </p>
+            {settingsSection === 'orders' && (
+            <div className="glass-panel widget-card order-states-card">
+              <div className="settings-card-header">
+                <div>
+                  <h2>Stati Ordine che Scalano la Disponibilita</h2>
+                  <p>
+                    Scegli quali ordini devono essere conteggiati come impegnati e sottratti dalla disponibilita dei prodotti.
+                  </p>
+                </div>
+                <span className={`settings-status-pill ${orderStatesDirty ? 'warning' : 'success'}`}>
+                  <span className="settings-status-dot" />
+                  {orderStatesDirty ? 'Modifiche non salvate' : 'Salvato'}
+                </span>
+              </div>
               
               {orderStates.length > 0 ? (
-                <div className="settings-grid">
-                  <div className="states-filter-bar">
+                <div className="settings-grid order-states-workbench">
+                  <div className="states-impact-box">
+                    <div>
+                      <strong>Impatto configurazione</strong>
+                      <span>Influenza ordini sincronizzati, quantita impegnata e disponibilita residua.</span>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={handleSelectRecommendedStates}
+                      disabled={recommendedOrderStateIds.length === 0}
+                    >
+                      Aggiungi consigliati
+                    </button>
+                  </div>
+
+                  <div className="states-filter-bar order-states-toolbar">
                     <div className="states-search-wrapper">
                       <svg className="states-search-icon" width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path d="M12.9 14.32a8 8 0 1 1 1.41-1.41l5.35 5.33-1.42 1.42-5.33-5.34zM8 14A6 6 0 1 0 8 2a6 6 0 0 0 0 12z"/></svg>
                       <input 
@@ -4320,37 +4738,70 @@ function App() {
                       />
                     </div>
                     <div className="states-actions-wrapper">
+                      <button
+                        type="button"
+                        className={`btn-small-link ${showOnlySelectedStates ? 'active' : ''}`}
+                        onClick={() => setShowOnlySelectedStates(!showOnlySelectedStates)}
+                      >
+                        {showOnlySelectedStates ? 'Mostra tutti' : 'Solo selezionati'}
+                      </button>
                       <button type="button" className="btn-small-link" onClick={handleSelectAllStates}>
-                        Seleziona Tutti
+                        Seleziona tutti
                       </button>
                       <button type="button" className="btn-small-link" onClick={handleDeselectAllStates}>
-                        Deseleziona Tutti
+                        Deseleziona tutti
                       </button>
                     </div>
                   </div>
 
+                  <div className="states-save-bar">
+                    <div>
+                      <strong>{selectedStates.length}</strong> stati inclusi nell'impegnato
+                      {orderStatesDirty && <span className="settings-unsaved-badge">Modifiche non salvate</span>}
+                    </div>
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      onClick={handleSaveOrderStates}
+                      disabled={!orderStatesDirty || savingStateSettings}
+                    >
+                      {savingStateSettings ? "Salvataggio..." : "Salva Stati Ordine"}
+                    </button>
+                  </div>
+
                   <div className="states-scrollbox">
                     {filteredOrderStates.length > 0 ? (
-                      <div className="checkbox-list">
-                        {filteredOrderStates.map(state => (
-                          <label key={state.id} className="checkbox-label">
-                            <input type="checkbox" className="checkbox-control" checked={selectedStates.includes(state.id)} onChange={() => handleToggleState(state.id)} />
+                      <div className="checkbox-list order-state-list">
+                        {filteredOrderStates.map(state => {
+                          const isSelected = selectedStates.includes(state.id);
+                          const isRecommended = recommendedOrderStateIds.includes(state.id);
+                          return (
+                          <label key={state.id} className={`checkbox-label order-state-card ${isSelected ? 'selected' : ''} ${isRecommended ? 'recommended' : ''}`}>
+                            <input type="checkbox" className="checkbox-control" checked={isSelected} onChange={() => handleToggleState(state.id)} />
                             <div>
-                              <div style={{ fontWeight: '500' }}>{state.name}</div>
-                              <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>ID Stato: {state.id}</div>
+                              <div className="order-state-title-row">
+                                <span>{state.name}</span>
+                                {isSelected && <em>Incluso</em>}
+                              </div>
+                              <div className="order-state-meta">
+                                <span>ID {state.id}</span>
+                                {isRecommended && <span>Consigliato</span>}
+                              </div>
                             </div>
+                            <span className="order-state-checkmark" aria-hidden="true" />
                           </label>
-                        ))}
+                          );
+                        })}
                       </div>
                     ) : (
                       <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: '8px 0', textAlign: 'center' }}>Nessuno stato trovato per la ricerca inserita.</p>
                     )}
                   </div>
                   
-                  <div style={{ marginTop: '12px', padding: '16px', borderRadius: '8px', background: 'rgba(99, 102, 241, 0.05)', border: '1px solid rgba(99, 102, 241, 0.2)', fontSize: '0.85rem', display: 'flex', gap: '12px', alignItems: 'center' }}>
+                  <div className="settings-alert settings-alert-info order-states-note">
                     <svg className="w-5 h-5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                     <span>
-                      Nota: Di default, lo stato <strong>magazzino rosate</strong> (solitamente ID 12) è quello utilizzato per l'impegnato. Le modifiche qui impostate si applicano istantaneamente ai ricalcoli.
+                      Le modifiche diventano attive dopo il salvataggio e il prossimo ricalcolo. Evita stati come annullato o rimborsato se non devono scalare la disponibilita.
                     </span>
                   </div>
                 </div>
@@ -4358,8 +4809,10 @@ function App() {
                 <p style={{ color: 'var(--text-secondary)' }}>Caricamento degli stati ordine da PrestaShop...</p>
               )}
             </div>
+            )}
 
             {/* Card 4: Backup & Ripristino Database */}
+            {settingsSection === 'backup' && (
             <div className="glass-panel widget-card">
               <h2 style={{ fontSize: '1.2rem', marginBottom: '8px' }}>Backup & Ripristino Database</h2>
               <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '24px', lineHeight: '1.6' }}>
@@ -4472,6 +4925,7 @@ function App() {
                 </div>
               </div>
             </div>
+            )}
 
           </div>
         )}
