@@ -2071,21 +2071,9 @@ function App() {
         <div className="brand-section">
           <div className="brand-logo">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" style={{ width: '100%', height: '100%' }}>
-              <defs>
-                <linearGradient id="logoGrad1" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stopColor="var(--color-primary)" />
-                  <stop offset="100%" stopColor="#a855f7" />
-                </linearGradient>
-                <linearGradient id="logoGrad2" x1="100%" y1="0%" x2="0%" y2="100%">
-                  <stop offset="0%" stopColor="#38bdf8" />
-                  <stop offset="100%" stopColor="var(--color-primary)" />
-                </linearGradient>
-              </defs>
-              <circle cx="16" cy="16" r="14" stroke="url(#logoGrad1)" strokeWidth="2.5" strokeLinecap="round" strokeDasharray="50 30" />
-              <path d="M26 12l2.5-3-3.5-.5M6 20l-2.5 3 3.5.5" stroke="url(#logoGrad1)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M16 9l5.5 2.75-5.5 2.75-5.5-2.75 5.5-2.75z" fill="url(#logoGrad2)" opacity="0.95" />
-              <path d="M10.5 11.75V18l5.5 3.25V14.5l-5.5-2.75z" fill="var(--color-primary)" opacity="0.8" />
-              <path d="M16 14.5V21.25l5.5-3.25V11.75l-5.5 2.75z" fill="#4f46e5" />
+              <rect x="4" y="5" width="24" height="22" rx="5" fill="var(--color-primary-bg)" stroke="var(--color-primary)" strokeWidth="2" />
+              <path d="M10 13h12M10 18h8M10 23h12" stroke="var(--color-primary)" strokeWidth="2" strokeLinecap="round" />
+              <path d="M21 8v6l2-1.5L25 14V8" fill="var(--color-primary)" />
             </svg>
           </div>
           <span className="brand-name">Giacenza</span>
@@ -2231,7 +2219,7 @@ function App() {
           <div className="toast-container">
             <div className={`toast-alert badge-${actionMessage.type === 'danger' ? 'danger' : actionMessage.type === 'warning' ? 'warning' : 'success'}`}>
               <span>{actionMessage.text}</span>
-              <button className="toast-close" onClick={() => setActionMessage(null)}>✕</button>
+              <button className="toast-close" onClick={() => setActionMessage(null)} aria-label="Chiudi notifica">x</button>
             </div>
           </div>
         )}
@@ -2362,23 +2350,23 @@ function App() {
           <>
             {/* Onboarding Banner when no data is loaded */}
             {dashboardData.sku_count === 0 && dashboardData.product_count === 0 && (
-              <div className="glass-panel" style={{ padding: '24px', marginBottom: '24px', border: '1px solid rgba(99,102,241,0.2)', background: 'linear-gradient(135deg, rgba(99,102,241,0.06) 0%, rgba(168,85,247,0.03) 100%)', borderRadius: '12px' }}>
-                <h3 style={{ fontSize: '1.15rem', fontWeight: '700', marginBottom: '8px', color: 'var(--color-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  👋 Benvenuto nel Gestore Giacenze PrestaShop!
+              <div className="glass-panel" style={{ padding: '20px', marginBottom: '20px', borderLeft: '3px solid var(--color-primary)' }}>
+                <h3 style={{ fontSize: '1rem', fontWeight: '800', marginBottom: '8px', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Icons.Stock /> Configurazione iniziale giacenze
                 </h3>
                 <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', lineHeight: '1.6', marginBottom: '16px' }}>
                   Questo strumento ti permette di sincronizzare e calcolare in tempo reale le giacenze fisiche di magazzino con le quantità vendute o impegnate sul tuo portale e-commerce. Per iniziare, segui questi passaggi consigliati:
                 </p>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
-                  <div style={{ padding: '12px', background: 'rgba(255,255,255,0.01)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                  <div style={{ padding: '12px', background: 'var(--bg-secondary)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
                     <strong style={{ fontSize: '0.82rem', display: 'block', marginBottom: '4px', color: 'var(--text-primary)' }}>1. Configura Connessione</strong>
                     <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Vai su <strong>Impostazioni</strong> per inserire le credenziali API PrestaShop e i filtri di stato ordine.</span>
                   </div>
-                  <div style={{ padding: '12px', background: 'rgba(255,255,255,0.01)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                  <div style={{ padding: '12px', background: 'var(--bg-secondary)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
                     <strong style={{ fontSize: '0.82rem', display: 'block', marginBottom: '4px', color: 'var(--text-primary)' }}>2. Importa Giacenze Magazzino</strong>
                     <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Carica il file Excel <code>giacenza.xlsx</code> o configura un Google Sheet pubblico per il polling automatico.</span>
                   </div>
-                  <div style={{ padding: '12px', background: 'rgba(255,255,255,0.01)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                  <div style={{ padding: '12px', background: 'var(--bg-secondary)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
                     <strong style={{ fontSize: '0.82rem', display: 'block', marginBottom: '4px', color: 'var(--text-primary)' }}>3. Crea Associazioni Kit</strong>
                     <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Definisci la composizione dei tuoi prodotti composti (kit/bundle) caricando <code>associazione.xlsx</code>.</span>
                   </div>
@@ -2442,7 +2430,7 @@ function App() {
                   <span className="widget-title">Ingestione Inventario Fisico (Giacenze)</span>
                   
                   {stockSource === 'google_sheets' ? (
-                    <div style={{ background: 'rgba(99, 102, 241, 0.03)', padding: '16px', borderRadius: '8px', border: '1px solid rgba(99, 102, 241, 0.15)' }}>
+                    <div style={{ background: 'rgba(5, 150, 105, 0.045)', padding: '16px', borderRadius: '8px', border: '1px solid rgba(5, 150, 105, 0.18)' }}>
                       <h3 style={{ fontSize: '0.95rem', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--color-success)', display: 'inline-block' }}></span>
                         Sincronizzazione Google Sheets Attiva
@@ -4986,8 +4974,8 @@ function App() {
                         </button>
                       </span>
                     )}
-                    <button className="order-drawer-close" onClick={() => setSelectedSkuForOrders(null)}>
-                      &times;
+                    <button className="order-drawer-close" onClick={() => setSelectedSkuForOrders(null)} aria-label="Chiudi dettaglio ordine">
+                      x
                     </button>
                   </div>
                 </div>
@@ -5200,7 +5188,9 @@ function App() {
                   </table>
                 ) : (
                   <div style={{ textAlign: 'center', padding: '60px 24px', color: 'var(--text-secondary)' }}>
-                    <div style={{ fontSize: '2.5rem', marginBottom: '12px', opacity: 0.3 }}>📦</div>
+                    <div style={{ width: '44px', height: '44px', margin: '0 auto 12px', opacity: 0.45, color: 'var(--color-primary)' }}>
+                      <Icons.Stock />
+                    </div>
                     <p style={{ margin: 0 }}>Nessun ordine attivo trovato per questa SKU.</p>
                   </div>
                 )}
@@ -5279,7 +5269,7 @@ function App() {
             <div className="custom-modal association-editor-modal">
               <div className="modal-header">
                 <h3>{isNewAssociation ? "Nuova Associazione" : `Modifica Associazione - Prodotto ${editingProductId}`}</h3>
-                <button className="modal-close" onClick={() => setIsAssociationModalOpen(false)}>&times;</button>
+                <button className="modal-close" onClick={() => setIsAssociationModalOpen(false)} aria-label="Chiudi editor associazione">x</button>
               </div>
               
               <form onSubmit={handleSaveAssociation}>
@@ -5389,7 +5379,7 @@ function App() {
                                 style={{ width: '36px', height: '36px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(239, 68, 68, 0.05)', color: 'var(--color-danger)', border: '1px solid rgba(239, 68, 68, 0.1)' }}
                                 onClick={() => handleRemoveGuidedRow(idx)}
                               >
-                                &times;
+                                x
                               </button>
                             </div>
                           );
@@ -5437,7 +5427,7 @@ function App() {
         isOpen={showRestoreConfirm && !!pendingRestoreFile}
         title="Conferma Ripristino"
         message={pendingRestoreFile ? `Stai per ripristinare il database dal file ${pendingRestoreFile.name}.` : ""}
-        warningText="⚠️ ATTENZIONE: Questa operazione sovrascriverà irrevocabilmente tutti i dati attuali (ordini, giacenze, associazioni, impostazioni). Viene effettuato comunque un salvataggio automatico di emergenza."
+        warningText="ATTENZIONE: questa operazione sovrascriverà irrevocabilmente tutti i dati attuali (ordini, giacenze, associazioni, impostazioni). Viene effettuato comunque un salvataggio automatico di emergenza."
         onCancel={() => { setShowRestoreConfirm(false); setPendingRestoreFile(null); }}
         onConfirm={executeRestoreDatabase}
         confirmText="Conferma e Ripristina"
