@@ -3279,7 +3279,7 @@ body.light-theme .badge-warning {
   border-radius: 8px;
   display: grid;
   gap: 10px;
-  grid-template-columns: minmax(240px, 1fr) minmax(160px, auto) minmax(160px, auto) auto;
+  grid-template-columns: minmax(240px, 1fr) repeat(3, minmax(150px, auto)) auto;
   margin-bottom: 14px;
   padding: 10px;
 }
@@ -3301,7 +3301,7 @@ body.light-theme .badge-warning {
 }
 
 .anomaly-table {
-  min-width: 1040px;
+  min-width: 1180px;
 }
 
 .anomaly-row.critical {
@@ -3398,6 +3398,130 @@ body.light-theme .anomaly-severity.warning {
   color: #92400e;
 }
 
+.order-state-filter {
+  min-width: 230px;
+}
+
+.orders-missing-summary,
+.order-missing-label,
+.order-association-warning {
+  align-items: center;
+  border-radius: 999px;
+  display: inline-flex;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.orders-missing-summary {
+  background: var(--color-danger-bg);
+  border: 1px solid rgba(220, 38, 38, 0.24);
+  color: #fca5a5;
+  font-size: var(--text-xs);
+  padding: 6px 9px;
+  white-space: nowrap;
+}
+
+.orders-table .order-row-missing-association > td {
+  background: rgba(220, 38, 38, 0.035);
+}
+
+.orders-table .order-row-missing-association:hover > td {
+  background: rgba(220, 38, 38, 0.07);
+}
+
+.orders-table .order-line-missing-association > td:last-child {
+  box-shadow: inset -3px 0 0 rgba(239, 68, 68, 0.72);
+}
+
+.order-id-stack {
+  align-items: flex-start;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.order-missing-label,
+.order-association-warning {
+  background: rgba(220, 38, 38, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.26);
+  color: #fca5a5;
+  gap: 5px;
+}
+
+.order-missing-label {
+  font-family: var(--font-sans);
+  font-size: 0.66rem;
+  padding: 5px 7px;
+}
+
+.order-association-warning {
+  font-size: var(--text-xs);
+  padding: 6px 8px;
+}
+
+.order-missing-label svg,
+.order-association-warning svg {
+  flex: 0 0 auto;
+  height: 14px;
+  width: 14px;
+}
+
+body.light-theme .orders-missing-summary,
+body.light-theme .order-missing-label,
+body.light-theme .order-association-warning {
+  color: #b91c1c;
+}
+
+body.light-theme .orders-table .order-row-missing-association > td {
+  background: rgba(220, 38, 38, 0.035);
+}
+
+body.light-theme .orders-table .order-row-missing-association:hover > td {
+  background: rgba(220, 38, 38, 0.07);
+}
+
+.order-product-cell,
+.anomaly-object-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.order-product-cell strong,
+.anomaly-product-name {
+  color: var(--text-primary);
+}
+
+.anomaly-order-state-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  min-width: 150px;
+}
+
+.anomaly-order-state-cell small,
+.anomaly-no-order {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+.order-product-cell span,
+.anomaly-product-name {
+  font-size: var(--text-xs);
+}
+
+.order-product-cell span {
+  color: var(--text-secondary);
+}
+
+.anomaly-product-name {
+  max-width: 240px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 1024px) {
   .anomaly-summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3405,6 +3529,10 @@ body.light-theme .anomaly-severity.warning {
 
   .anomaly-filter-panel {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .order-state-filter {
+    width: 100%;
   }
 }
 

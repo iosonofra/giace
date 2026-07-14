@@ -433,12 +433,14 @@ class PrestaShopClient:
                         line_id = int(line.get("id")) if line.get("id") else None
                         prod_attr_id = int(line.get("product_attribute_id", 0)) if line.get("product_attribute_id") else 0
                         ref = line.get("product_reference", "")
+                        product_name = self._clean_name_field(line.get("product_name")) or ""
 
                         order_lines.append({
                             "line_id": line_id,
                             "product_id": product_id,
                             "product_attribute_id": prod_attr_id,
                             "product_reference": ref,
+                            "product_name": product_name,
                             "product_quantity": qty
                         })
 
@@ -519,6 +521,7 @@ class PrestaShopClient:
                     "product_id": prod_id,
                     "product_attribute_id": 0,
                     "product_reference": f"REF-{prod_id}",
+                    "product_name": f"Prodotto demo {prod_id}",
                     "product_quantity": qty
                 })
                 
@@ -562,4 +565,3 @@ class PrestaShopClient:
         except Exception as e:
             logger.error(f"Errore nel recupero della reference per il prodotto {product_id} da PrestaShop: {str(e)}")
             return None
-

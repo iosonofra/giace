@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import func, desc, asc
+from sqlalchemy import func, desc, asc, inspect, text
 
 # Import our backend modules
 from backend.database import engine, Base, get_db
@@ -105,6 +105,16 @@ def _auto_sync_delay_seconds(db: Session, interval_key: str, last_sync_key: str)
 
 # Initialize DB Tables
 Base.metadata.create_all(bind=engine)
+
+# create_all non aggiunge colonne alle tabelle esistenti. Manteniamo compatibili
+# anche le installazioni gia avviate senza introdurre un sistema di migrazioni.
+if "product_name" not in {column["name"] for column in inspect(engine).get_columns("prestashop_order_lines")}:
+    with engine.begin() as connection:
+        connection.execute(text("ALTER TABLE prestashop_order_lines ADD COLUMN product_name VARCHAR(255)"))
+
+if "order_id" not in {column["name"] for column in inspect(engine).get_columns("import_anomalies")}:
+    with engine.begin() as connection:
+        connection.execute(text("ALTER TABLE import_anomalies ADD COLUMN order_id INTEGER"))
 
 app = FastAPI(title="PrestaShop Composite Inventory Manager API")
 
@@ -1170,13 +1180,17 @@ def _sync_orders_internal_unlocked(db: Session, client: PrestaShopClient, force:
                 remote_orders = client.get_order_ids_and_update_times(included_states, valid_product_ids)
                 db_orders = db.query(PrestashopOrder).all()
                 db_orders_map = {o.order_id: o.date_upd for o in db_orders}
+                product_names_need_backfill = db.query(PrestashopOrderLine.id).filter(
+                    (PrestashopOrderLine.product_name == None) |
+                    (PrestashopOrderLine.product_name == "")
+                ).first() is not None
                 
                 # Check for sync errors and completed calculations
                 last_calc = db.query(CalcRun).filter(CalcRun.status == "completed").first()
                 err_setting = db.query(AppSetting).filter(AppSetting.key == "prestashop_last_error").first()
                 has_error = err_setting and err_setting.value
                 
-                if last_calc and not has_error and len(db_orders_map) == len(remote_orders):
+                if last_calc and not has_error and not product_names_need_backfill and len(db_orders_map) == len(remote_orders):
                     all_match = True
                     for remote in remote_orders:
                         oid = remote["id"]
@@ -1270,6 +1284,7 @@ def _sync_orders_internal_unlocked(db: Session, client: PrestaShopClient, force:
                     product_id=line["product_id"],
                     product_attribute_id=line["product_attribute_id"],
                     product_reference=line["product_reference"],
+                    product_name=line.get("product_name"),
                     product_quantity=line["product_quantity"]
                 )
                 lines_to_save.append(db_line)
@@ -1402,6 +1417,7 @@ def sync_specific_orders_internal(db: Session, client: PrestaShopClient, order_i
                     "product_id": prod_id,
                     "product_attribute_id": 0,
                     "product_reference": f"REF-{prod_id}",
+                    "product_name": f"Prodotto demo {prod_id}",
                     "product_quantity": random.choice([1, 1, 2])
                 })
             orders_data.append({
@@ -1493,12 +1509,14 @@ def sync_specific_orders_internal(db: Session, client: PrestaShopClient, order_i
                     line_id = int(line.get("id")) if line.get("id") else None
                     prod_attr_id = int(line.get("product_attribute_id", 0)) if line.get("product_attribute_id") else 0
                     ref = line.get("product_reference", "")
+                    product_name = client._clean_name_field(line.get("product_name")) or ""
                     
                     order_lines.append({
                         "line_id": line_id,
                         "product_id": product_id,
                         "product_attribute_id": prod_attr_id,
                         "product_reference": ref,
+                        "product_name": product_name,
                         "product_quantity": qty
                     })
                     
@@ -1551,6 +1569,7 @@ def sync_specific_orders_internal(db: Session, client: PrestaShopClient, order_i
                 product_id=line["product_id"],
                 product_attribute_id=line["product_attribute_id"],
                 product_reference=line["product_reference"],
+                product_name=line.get("product_name"),
                 product_quantity=line["product_quantity"]
             )
             db.add(db_line)
@@ -2939,11 +2958,29 @@ def analyze_orders_files(
     }
 
 @app.get("/api/orders")
-def get_orders(page: int = 1, limit: int = 50, db: Session = Depends(get_db)):
+def get_orders(
+    page: int = 1,
+    limit: int = 50,
+    state_id: Optional[int] = None,
+    db: Session = Depends(get_db)
+):
     offset = (page - 1) * limit
-    total_orders = db.query(PrestashopOrder).count()
+    available_states = db.query(
+        PrestashopOrder.current_state,
+        PrestashopOrder.current_state_label,
+        func.count(PrestashopOrder.order_id)
+    ).group_by(
+        PrestashopOrder.current_state,
+        PrestashopOrder.current_state_label
+    ).order_by(PrestashopOrder.current_state_label).all()
+
+    orders_query = db.query(PrestashopOrder)
+    if state_id is not None:
+        orders_query = orders_query.filter(PrestashopOrder.current_state == state_id)
+
+    total_orders = orders_query.count()
     
-    orders = db.query(PrestashopOrder).order_by(desc(PrestashopOrder.date_add)).offset(offset).limit(limit).all()
+    orders = orders_query.order_by(desc(PrestashopOrder.date_add)).offset(offset).limit(limit).all()
     
     result = []
     for o in orders:
@@ -2963,7 +3000,9 @@ def get_orders(page: int = 1, limit: int = 50, db: Session = Depends(get_db)):
             lines_data.append({
                 "product_id": l.product_id,
                 "product_reference": l.product_reference or "",
+                "product_name": l.product_name or "",
                 "product_quantity": l.product_quantity,
+                "has_association": bool(skus_gen),
                 "skus_generated": ", ".join(skus_gen) if skus_gen else "Nessuna associazione trovata"
             })
             
@@ -2981,20 +3020,71 @@ def get_orders(page: int = 1, limit: int = 50, db: Session = Depends(get_db)):
         "total": total_orders,
         "page": page,
         "limit": limit,
-        "total_pages": (total_orders + limit - 1) // limit if limit > 0 else 1
+        "total_pages": (total_orders + limit - 1) // limit if limit > 0 else 1,
+        "available_states": [{
+            "id": state_id_value,
+            "name": state_label or f"Stato {state_id_value}",
+            "count": count
+        } for state_id_value, state_label, count in available_states]
     }
 
 @app.get("/api/anomalies")
 def get_anomalies(db: Session = Depends(get_db)):
     anomalies = db.query(ImportAnomaly).order_by(desc(ImportAnomaly.created_at)).all()
-    return [{
-        "id": a.id,
-        "source": a.source,
-        "record_key": a.record_key or "",
-        "anomaly_type": a.anomaly_type,
-        "message": a.message,
-        "created_at": a.created_at.isoformat() + "Z" if a.created_at else None
-    } for a in anomalies]
+    product_ids = {
+        int(a.record_key)
+        for a in anomalies
+        if a.record_key and str(a.record_key).isdigit()
+    }
+    product_names = {}
+    if product_ids:
+        product_rows = db.query(
+            PrestashopOrderLine.product_id,
+            PrestashopOrderLine.product_name
+        ).filter(
+            PrestashopOrderLine.product_id.in_(product_ids),
+            PrestashopOrderLine.product_name.isnot(None),
+            PrestashopOrderLine.product_name != ""
+        ).all()
+        for product_id, product_name in product_rows:
+            product_names.setdefault(product_id, product_name)
+
+    # Le nuove anomalie salvano direttamente l'ID ordine. Per quelle storiche
+    # recuperiamo l'ID dal testo "Ordine 12345" così il filtro funziona subito.
+    anomaly_order_ids = {}
+    for anomaly in anomalies:
+        order_id = anomaly.order_id
+        if order_id is None and anomaly.message:
+            order_match = re.search(r"\bOrdine\s+(\d+)\b", anomaly.message, re.IGNORECASE)
+            if order_match:
+                order_id = int(order_match.group(1))
+        if order_id is not None:
+            anomaly_order_ids[anomaly.id] = order_id
+
+    order_state_map = {}
+    if anomaly_order_ids:
+        related_orders = db.query(PrestashopOrder).filter(
+            PrestashopOrder.order_id.in_(set(anomaly_order_ids.values()))
+        ).all()
+        order_state_map = {order.order_id: order for order in related_orders}
+
+    result = []
+    for anomaly in anomalies:
+        order_id = anomaly_order_ids.get(anomaly.id)
+        order = order_state_map.get(order_id)
+        result.append({
+            "id": anomaly.id,
+            "source": anomaly.source,
+            "record_key": anomaly.record_key or "",
+            "product_name": product_names.get(int(anomaly.record_key), "") if anomaly.record_key and str(anomaly.record_key).isdigit() else "",
+            "order_id": order_id,
+            "current_state": order.current_state if order else None,
+            "current_state_label": (order.current_state_label or f"Stato {order.current_state}") if order else "",
+            "anomaly_type": anomaly.anomaly_type,
+            "message": anomaly.message,
+            "created_at": anomaly.created_at.isoformat() + "Z" if anomaly.created_at else None
+        })
+    return result
 
 @app.post("/api/anomalies/clear")
 def clear_anomalies(db: Session = Depends(get_db)):

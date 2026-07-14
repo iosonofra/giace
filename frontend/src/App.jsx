@@ -429,6 +429,8 @@ function App() {
   const [ordersLimit, setOrdersLimit] = useState(50);
   const [totalOrders, setTotalOrders] = useState(0);
   const [totalOrdersPages, setTotalOrdersPages] = useState(1);
+  const [ordersAvailableStates, setOrdersAvailableStates] = useState([]);
+  const [orderStateFilter, setOrderStateFilter] = useState('all');
 
   // Pagination states for Products (Kits)
   const [productsPage, setProductsPage] = useState(1);
@@ -440,6 +442,7 @@ function App() {
   const [anomalySearch, setAnomalySearch] = useState('');
   const [anomalySourceFilter, setAnomalySourceFilter] = useState('all');
   const [anomalyTypeFilter, setAnomalyTypeFilter] = useState('all');
+  const [anomalyOrderStateFilter, setAnomalyOrderStateFilter] = useState('all');
   const [anomalyOnlyActionable, setAnomalyOnlyActionable] = useState(false);
   
   // Modal Editor states for Associations
@@ -677,7 +680,7 @@ function App() {
   // Reset anomaliesPage to 1 when anomalies length changes
   useEffect(() => {
     setAnomaliesPage(1);
-  }, [anomalyData.length, anomalySearch, anomalySourceFilter, anomalyTypeFilter, anomalyOnlyActionable]);
+  }, [anomalyData.length, anomalySearch, anomalySourceFilter, anomalyTypeFilter, anomalyOrderStateFilter, anomalyOnlyActionable]);
 
   // Fetch specific tab data
   useEffect(() => {
@@ -700,12 +703,14 @@ function App() {
         .catch(console.error)
         .finally(() => setTabLoading(false));
     } else if (activeTab === 'orders') {
-      fetch(`/api/orders?page=${ordersPage}&limit=${ordersLimit}`)
+      const stateQuery = orderStateFilter === 'all' ? '' : `&state_id=${encodeURIComponent(orderStateFilter)}`;
+      fetch(`/api/orders?page=${ordersPage}&limit=${ordersLimit}${stateQuery}`)
         .then(r => r.json())
         .then(data => {
           setOrderData(data.orders || []);
           setTotalOrders(data.total || 0);
           setTotalOrdersPages(data.total_pages || 1);
+          setOrdersAvailableStates(data.available_states || []);
         })
         .catch(console.error)
         .finally(() => setTabLoading(false));
@@ -750,7 +755,7 @@ function App() {
     } else {
       setTabLoading(false);
     }
-  }, [activeTab, ordersPage, ordersLimit, status?.latest_calculation?.id, status?.active_warehouse_batch?.id, status?.active_associations_batch?.id]);
+  }, [activeTab, ordersPage, ordersLimit, orderStateFilter, status?.latest_calculation?.id, status?.active_warehouse_batch?.id, status?.active_associations_batch?.id]);
 
   useEffect(() => {
     if (activeTab !== 'picking' || pickingInputMode !== 'automatic' || stockData.length > 0) return;
@@ -1833,13 +1838,16 @@ function App() {
   };
 
   const handleExportAnomaliesCsv = (rows) => {
-    const headers = ['Origine', 'Oggetto', 'Problema', 'Gravita', 'Dettaglio', 'Rilevata il'];
+    const headers = ['Origine', 'Oggetto', 'Nome prodotto', 'ID ordine', 'Stato ordine', 'Problema', 'Gravita', 'Dettaglio', 'Rilevata il'];
     const escapeCell = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
     const lines = rows.map(anomaly => {
       const meta = getAnomalyMeta(anomaly);
       return [
         meta.sourceLabel,
         anomaly.record_key || '',
+        anomaly.product_name || '',
+        anomaly.order_id || '',
+        anomaly.current_state_label || '',
         meta.typeLabel,
         meta.severityLabel,
         anomaly.message || '',
@@ -1959,8 +1967,14 @@ function App() {
   const filteredOrders = orderData.filter(order => 
     String(order.order_id).includes(searchOrder) ||
     order.current_state_label.toLowerCase().includes(searchOrder.toLowerCase()) ||
-    order.lines.some(l => String(l.product_id).includes(searchOrder))
+    order.lines.some(l =>
+      String(l.product_id).includes(searchOrder) ||
+      (l.product_name || '').toLowerCase().includes(searchOrder.toLowerCase())
+    )
   );
+  const ordersWithoutAssociations = filteredOrders.filter(order =>
+    order.lines.some(line => line.has_association === false)
+  ).length;
 
   const recommendedOrderStates = orderStates.filter(state => {
     const name = String(state.name || '').toLowerCase();
@@ -2816,18 +2830,37 @@ function App() {
           <div className="glass-panel widget-card">
             <div className="filter-bar">
               <div className="search-wrapper">
-                <input type="text" className="search-input" placeholder="Cerca per Order ID, stato o Product ID..." value={searchOrder} onChange={(e) => setSearchOrder(e.target.value)} />
+                <input type="text" className="search-input" placeholder="Cerca per Order ID, stato, prodotto o Product ID..." value={searchOrder} onChange={(e) => setSearchOrder(e.target.value)} />
                 <svg className="search-icon-svg" viewBox="0 0 20 20"><path d="M12.9 14.32a8 8 0 1 1 1.41-1.41l5.35 5.33-1.42 1.42-5.33-5.34zM8 14A6 6 0 1 0 8 2a6 6 0 0 0 0 12z"/></svg>
               </div>
+              <select
+                className="select-control order-state-filter"
+                aria-label="Filtra ordini per stato attuale PrestaShop"
+                value={orderStateFilter}
+                onChange={(e) => {
+                  setOrderStateFilter(e.target.value);
+                  setOrdersPage(1);
+                }}
+              >
+                <option value="all">Tutti gli stati attuali</option>
+                {ordersAvailableStates.map(state => (
+                  <option key={state.id} value={state.id}>{state.name} ({state.count})</option>
+                ))}
+              </select>
               <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
                 Visualizzati: {filteredOrders.length} di {totalOrders} Ordini Totali
               </span>
+              {ordersWithoutAssociations > 0 && (
+                <span className="orders-missing-summary" aria-live="polite">
+                  {ordersWithoutAssociations} {ordersWithoutAssociations === 1 ? 'ordine' : 'ordini'} senza associazione
+                </span>
+              )}
             </div>
             <div className="table-container">
               {tabLoading ? (
                 <TableSkeleton rows={6} cols={5} />
               ) : filteredOrders.length > 0 ? (
-                <table className="custom-table">
+                <table className="custom-table orders-table">
                   <thead>
                     <tr>
                       <th>Order ID</th>
@@ -2838,11 +2871,16 @@ function App() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredOrders.map(order => (
+                    {filteredOrders.map(order => {
+                      const orderHasMissingAssociation = order.lines.some(line => line.has_association === false);
+                      return (
                       <React.Fragment key={order.order_id}>
-                        {order.lines.map((line, idx) => (
+                        {order.lines.map((line, idx) => {
+                          const lineHasMissingAssociation = line.has_association === false;
+                          return (
                           <tr 
                             key={`${order.order_id}-${idx}`} 
+                            className={`${orderHasMissingAssociation ? 'order-row-missing-association' : ''} ${lineHasMissingAssociation ? 'order-line-missing-association' : ''}`.trim()}
                             style={{ 
                               borderBottom: idx === order.lines.length - 1 
                                 ? '2px solid var(--border-color)' 
@@ -2856,7 +2894,17 @@ function App() {
                                 onClick={() => handleCopyOrderId(order.order_id)}
                                 title="Clicca per copiare l'ID ordine"
                               >
-                                {highlightText(order.order_id, searchOrder)}
+                                <div className="order-id-stack">
+                                  <span>{highlightText(order.order_id, searchOrder)}</span>
+                                  {orderHasMissingAssociation && (
+                                    <span className="order-missing-label">
+                                      <svg aria-hidden="true" viewBox="0 0 20 20">
+                                        <path d="M10 2.5 18 17H2L10 2.5Zm0 4.2v5.1m0 2.5v.1" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                                      </svg>
+                                      Associazione mancante
+                                    </span>
+                                  )}
+                                </div>
                                 {copiedOrderId === order.order_id && (
                                   <span style={{
                                     position: 'absolute',
@@ -2891,20 +2939,34 @@ function App() {
                               </td>
                             ) : null}
                             <td>
-                              Prod ID: <strong>{highlightText(line.product_id, searchOrder)}</strong> (Qta: {line.product_quantity})
+                              <div className="order-product-cell">
+                                <strong>{highlightText(line.product_name || 'Nome prodotto non disponibile', searchOrder)}</strong>
+                                <span>Prod ID: {highlightText(line.product_id, searchOrder)} · Qta: {line.product_quantity}</span>
+                              </div>
                             </td>
                             <td style={{ color: 'var(--text-secondary)' }}>
-                              {line.skus_generated}
+                              {lineHasMissingAssociation ? (
+                                <span className="order-association-warning" role="status">
+                                  <svg aria-hidden="true" viewBox="0 0 20 20">
+                                    <path d="M10 2.5 18 17H2L10 2.5Zm0 4.2v5.1m0 2.5v.1" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                                  </svg>
+                                  Nessuna associazione trovata
+                                </span>
+                              ) : line.skus_generated}
                             </td>
                           </tr>
-                        ))}
+                          );
+                        })}
                       </React.Fragment>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               ) : (
                 <p style={{ textAlign: 'center', padding: '24px', color: 'var(--text-secondary)' }}>
-                  Nessun ordine sincronizzato. Seleziona gli stati nelle impostazioni e premi "Sincronizza Ordini da Webservice" in Dashboard.
+                  {searchOrder || orderStateFilter !== 'all'
+                    ? 'Nessun ordine corrisponde ai filtri selezionati.'
+                    : 'Nessun ordine sincronizzato. Seleziona gli stati nelle impostazioni e premi "Sincronizza Ordini da Webservice" in Dashboard.'}
                 </p>
               )}
             </div>
@@ -2925,6 +2987,22 @@ function App() {
         {activeTab === 'anomalies' && (() => {
           const anomalySources = Array.from(new Set(anomalyData.map(an => an.source).filter(Boolean)));
           const anomalyTypes = Array.from(new Set(anomalyData.map(an => an.anomaly_type).filter(Boolean)));
+          const anomalyOrderStatesMap = anomalyData.reduce((states, anomaly) => {
+            if (anomaly.current_state != null) {
+              const key = String(anomaly.current_state);
+              if (!states.has(key)) {
+                states.set(key, {
+                  id: key,
+                  label: anomaly.current_state_label || `Stato ${key}`,
+                  count: 0
+                });
+              }
+              states.get(key).count += 1;
+            }
+            return states;
+          }, new Map());
+          const anomalyOrderStates = Array.from(anomalyOrderStatesMap.values())
+            .sort((a, b) => a.label.localeCompare(b.label, 'it'));
           const anomalyStats = anomalyData.reduce((acc, anomaly) => {
             const meta = getAnomalyMeta(anomaly);
             acc.total += 1;
@@ -2938,6 +3016,9 @@ function App() {
               anomaly.source,
               meta.sourceLabel,
               anomaly.record_key,
+              anomaly.product_name,
+              anomaly.order_id,
+              anomaly.current_state_label,
               anomaly.anomaly_type,
               meta.typeLabel,
               anomaly.message
@@ -2946,6 +3027,7 @@ function App() {
               (!anomalySearch.trim() || text.includes(anomalySearch.trim().toLowerCase())) &&
               (anomalySourceFilter === 'all' || anomaly.source === anomalySourceFilter) &&
               (anomalyTypeFilter === 'all' || anomaly.anomaly_type === anomalyTypeFilter) &&
+              (anomalyOrderStateFilter === 'all' || String(anomaly.current_state) === anomalyOrderStateFilter) &&
               (!anomalyOnlyActionable || meta.actionable)
             );
           });
@@ -3020,7 +3102,7 @@ function App() {
                     <input
                       type="text"
                       className="search-input"
-                      placeholder="Cerca codice, SKU, problema o dettaglio..."
+                      placeholder="Cerca ID, nome prodotto, SKU, problema o dettaglio..."
                       value={anomalySearch}
                       onChange={(e) => setAnomalySearch(e.target.value)}
                     />
@@ -3035,6 +3117,17 @@ function App() {
                     <option value="all">Tutti i problemi</option>
                     {anomalyTypes.map(type => (
                       <option key={type} value={type}>{getAnomalyTypeLabel(type)}</option>
+                    ))}
+                  </select>
+                  <select
+                    className="select-control"
+                    aria-label="Filtra anomalie per stato ordine attuale PrestaShop"
+                    value={anomalyOrderStateFilter}
+                    onChange={(e) => setAnomalyOrderStateFilter(e.target.value)}
+                  >
+                    <option value="all">Tutti gli stati ordine</option>
+                    {anomalyOrderStates.map(state => (
+                      <option key={state.id} value={state.id}>{state.label} ({state.count})</option>
                     ))}
                   </select>
                   <button
@@ -3062,6 +3155,7 @@ function App() {
                         <tr>
                           <th>Problema</th>
                           <th>Oggetto</th>
+                          <th>Stato ordine</th>
                           <th>Origine</th>
                           <th>Impatto</th>
                           <th>Dettaglio</th>
@@ -3080,7 +3174,22 @@ function App() {
                               </span>
                             </td>
                             <td>
-                              <span className="anomaly-record-key">{an.record_key || "Nessuna chiave"}</span>
+                              <div className="anomaly-object-cell">
+                                <span className="anomaly-record-key">{an.record_key || "Nessuna chiave"}</span>
+                                {an.product_name && <span className="anomaly-product-name">{an.product_name}</span>}
+                              </div>
+                            </td>
+                            <td>
+                              {an.current_state_label ? (
+                                <div className="anomaly-order-state-cell">
+                                  <span className={`badge ${getOrderStateBadgeClass(an.current_state_label)}`}>
+                                    {an.current_state_label}
+                                  </span>
+                                  {an.order_id && <small>Ordine {an.order_id}</small>}
+                                </div>
+                              ) : (
+                                <span className="anomaly-no-order">Non collegata</span>
+                              )}
                             </td>
                             <td>
                               <span className="badge badge-neutral">

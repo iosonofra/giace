@@ -60,6 +60,7 @@ class PrestashopOrderLine(Base):
     product_id = Column(Integer, nullable=False)
     product_attribute_id = Column(Integer, nullable=True)
     product_reference = Column(String(100), nullable=True)
+    product_name = Column(String(255), nullable=True)
     product_quantity = Column(Integer, default=1)
 
 class CalcRun(Base):
@@ -105,6 +106,7 @@ class ImportAnomaly(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     source = Column(String(100), nullable=False) # 'stock_import', 'associations_import', 'orders_sync', 'calculation'
     record_key = Column(String(100), nullable=True) # SKU or product_id or order_id
+    order_id = Column(Integer, nullable=True)
     anomaly_type = Column(String(100), nullable=False) # 'missing_sku', 'missing_association', 'invalid_quantity', etc.
     message = Column(Text, nullable=False)
     created_at = Column(DateTime, default=func.now())

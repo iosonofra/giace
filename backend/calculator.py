@@ -117,11 +117,13 @@ def run_calculation(db: Session, warehouse_batch_id: int = None, associations_ba
             # Check if this product is in our associations
             if product_id not in components_map:
                 # Anomaly: Product in order is not mapped in associations
+                product_label = f" '{line.product_name}'" if line.product_name else ""
                 db.add(ImportAnomaly(
                     source="calculation",
                     record_key=str(product_id),
+                    order_id=line.order_id,
                     anomaly_type="missing_association",
-                    message=f"Ordine {line.order_id}: Il prodotto venduto (ID {product_id}, Qta {order_qty}) non è presente nelle associazioni. SKU non deducibili."
+                    message=f"Ordine {line.order_id}: Il prodotto venduto{product_label} (ID {product_id}, Qta {order_qty}) non è presente nelle associazioni. SKU non deducibili."
                 ))
                 continue
                 
