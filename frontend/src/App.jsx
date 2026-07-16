@@ -1251,13 +1251,13 @@ function App() {
     }
   };
 
-  const handleCopyExtensionEndpoint = async () => {
+  const handleCopyExtensionUrl = async () => {
     try {
-      await navigator.clipboard.writeText(`${window.location.origin}/api/extension`);
-      showActionMsg("Endpoint estensione copiato negli appunti.");
+      await navigator.clipboard.writeText(window.location.origin);
+      showActionMsg("URL webapp copiato negli appunti.");
     } catch (err) {
       console.error(err);
-      showActionMsg("Impossibile copiare automaticamente l'endpoint.", 'danger');
+      showActionMsg("Impossibile copiare automaticamente l'URL.", 'danger');
     }
   };
 
@@ -5413,22 +5413,22 @@ function App() {
                     <span className="extension-step-number">2</span>
                     <div>
                       <h3 id="extension-step-config">Configura il collegamento</h3>
-                      <p>Copia endpoint e token nelle opzioni dell’estensione installata.</p>
+                      <p>Copia URL webapp e token nelle opzioni dell’estensione installata.</p>
                     </div>
                   </div>
 
                   <div className="extension-config-grid">
                     <div className="settings-form-stack">
                       <div className="form-group">
-                        <label className="settings-label">Endpoint API estensione</label>
+                        <label className="settings-label">URL webapp Giac</label>
                         <div className="extension-copy-field">
-                          <code>{window.location.origin}/api/extension</code>
-                          <button type="button" className="btn btn-secondary" onClick={handleCopyExtensionEndpoint}>
-                            Copia endpoint
+                          <code>{window.location.origin}</code>
+                          <button type="button" className="btn btn-secondary" onClick={handleCopyExtensionUrl}>
+                            Copia URL
                           </button>
                         </div>
                         <small className="settings-help">
-                          Come URL webapp nelle opzioni usa <code>{window.location.origin}</code>.
+                          Incolla questo indirizzo nel campo “URL webapp Giac” dell’estensione.
                         </small>
                       </div>
 
