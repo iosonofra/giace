@@ -192,6 +192,14 @@ const getOrderPickingMeta = (ord = {}) => {
   };
 };
 
+const formatPickingQty = (value) => Number(value || 0).toLocaleString('it-IT', {
+  maximumFractionDigits: 2
+});
+
+const getPickingRemainingQty = (item = {}) => Number(
+  item.qty_remaining ?? (Number(item.qty_stock || 0) - Number(item.qty_required || 0))
+);
+
 /** Reusable Confirmation Modal component to avoid code duplication */
 const ConfirmModal = ({ isOpen, title, message, warningText, onCancel, onConfirm, confirmText, variant = 'danger' }) => {
   if (!isOpen) return null;
@@ -472,8 +480,13 @@ function App() {
   const [autoPickingStrategy, setAutoPickingStrategy] = useState('chronological');
   const [autoPickingMinResidual, setAutoPickingMinResidual] = useState(0);
   const [autoPickingResultView, setAutoPickingResultView] = useState('selected');
+  const [autoPickingRemainingFilter, setAutoPickingRemainingFilter] = useState('all');
+  const [autoPickingRemainingQuery, setAutoPickingRemainingQuery] = useState('');
+  const [autoPickingRemainingVisibleLimit, setAutoPickingRemainingVisibleLimit] = useState(100);
   const [autoPickingSkuFilter, setAutoPickingSkuFilter] = useState([]);
   const [autoPickingSkuQuery, setAutoPickingSkuQuery] = useState('');
+  const [autoPickingSkuMaxQuery, setAutoPickingSkuMaxQuery] = useState('');
+  const [autoPickingSkuLimits, setAutoPickingSkuLimits] = useState({});
   const [dragOver, setDragOver] = useState(false);
   const [syncingSpecificOrders, setSyncingSpecificOrders] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
@@ -1476,9 +1489,16 @@ function App() {
     }
   };
 
-  const addAutoPickingSkuFilter = (skuValue = autoPickingSkuQuery) => {
+  const addAutoPickingSkuFilter = (skuValue = autoPickingSkuQuery, maxValue = autoPickingSkuMaxQuery) => {
     const rawSku = String(skuValue || '').trim();
     if (!rawSku) return;
+
+    const rawMax = String(maxValue ?? '').trim();
+    const parsedMax = rawMax === '' ? null : Number(rawMax);
+    if (rawMax !== '' && (!Number.isInteger(parsedMax) || parsedMax <= 0)) {
+      setPickingError("Il massimo per ordine della SKU deve essere un numero intero superiore a 0.");
+      return;
+    }
 
     const stockMatch = stockData.find(item => 
       item.sku && item.sku.trim().toUpperCase() === rawSku.toUpperCase()
@@ -1490,11 +1510,48 @@ function App() {
         ? prev
         : [...prev, sku]
     ));
+    if (parsedMax !== null) {
+      setAutoPickingSkuLimits(prev => ({ ...prev, [sku]: parsedMax }));
+    }
     setAutoPickingSkuQuery('');
+    setAutoPickingSkuMaxQuery('');
+    setPickingError(null);
   };
 
   const removeAutoPickingSkuFilter = (sku) => {
     setAutoPickingSkuFilter(prev => prev.filter(existing => existing !== sku));
+    setAutoPickingSkuLimits(prev => {
+      const next = { ...prev };
+      delete next[sku];
+      return next;
+    });
+  };
+
+  const updateAutoPickingSkuLimit = (sku, value) => {
+    const rawValue = String(value ?? '').trim();
+    setAutoPickingSkuLimits(prev => {
+      const next = { ...prev };
+      if (rawValue === '') {
+        delete next[sku];
+      } else {
+        next[sku] = rawValue;
+      }
+      return next;
+    });
+  };
+
+  const resetAutomaticPickingConfiguration = () => {
+    setAutoPickingLimit(20);
+    setAutoPickingStrategy('chronological');
+    setAutoPickingStrict(false);
+    setAutoPickingMinResidual(0);
+    setAutoPickingSkuFilter([]);
+    setAutoPickingSkuQuery('');
+    setAutoPickingSkuMaxQuery('');
+    setAutoPickingSkuLimits({});
+    setPickingResults(null);
+    setPickingError(null);
+    setAutoPickingResultView('selected');
   };
 
   const handleGenerateAutomaticPicking = async (e) => {
@@ -1512,6 +1569,18 @@ function App() {
       return;
     }
 
+    const invalidSkuLimit = Object.entries(autoPickingSkuLimits).find(([, value]) => {
+      const numericValue = Number(value);
+      return !Number.isInteger(numericValue) || numericValue <= 0;
+    });
+    if (invalidSkuLimit) {
+      setPickingError(`Il massimo per ordine della SKU ${invalidSkuLimit[0]} deve essere un numero intero superiore a 0.`);
+      return;
+    }
+    const skuLimitsPayload = Object.fromEntries(
+      Object.entries(autoPickingSkuLimits).map(([sku, value]) => [sku, Number(value)])
+    );
+
     setPickingLoading(true);
     setPickingError(null);
     setPickingFilesAnomalies([]);
@@ -1526,7 +1595,8 @@ function App() {
           strict_chronology: autoPickingStrict,
           selection_strategy: autoPickingStrategy,
           min_sku_residual: minResidual,
-          sku_filter: autoPickingSkuFilter
+          sku_filter: autoPickingSkuFilter,
+          sku_limits: skuLimitsPayload
         })
       });
       const data = await res.json();
@@ -1535,6 +1605,9 @@ function App() {
         setPickingRequirementFilter('all');
         setPickingViewMode('by_order');
         setAutoPickingResultView('selected');
+        setAutoPickingRemainingFilter('all');
+        setAutoPickingRemainingQuery('');
+        setAutoPickingRemainingVisibleLimit(100);
       } else {
         setPickingError(data.detail || "Errore durante la generazione della lista automatica.");
       }
@@ -1597,14 +1670,22 @@ function App() {
           0,
           `Modalità automatica: ${pickingResults.auto_picking?.selection_strategy === 'maximize_orders' ? 'massimizza ordini' : (pickingResults.auto_picking?.strict_chronology ? 'coda rigida' : 'salta non preparabili')}`,
           `Scorta minima SKU: ${pickingResults.auto_picking?.min_sku_residual || 0}`,
-          `Ordini saltati: ${pickingResults.skipped_orders?.length || 0}`
+          `Massimi per ordine: ${Object.entries(pickingResults.auto_picking?.sku_limits || {}).map(([sku, max]) => `${sku}<=${formatPickingQty(max)}`).join(', ') || 'nessuno'}`,
+          `Ordini saltati: ${pickingResults.skipped_orders?.length || 0}`,
+          `Ordini rimasti fuori proposta: ${automaticRemainingCount}`,
+          `Ordini esclusi dai massimi SKU: ${pickingResults.auto_picking?.sku_limit_excluded_count || 0}`,
+          `Unità da prelevare: ${formatPickingQty(automaticSimulationSummary.selected_units)}`,
+          `SKU coinvolte: ${automaticSimulationSummary.selected_distinct_skus || 0}`
         );
       }
       
       pickingResults.sku_requirements.forEach(req => {
         const diff = req.qty_stock - req.qty_required;
         const statusText = diff >= 0 ? "Disponibile" : `Mancano ${Math.abs(diff)}`;
-        textLines.push(`${req.sku} | ${req.description} | Richiesto: ${req.qty_required} | Stock: ${req.qty_stock} | ${statusText}`);
+        const automaticStockDetail = pickingResults.mode === 'automatic'
+          ? ` | Residuo simulato: ${formatPickingQty(getPickingRemainingQty(req))}`
+          : '';
+        textLines.push(`${req.sku} | ${req.description} | Richiesto: ${formatPickingQty(req.qty_required)} | Stock: ${formatPickingQty(req.qty_stock)}${automaticStockDetail} | ${statusText}`);
       });
       clipboardText = textLines.join('\n');
     } else {
@@ -1618,15 +1699,21 @@ function App() {
       if (pickingResults.mode === 'automatic') {
         textLines.push(`Modalità automatica: ${pickingResults.auto_picking?.selection_strategy === 'maximize_orders' ? 'massimizza ordini' : (pickingResults.auto_picking?.strict_chronology ? 'coda rigida' : 'salta non preparabili')}`);
         textLines.push(`Scorta minima SKU: ${pickingResults.auto_picking?.min_sku_residual || 0}`);
+        textLines.push(`Massimi per ordine: ${Object.entries(pickingResults.auto_picking?.sku_limits || {}).map(([sku, max]) => `${sku}<=${formatPickingQty(max)}`).join(', ') || 'nessuno'}`);
         textLines.push(`Ordini saltati: ${pickingResults.skipped_orders?.length || 0}`);
+        textLines.push(`Ordini rimasti fuori proposta: ${automaticRemainingCount}`);
+        textLines.push(`Ordini esclusi dai massimi SKU: ${pickingResults.auto_picking?.sku_limit_excluded_count || 0}`);
         textLines.push("");
       }
       
-      pickingResults.order_requirements.forEach(ord => {
+      pickingResults.order_requirements.forEach((ord, orderIndex) => {
         const orderDate = ord.date_add ? ` - Data: ${new Date(ord.date_add).toLocaleString('it-IT')}` : '';
         const orderAge = ord.date_add ? ` - Eta: ${getRelativeTimeString(ord.date_add)}` : '';
         const orderState = ord.current_state_label ? ` - Stato: ${ord.current_state_label}` : '';
-        textLines.push(`Ordine: ${ord.order_id} - Cliente: ${ord.customer_name}${orderDate}${orderAge}${orderState}`);
+        const queueMeta = pickingResults.mode === 'automatic'
+          ? ` - Proposta: ${ord.selection_position || orderIndex + 1}${ord.chronological_position ? ` - Posizione cronologica: ${ord.chronological_position}` : ''}`
+          : '';
+        textLines.push(`Ordine: ${ord.order_id} - Cliente: ${ord.customer_name}${queueMeta}${orderDate}${orderAge}${orderState}`);
         textLines.push("--------------------------------------------------------------------------------");
         ord.items.forEach(req => {
           let statusText = "";
@@ -1637,10 +1724,23 @@ function App() {
           } else {
             statusText = `Mancante (Richiesto: ${req.qty_required})`;
           }
-          textLines.push(`- SKU: ${req.sku} | ${req.description} | Richiesto: ${req.qty_required} | Stock: ${req.qty_stock} | ${statusText}`);
+          const progressiveStock = pickingResults.mode === 'automatic'
+            ? ` | Prima: ${formatPickingQty(req.avail_before)} | Dopo: ${formatPickingQty(req.avail_after)}`
+            : ` | Stock: ${formatPickingQty(req.qty_stock)}`;
+          textLines.push(`- SKU: ${req.sku} | ${req.description} | Richiesto: ${formatPickingQty(req.qty_required)}${progressiveStock} | ${statusText}`);
         });
         textLines.push("");
       });
+
+      if (pickingResults.mode === 'automatic' && pickingResults.remaining_orders?.length > 0) {
+        textLines.push("=== ORDINI FUORI DALLA PROPOSTA ===");
+        pickingResults.remaining_orders.forEach(ord => {
+          textLines.push(
+            `- #${ord.chronological_position} Ordine ${ord.order_id} | ${ord.reason} | ${ord.currently_preparable ? 'Preparabile con il residuo attuale' : 'Non preparabile con il residuo attuale'}`
+          );
+        });
+        textLines.push("");
+      }
       clipboardText = textLines.join('\n');
     }
     
@@ -2062,6 +2162,65 @@ function App() {
 
   const pickingRequirements = pickingResults?.sku_requirements || [];
   const pickingOrders = pickingResults?.order_requirements || [];
+  const automaticRemainingOrders = pickingResults?.remaining_orders || [];
+  const automaticSkuLimitExcludedOrders = pickingResults?.sku_limit_excluded_orders || [];
+  const hasAutomaticRemainingDetails = Array.isArray(pickingResults?.remaining_orders);
+  const automaticUnclassifiedCount = Math.max(
+    0,
+    Number(pickingResults?.auto_picking?.candidate_count || 0)
+      - Number(pickingResults?.auto_picking?.selected_count || 0)
+      - Number(pickingResults?.auto_picking?.skipped_count || 0)
+      - automaticRemainingOrders.length
+  );
+  const automaticRemainingCount = automaticRemainingOrders.length + automaticUnclassifiedCount;
+  const automaticMinResidual = Number(pickingResults?.auto_picking?.min_sku_residual || 0);
+  const derivedAutomaticSelectedUnits = pickingRequirements.reduce(
+    (total, item) => total + Number(item.qty_required || 0),
+    0
+  );
+  const derivedAutomaticInitialStock = pickingRequirements.reduce(
+    (total, item) => total + Number(item.qty_stock || 0),
+    0
+  );
+  const derivedAutomaticRemainingStock = pickingRequirements.reduce(
+    (total, item) => total + Number(
+      getPickingRemainingQty(item)
+    ),
+    0
+  );
+  const automaticSimulationSummary = {
+    selected_units: pickingResults?.simulation_summary?.selected_units ?? derivedAutomaticSelectedUnits,
+    selected_distinct_skus: pickingResults?.simulation_summary?.selected_distinct_skus ?? pickingRequirements.length,
+    initial_units_on_touched_skus:
+      pickingResults?.simulation_summary?.initial_units_on_touched_skus ?? derivedAutomaticInitialStock,
+    remaining_units_on_touched_skus:
+      pickingResults?.simulation_summary?.remaining_units_on_touched_skus ?? derivedAutomaticRemainingStock,
+    remaining_preparable_count:
+      pickingResults?.simulation_summary?.remaining_preparable_count
+      ?? (
+        hasAutomaticRemainingDetails
+          ? automaticRemainingOrders.filter(order => order.currently_preparable).length
+          : null
+      ),
+    stopped_by_strict_chronology:
+      pickingResults?.simulation_summary?.stopped_by_strict_chronology ?? false
+  };
+  const automaticStockAuditBySku = new Map(
+    (pickingResults?.stock_simulation || []).map(item => [item.sku, item])
+  );
+  const filteredAutomaticRemainingOrders = automaticRemainingOrders.filter(order => {
+    if (autoPickingRemainingFilter === 'preparable' && !order.currently_preparable) return false;
+    if (autoPickingRemainingFilter === 'blocked' && order.currently_preparable) return false;
+    const query = autoPickingRemainingQuery.trim().toLowerCase();
+    if (!query) return true;
+    return [
+      order.order_id,
+      order.customer_name,
+      order.current_state_label,
+      order.reason
+    ].some(value => String(value || '').toLowerCase().includes(query));
+  });
+  const visibleAutomaticRemainingOrders = filteredAutomaticRemainingOrders.slice(0, autoPickingRemainingVisibleLimit);
   const countedPickingCount = pickingRequirements.filter(req => countedPickingSkus.has(req.sku)).length;
   const visiblePickingRequirements = pickingRequirements.filter(req => {
     const tone = getRequirementMeta(req).tone;
@@ -3613,176 +3772,319 @@ function App() {
                   </div>
                 </div>
               ) : (
-                <form onSubmit={handleGenerateAutomaticPicking} className="picking-workflow-form">
-                  <div className="picking-auto-grid">
-                    <div className="form-group">
-                      <label className="picking-field-label" htmlFor="auto-picking-limit">
-                        Numero ordini da proporre
-                      </label>
-                      <input
-                        id="auto-picking-limit"
-                        className="settings-input"
-                        type="number"
-                        min="1"
-                        max="500"
-                        step="1"
-                        value={autoPickingLimit}
-                        onChange={(e) => setAutoPickingLimit(e.target.value)}
-                      />
-                    </div>
-
-                    <div className="form-group">
-                      <span className="picking-field-label">Strategia selezione</span>
-                      <div className="picking-choice-group" role="group" aria-label="Strategia lista automatica">
-                        <button
-                          type="button"
-                          className={autoPickingStrategy === 'chronological' ? 'active' : ''}
-                          onClick={() => setAutoPickingStrategy('chronological')}
-                        >
-                          Cronologico
-                        </button>
-                        <button
-                          type="button"
-                          className={autoPickingStrategy === 'maximize_orders' ? 'active' : ''}
-                          onClick={() => setAutoPickingStrategy('maximize_orders')}
-                        >
-                          Massimizza ordini
-                        </button>
-                      </div>
-                    </div>
-
-                    {autoPickingStrategy === 'chronological' && (
-                      <div className="form-group">
-                        <span className="picking-field-label">Criterio cronologico</span>
-                        <div className="picking-choice-group" role="group" aria-label="Criterio cronologico lista automatica">
-                          <button
-                            type="button"
-                            className={!autoPickingStrict ? 'active' : ''}
-                            onClick={() => setAutoPickingStrict(false)}
-                          >
-                            Salta non preparabili
-                          </button>
-                          <button
-                            type="button"
-                            className={autoPickingStrict ? 'active' : ''}
-                            onClick={() => setAutoPickingStrict(true)}
-                          >
-                            Coda rigida
-                          </button>
+                <form onSubmit={handleGenerateAutomaticPicking} className="picking-workflow-form picking-auto-configurator">
+                  <div className="picking-config-grid">
+                    <section className="picking-config-card picking-config-objective" aria-labelledby="picking-objective-title">
+                      <div className="picking-config-heading">
+                        <span className="picking-config-step">1</span>
+                        <div>
+                          <h3 id="picking-objective-title">Obiettivo della lista</h3>
+                          <p>Definisci quanti ordini proporre all’operatore.</p>
                         </div>
                       </div>
-                    )}
-
-                    <div className="form-group">
-                      <label className="picking-field-label" htmlFor="auto-picking-min-residual">
-                        Scorta minima per SKU
+                      <label className="picking-field-label" htmlFor="auto-picking-limit">
+                        Numero massimo di ordini
                       </label>
-                      <input
-                        id="auto-picking-min-residual"
-                        className="settings-input"
-                        type="number"
-                        min="0"
-                        step="1"
-                        value={autoPickingMinResidual}
-                        onChange={(e) => setAutoPickingMinResidual(e.target.value)}
-                      />
-                    </div>
-                  </div>
+                      <div className="picking-number-control">
+                        <input
+                          id="auto-picking-limit"
+                          className="settings-input"
+                          type="number"
+                          min="1"
+                          max="500"
+                          step="1"
+                          value={autoPickingLimit}
+                          onChange={(e) => setAutoPickingLimit(e.target.value)}
+                          aria-describedby="auto-picking-limit-help"
+                        />
+                        <span>ordini</span>
+                      </div>
+                      <small id="auto-picking-limit-help" className="picking-field-help">
+                        La simulazione può valutarne di più, ma ne propone al massimo questo numero.
+                      </small>
+                    </section>
 
-                  <div className="picking-auto-sku-filter">
-                    <label className="picking-field-label" htmlFor="auto-picking-sku-filter">
-                      Filtra per SKU
-                    </label>
-                    <div className="picking-sku-picker-row">
-                      <input
-                        id="auto-picking-sku-filter"
-                        className="settings-input"
-                        type="text"
-                        list="auto-picking-sku-options"
-                        placeholder="Cerca o inserisci SKU componente"
-                        value={autoPickingSkuQuery}
-                        onChange={(e) => setAutoPickingSkuQuery(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                            addAutoPickingSkuFilter(autoPickingSkuQuery);
-                          }
-                        }}
-                      />
-                      <datalist id="auto-picking-sku-options">
-                        {autoPickingSkuSuggestions.map(sku => (
-                          <option key={sku} value={sku} />
-                        ))}
-                      </datalist>
-                      <button
-                        type="button"
-                        className="btn btn-neutral"
-                        onClick={() => addAutoPickingSkuFilter(autoPickingSkuQuery)}
-                        disabled={!autoPickingSkuQuery.trim()}
-                      >
-                        Aggiungi
-                      </button>
-                    </div>
-                    {autoPickingSkuFilter.length > 0 && (
-                      <div className="picking-sku-filter-chips" aria-label="SKU filtrati">
-                        {autoPickingSkuFilter.map(sku => (
-                          <button
-                            key={sku}
-                            type="button"
-                            className="picking-sku-filter-chip"
-                            onClick={() => removeAutoPickingSkuFilter(sku)}
-                            title="Rimuovi filtro SKU"
-                          >
-                            <span>{sku}</span>
-                            <strong aria-hidden="true">x</strong>
-                          </button>
-                        ))}
+                    <section className="picking-config-card picking-config-priority" aria-labelledby="picking-priority-title">
+                      <div className="picking-config-heading">
+                        <span className="picking-config-step">2</span>
+                        <span>
+                          <strong id="picking-priority-title">Priorità di selezione</strong>
+                          <small>Scegli quale obiettivo deve guidare la proposta.</small>
+                        </span>
+                      </div>
+                      <div className="picking-option-grid" role="group" aria-label="Priorità di selezione">
                         <button
                           type="button"
-                          className="picking-sku-filter-clear"
-                          onClick={() => setAutoPickingSkuFilter([])}
+                          aria-pressed={autoPickingStrategy === 'chronological'}
+                          className={`picking-option-card ${autoPickingStrategy === 'chronological' ? 'active' : ''}`}
+                          onClick={() => setAutoPickingStrategy('chronological')}
                         >
-                          Pulisci filtro
+                          <span className="picking-option-indicator" aria-hidden="true"></span>
+                          <span>
+                            <strong>Priorità agli ordini più vecchi</strong>
+                            <small>Segue la coda cronologica e scala progressivamente la giacenza.</small>
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          aria-pressed={autoPickingStrategy === 'maximize_orders'}
+                          className={`picking-option-card ${autoPickingStrategy === 'maximize_orders' ? 'active' : ''}`}
+                          onClick={() => setAutoPickingStrategy('maximize_orders')}
+                        >
+                          <span className="picking-option-indicator" aria-hidden="true"></span>
+                          <span>
+                            <strong>Massimizza ordini gestibili</strong>
+                            <small>Privilegia gli ordini con minore consumo; la data decide a parità.</small>
+                          </span>
                         </button>
                       </div>
+                    </section>
+
+                    {autoPickingStrategy === 'chronological' && (
+                      <section className="picking-config-card" aria-labelledby="picking-blocked-orders-title">
+                        <div className="picking-config-heading">
+                          <span className="picking-config-step">3</span>
+                          <span>
+                            <strong id="picking-blocked-orders-title">Gestione degli ordini bloccati</strong>
+                            <small>Decidi cosa fare quando un ordine non è preparabile.</small>
+                          </span>
+                        </div>
+                        <div className="picking-option-grid compact" role="group" aria-label="Gestione ordini bloccati">
+                          <button
+                            type="button"
+                            aria-pressed={!autoPickingStrict}
+                            className={`picking-option-card ${!autoPickingStrict ? 'active' : ''}`}
+                            onClick={() => setAutoPickingStrict(false)}
+                          >
+                            <span className="picking-option-indicator" aria-hidden="true"></span>
+                            <span>
+                              <strong>Continua con i successivi</strong>
+                              <small>Registra il blocco senza consumare stock e prova il prossimo ordine.</small>
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            aria-pressed={autoPickingStrict}
+                            className={`picking-option-card ${autoPickingStrict ? 'active' : ''}`}
+                            onClick={() => setAutoPickingStrict(true)}
+                          >
+                            <span className="picking-option-indicator" aria-hidden="true"></span>
+                            <span>
+                              <strong>Ferma la coda al primo blocco</strong>
+                              <small>Preserva rigidamente la precedenza cronologica.</small>
+                            </span>
+                          </button>
+                        </div>
+                      </section>
                     )}
+
+                    <section
+                      className={`picking-config-card picking-config-stock ${autoPickingStrategy === 'chronological' ? '' : 'wide'}`}
+                      aria-labelledby="picking-stock-protection-title"
+                    >
+                      <div className="picking-config-heading">
+                        <span className="picking-config-step">{autoPickingStrategy === 'chronological' ? '4' : '3'}</span>
+                        <div>
+                          <h3 id="picking-stock-protection-title">Protezione giacenze</h3>
+                          <p>Impedisci alla simulazione di esaurire completamente le SKU.</p>
+                        </div>
+                      </div>
+                      <label className="picking-field-label" htmlFor="auto-picking-min-residual">
+                        Residuo minimo uniforme
+                      </label>
+                      <div className="picking-number-control">
+                        <input
+                          id="auto-picking-min-residual"
+                          className="settings-input"
+                          type="number"
+                          min="0"
+                          step="1"
+                          value={autoPickingMinResidual}
+                          onChange={(e) => setAutoPickingMinResidual(e.target.value)}
+                          aria-describedby="auto-picking-residual-help"
+                        />
+                        <span>unità</span>
+                      </div>
+                      <small id="auto-picking-residual-help" className="picking-field-help">
+                        Con 0 non viene protetta alcuna scorta. La soglia viene applicata a ogni SKU.
+                      </small>
+                    </section>
+
+                    <section className="picking-config-card picking-config-filter" aria-labelledby="picking-filter-title">
+                      <div className="picking-config-heading">
+                        <span className="picking-config-step">{autoPickingStrategy === 'chronological' ? '5' : '4'}</span>
+                        <div>
+                          <h3 id="picking-filter-title">Filtro degli ordini</h3>
+                          <p>Limita facoltativamente i candidati alle SKU che vuoi gestire.</p>
+                        </div>
+                      </div>
+                      <div className="picking-sku-rule-builder">
+                        <div>
+                          <label className="picking-field-label" htmlFor="auto-picking-sku-filter">
+                            SKU componente
+                          </label>
+                          <input
+                            id="auto-picking-sku-filter"
+                            className="settings-input"
+                            type="text"
+                            list="auto-picking-sku-options"
+                            placeholder="Esempio: ATXC35D"
+                            value={autoPickingSkuQuery}
+                            onChange={(e) => setAutoPickingSkuQuery(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                addAutoPickingSkuFilter(autoPickingSkuQuery, autoPickingSkuMaxQuery);
+                              }
+                            }}
+                            aria-describedby="auto-picking-filter-help"
+                          />
+                          <datalist id="auto-picking-sku-options">
+                            {autoPickingSkuSuggestions.map(sku => (
+                              <option key={sku} value={sku} />
+                            ))}
+                          </datalist>
+                        </div>
+                        <div>
+                          <label className="picking-field-label" htmlFor="auto-picking-sku-max">
+                            Massimo per ordine
+                          </label>
+                          <div className="picking-number-control compact">
+                            <input
+                              id="auto-picking-sku-max"
+                              className="settings-input"
+                              type="number"
+                              min="1"
+                              step="1"
+                              placeholder="Nessun limite"
+                              value={autoPickingSkuMaxQuery}
+                              onChange={(e) => setAutoPickingSkuMaxQuery(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  addAutoPickingSkuFilter(autoPickingSkuQuery, autoPickingSkuMaxQuery);
+                                }
+                              }}
+                            />
+                            <span>unità</span>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          className="btn btn-neutral"
+                          onClick={() => addAutoPickingSkuFilter(autoPickingSkuQuery, autoPickingSkuMaxQuery)}
+                          disabled={!autoPickingSkuQuery.trim()}
+                        >
+                          Aggiungi regola
+                        </button>
+                      </div>
+                      <small id="auto-picking-filter-help" className="picking-field-help">
+                        Il massimo è opzionale. Se impostato, vengono esclusi gli ordini che richiedono una quantità superiore per quella SKU.
+                      </small>
+                      {autoPickingSkuFilter.length > 0 ? (
+                        <div className="picking-sku-rule-list" aria-label="Regole SKU configurate">
+                          {autoPickingSkuFilter.map(sku => (
+                            <div key={sku} className="picking-sku-rule">
+                              <strong>{sku}</strong>
+                              <label htmlFor={`auto-sku-limit-${sku}`}>Massimo per ordine</label>
+                              <div className="picking-sku-rule-limit">
+                                <input
+                                  id={`auto-sku-limit-${sku}`}
+                                  className="settings-input"
+                                  type="number"
+                                  min="1"
+                                  step="1"
+                                  placeholder="Nessun limite"
+                                  value={autoPickingSkuLimits[sku] ?? ''}
+                                  onChange={(e) => updateAutoPickingSkuLimit(sku, e.target.value)}
+                                />
+                                <span>unità</span>
+                              </div>
+                              <button
+                                type="button"
+                                className="picking-sku-rule-remove"
+                                onClick={() => removeAutoPickingSkuFilter(sku)}
+                                aria-label={`Rimuovi regola ${sku}`}
+                              >
+                                Rimuovi
+                              </button>
+                            </div>
+                          ))}
+                          <button
+                            type="button"
+                            className="picking-sku-filter-clear"
+                            onClick={() => {
+                              setAutoPickingSkuFilter([]);
+                              setAutoPickingSkuLimits({});
+                            }}
+                          >
+                            Rimuovi tutte le regole
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="picking-filter-empty">Nessun filtro: saranno valutati tutti gli ordini negli stati configurati.</div>
+                      )}
+                    </section>
+                  </div>
+
+                  <div className="picking-config-summary" aria-live="polite" aria-atomic="true">
+                    <div>
+                      <span className="picking-config-summary-label">Configurazione attuale</span>
+                      <strong>
+                        Massimo {autoPickingLimit || 0} ordini ·{' '}
+                        {autoPickingStrategy === 'maximize_orders'
+                          ? 'priorità agli ordini con minore consumo'
+                          : 'priorità cronologica'}
+                      </strong>
+                      <p>
+                        {autoPickingStrategy === 'chronological'
+                          ? (autoPickingStrict
+                            ? 'La coda si fermerà al primo ordine non preparabile.'
+                            : 'Gli ordini non preparabili saranno saltati senza consumare giacenza.')
+                          : 'La cronologia sarà utilizzata come criterio di spareggio.'}
+                      </p>
+                    </div>
+                    <div className="picking-config-summary-tags">
+                      <span>{Number(autoPickingMinResidual || 0) > 0 ? `Residuo minimo ${autoPickingMinResidual}` : 'Nessuna scorta protetta'}</span>
+                      <span>
+                        {autoPickingSkuFilter.length > 0
+                          ? `${autoPickingSkuFilter.length} SKU filtrate · ${Object.keys(autoPickingSkuLimits).length} con massimo`
+                          : 'Tutte le SKU'}
+                      </span>
+                      <span>Solo simulazione</span>
+                    </div>
                   </div>
 
                   {pickingError && (
-                    <div className="picking-alert picking-alert-danger">
-                      <strong>Lista non generata.</strong>
+                    <div className="picking-alert picking-alert-danger" role="alert">
+                      <strong>Simulazione non generata.</strong>
                       <span>{pickingError}</span>
                     </div>
                   )}
 
-                  <div className="picking-form-actions">
-                    <button 
-                      type="submit" 
-                      className="btn btn-primary" 
+                  <div className="picking-auto-actions">
+                    <button
+                      type="button"
+                      className="btn btn-neutral"
+                      onClick={resetAutomaticPickingConfiguration}
+                      disabled={pickingLoading}
+                    >
+                      Ripristina parametri
+                    </button>
+                    <button
+                      type="submit"
+                      className="btn btn-primary picking-auto-submit"
                       disabled={pickingLoading}
                     >
                       {pickingLoading ? (
                         <>
                           <div className="spinner" style={{ width: '16px', height: '16px', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff' }}></div>
-                          Generazione in corso...
+                          Simulazione in corso...
                         </>
                       ) : (
-                        "Genera lista automatica"
+                        <>Simula preparazione <span aria-hidden="true">→</span></>
                       )}
                     </button>
-
-                    {pickingResults && pickingResults.mode === 'automatic' && (
-                      <button 
-                        type="button" 
-                        className="btn btn-neutral" 
-                        onClick={() => {
-                          setPickingResults(null);
-                          setPickingError(null);
-                        }}
-                      >
-                        Nuovo Calcolo
-                      </button>
-                    )}
                   </div>
                 </form>
               )}
@@ -3908,6 +4210,14 @@ function App() {
                           {pickingResults.auto_picking?.sku_filter?.length > 0
                             ? ` | SKU: ${pickingResults.auto_picking.sku_filter.join(', ')}`
                             : ''}
+                          {Object.keys(pickingResults.auto_picking?.sku_limits || {}).length > 0
+                            ? ` | Massimi: ${Object.entries(pickingResults.auto_picking.sku_limits)
+                              .map(([sku, max]) => `${sku}≤${formatPickingQty(max)}`)
+                              .join(', ')}`
+                            : ''}
+                          {pickingResults.auto_picking?.sku_limit_excluded_count > 0
+                            ? ` | Esclusi per massimo: ${pickingResults.auto_picking.sku_limit_excluded_count}`
+                            : ''}
                         </p>
                       </div>
                     </>
@@ -3963,6 +4273,79 @@ function App() {
                   )}
                 </div>
 
+                {pickingResults.mode === 'automatic' && automaticSkuLimitExcludedOrders.length > 0 && (
+                  <section className="picking-sku-limit-exclusions" aria-label="Ordini esclusi dai massimi per SKU">
+                    <div className="picking-sku-limit-exclusions-head">
+                      <div>
+                        <span>Esclusi dai limiti per ordine</span>
+                        <strong>{automaticSkuLimitExcludedOrders.length} ordini</strong>
+                      </div>
+                      <p>Questi ordini non entrano nella simulazione e non consumano giacenza.</p>
+                    </div>
+                    <div className="picking-sku-limit-exclusion-list">
+                      {automaticSkuLimitExcludedOrders.slice(0, 20).map(order => (
+                        <div key={order.order_id} className="picking-sku-limit-exclusion-row">
+                          <div>
+                            <strong>Ordine {order.order_id}</strong>
+                            <span>{order.customer_name}</span>
+                          </div>
+                          <div>
+                            {order.exceeded_items?.map(item => (
+                              <span key={item.sku}>
+                                <strong>{item.sku}</strong>
+                                richieste {formatPickingQty(item.qty_required)} · massimo {formatPickingQty(item.max_per_order)}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    {automaticSkuLimitExcludedOrders.length > 20 && (
+                      <small>Visualizzati i primi 20 ordini esclusi.</small>
+                    )}
+                  </section>
+                )}
+
+                {pickingResults.mode === 'automatic' && (
+                  <section className="picking-simulation-summary" aria-label="Riepilogo scalatura giacenze">
+                    <div className="picking-simulation-head">
+                      <div>
+                        <span>Impatto della simulazione</span>
+                        <strong>La giacenza viene scalata in sequenza solo per gli ordini proposti</strong>
+                      </div>
+                      <span className="badge badge-neutral">Nessuna prenotazione reale</span>
+                    </div>
+                    <div className="picking-decision-strip">
+                      <div className="picking-decision-item success">
+                        <span>Unità da prelevare</span>
+                        <strong>{formatPickingQty(automaticSimulationSummary.selected_units)}</strong>
+                      </div>
+                      <div className="picking-decision-item">
+                        <span>SKU coinvolte</span>
+                        <strong>{automaticSimulationSummary.selected_distinct_skus || 0}</strong>
+                      </div>
+                      <div className="picking-decision-item">
+                        <span>Stock iniziale sulle SKU usate</span>
+                        <strong>{formatPickingQty(automaticSimulationSummary.initial_units_on_touched_skus)}</strong>
+                      </div>
+                      <div className="picking-decision-item warning">
+                        <span>Residuo simulato</span>
+                        <strong>{formatPickingQty(automaticSimulationSummary.remaining_units_on_touched_skus)}</strong>
+                      </div>
+                      <div className="picking-decision-item">
+                        <span>Fuori proposta ma preparabili</span>
+                        <strong>{automaticSimulationSummary.remaining_preparable_count ?? 'n/d'}</strong>
+                      </div>
+                    </div>
+                    {automaticSimulationSummary.stopped_by_strict_chronology && (
+                      <div className="picking-alert picking-alert-warning" role="status">
+                        <strong>Coda cronologica interrotta.</strong>
+                        <span>La simulazione si è fermata sul primo ordine non preparabile; gli ordini successivi non sono stati proposti.</span>
+                      </div>
+                    )}
+                  </section>
+                )}
+
                 {pickingResults.mode === 'automatic' && pickingViewMode === 'aggregated' && pickingResults.skipped_orders?.length > 0 && (
                   <div className="picking-skipped-panel">
                     <div className="picking-skipped-head">
@@ -3979,7 +4362,7 @@ function App() {
                               onClick={() => handleCopyOrderId(order.order_id)}
                               title="Clicca per copiare l'ID ordine"
                             >
-                              Ordine {order.order_id}
+                              #{order.chronological_position} · Ordine {order.order_id}
                             </button>
                             {copiedOrderId === order.order_id && (
                               <span className="picking-order-copied">Copiato</span>
@@ -3996,10 +4379,13 @@ function App() {
                               </span>
                             )}
                           </div>
-                          <div className="picking-skip-reason">
-                            <span className="picking-skip-reason-label">
-                              {order.reason || 'Non preparabile'}
-                            </span>
+                           <div className="picking-skip-reason">
+                             <span className="picking-skip-reason-label">
+                               {order.reason || 'Non preparabile'}
+                             </span>
+                             <div className="picking-order-impact">
+                               {formatPickingQty(order.total_units)} unità · {order.distinct_skus} SKU
+                             </div>
                             {order.missing_items?.length > 0 ? (
                               <div className="picking-skip-missing-list">
                                 {order.missing_items.map(item => (
@@ -4076,8 +4462,14 @@ function App() {
                           <tr>
                             <th>SKU Componente</th>
                             <th>Descrizione Magazzino</th>
-                            <th className="num-col">Quantità Richiesta</th>
-                            <th className="num-col">Disponibile Magazzino</th>
+                            <th className="num-col">{pickingResults.mode === 'automatic' ? 'Da prelevare' : 'Quantità richiesta'}</th>
+                            <th className="num-col">{pickingResults.mode === 'automatic' ? 'Stock iniziale' : 'Disponibile magazzino'}</th>
+                            {pickingResults.mode === 'automatic' && (
+                              <>
+                                <th className="num-col">Residuo simulato</th>
+                                <th className="num-col">Utilizzo</th>
+                              </>
+                            )}
                             <th className="status-col">Stato Prelievo</th>
                           </tr>
                         </thead>
@@ -4097,11 +4489,30 @@ function App() {
                                 <td className="picking-description-cell">
                                   {req.description}
                                 </td>
-                                <td className="num-col strong-num">{req.qty_required}</td>
-                                <td className="num-col muted-num">{req.qty_stock}</td>
+                                <td className="num-col strong-num">{formatPickingQty(req.qty_required)}</td>
+                                <td className="num-col muted-num">{formatPickingQty(req.qty_stock)}</td>
+                                {pickingResults.mode === 'automatic' && (
+                                  <>
+                                    <td className="num-col strong-num">{formatPickingQty(getPickingRemainingQty(req))}</td>
+                                    <td className="num-col muted-num">
+                                      {formatPickingQty(
+                                        automaticStockAuditBySku.get(req.sku)?.utilization_pct
+                                        ?? (
+                                          Number(req.qty_required || 0)
+                                          / Math.max(1, Number(req.qty_stock || 0) - automaticMinResidual)
+                                          * 100
+                                        )
+                                      )}%
+                                    </td>
+                                  </>
+                                )}
                                 <td className="status-col">
                                   <span className={`picking-status-chip ${isCounted ? 'counted' : meta.tone}`}>
-                                    {isCounted ? 'Contata' : meta.label}
+                                    {isCounted
+                                      ? 'Contata'
+                                      : pickingResults.mode === 'automatic'
+                                        ? `Residuo ${formatPickingQty(getPickingRemainingQty(req))}`
+                                        : meta.label}
                                   </span>
                                 </td>
                               </tr>
@@ -4141,6 +4552,16 @@ function App() {
                           <span>Saltati</span>
                           <strong>{pickingResults.skipped_orders?.length || 0}</strong>
                         </button>
+                        <button
+                          type="button"
+                          className={autoPickingResultView === 'remaining' ? 'active warning' : ''}
+                          role="tab"
+                          aria-selected={autoPickingResultView === 'remaining'}
+                          onClick={() => setAutoPickingResultView('remaining')}
+                        >
+                          <span>Fuori proposta</span>
+                          <strong>{automaticRemainingCount}</strong>
+                        </button>
                       </div>
                     )}
 
@@ -4158,7 +4579,7 @@ function App() {
 
                     <div className="picking-order-list">
                       {sortedPickingOrders.length > 0 ? (
-                        sortedPickingOrders.map(ord => {
+                        sortedPickingOrders.map((ord, orderIndex) => {
                           const orderMeta = getOrderPickingMeta(ord);
                           
                           return (
@@ -4181,6 +4602,12 @@ function App() {
                                     <span className="picking-order-copied">Copiato</span>
                                   )}
                                   <span>{ord.customer_name}</span>
+                                  {pickingResults.mode === 'automatic' && (
+                                    <span className="picking-order-sequence">
+                                      Proposta #{ord.selection_position || orderIndex + 1}
+                                      {ord.chronological_position ? ` · Coda #${ord.chronological_position}` : ''}
+                                    </span>
+                                  )}
                                 </div>
                                 {(ord.date_add || ord.current_state_label) && (
                                   <div className="picking-order-meta-row">
@@ -4212,10 +4639,13 @@ function App() {
                                 <thead>
                                   <tr>
                                     <th>SKU Componente</th>
-                                    <th>Descrizione Magazzino</th>
-                                    <th className="num-col">Quantità Richiesta</th>
-                                    <th className="num-col">Disponibile Magazzino</th>
-                                    <th className="status-col">Stato Prelievo</th>
+                                     <th>Descrizione Magazzino</th>
+                                     <th className="num-col">Quantità Richiesta</th>
+                                     <th className="num-col">{pickingResults.mode === 'automatic' ? 'Disponibile prima' : 'Disponibile magazzino'}</th>
+                                     {pickingResults.mode === 'automatic' && (
+                                       <th className="num-col">Residuo dopo</th>
+                                     )}
+                                     <th className="status-col">Stato Prelievo</th>
                                   </tr>
                                 </thead>
                                 <tbody>
@@ -4232,8 +4662,13 @@ function App() {
                                         <td className="picking-description-cell">
                                           {item.description}
                                         </td>
-                                        <td className="num-col strong-num">{item.qty_required}</td>
-                                        <td className="num-col muted-num">{item.qty_stock}</td>
+                                        <td className="num-col strong-num">{formatPickingQty(item.qty_required)}</td>
+                                        <td className="num-col muted-num">
+                                          {formatPickingQty(pickingResults.mode === 'automatic' ? item.avail_before : item.qty_stock)}
+                                        </td>
+                                        {pickingResults.mode === 'automatic' && (
+                                          <td className="num-col strong-num">{formatPickingQty(item.avail_after)}</td>
+                                        )}
                                         <td className="status-col">
                                           <span className={`picking-status-chip ${itemMeta.tone}`}>
                                             {itemMeta.label}
@@ -4279,7 +4714,7 @@ function App() {
                                       onClick={() => handleCopyOrderId(order.order_id)}
                                       title="Clicca per copiare l'ID ordine"
                                     >
-                                      Ordine {order.order_id}
+                                      #{order.chronological_position} · Ordine {order.order_id}
                                     </button>
                                     {copiedOrderId === order.order_id && (
                                       <span className="picking-order-copied">Copiato</span>
@@ -4300,6 +4735,9 @@ function App() {
                                     <span className="picking-skip-reason-label">
                                       {order.reason || 'Non preparabile'}
                                     </span>
+                                    <div className="picking-order-impact">
+                                      {formatPickingQty(order.total_units)} unità · {order.distinct_skus} SKU
+                                    </div>
                                     {order.missing_items?.length > 0 ? (
                                       <div className="picking-skip-missing-list">
                                         {order.missing_items.map(item => (
@@ -4334,6 +4772,157 @@ function App() {
                         ) : (
                           <div className="picking-skipped-empty">
                             Nessun ordine saltato: tutti gli ordini valutati sono preparabili.
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {pickingResults.mode === 'automatic' && autoPickingResultView === 'remaining' && (
+                      <div className="picking-skipped-section">
+                        <div className="picking-split-head warning">
+                          <div>
+                            <span>Ordini fuori dalla proposta</span>
+                            <strong>{automaticRemainingCount} ordini</strong>
+                          </div>
+                          <span>Non consumano giacenza nella simulazione corrente</span>
+                        </div>
+
+                        {hasAutomaticRemainingDetails && automaticRemainingOrders.length > 0 && (
+                          <div className="picking-remaining-controls">
+                            <input
+                              type="search"
+                              className="settings-input"
+                              placeholder="Cerca ID, cliente, stato o motivo"
+                              value={autoPickingRemainingQuery}
+                              onChange={(e) => {
+                                setAutoPickingRemainingQuery(e.target.value);
+                                setAutoPickingRemainingVisibleLimit(100);
+                              }}
+                              aria-label="Cerca negli ordini fuori proposta"
+                            />
+                            <div className="picking-filter-group" aria-label="Filtro ordini fuori proposta">
+                              <button
+                                type="button"
+                                className={autoPickingRemainingFilter === 'all' ? 'active' : ''}
+                                onClick={() => {
+                                  setAutoPickingRemainingFilter('all');
+                                  setAutoPickingRemainingVisibleLimit(100);
+                                }}
+                              >
+                                Tutti
+                              </button>
+                              <button
+                                type="button"
+                                className={autoPickingRemainingFilter === 'preparable' ? 'active' : ''}
+                                onClick={() => {
+                                  setAutoPickingRemainingFilter('preparable');
+                                  setAutoPickingRemainingVisibleLimit(100);
+                                }}
+                              >
+                                Preparabili
+                              </button>
+                              <button
+                                type="button"
+                                className={autoPickingRemainingFilter === 'blocked' ? 'active' : ''}
+                                onClick={() => {
+                                  setAutoPickingRemainingFilter('blocked');
+                                  setAutoPickingRemainingVisibleLimit(100);
+                                }}
+                              >
+                                Non preparabili
+                              </button>
+                            </div>
+                            <span className="picking-visible-count">
+                              {filteredAutomaticRemainingOrders.length} risultati
+                            </span>
+                          </div>
+                        )}
+
+                        {hasAutomaticRemainingDetails && automaticRemainingOrders.length > 0 ? (
+                          <div className="picking-skipped-panel full remaining">
+                            <div className="picking-skipped-list full">
+                              {visibleAutomaticRemainingOrders.map(order => (
+                                <div key={order.order_id} className="picking-skipped-row full">
+                                  <div>
+                                    <button
+                                      type="button"
+                                      className="picking-skipped-order-id-btn"
+                                      onClick={() => handleCopyOrderId(order.order_id)}
+                                      title="Clicca per copiare l'ID ordine"
+                                    >
+                                      #{order.chronological_position} · Ordine {order.order_id}
+                                    </button>
+                                    {copiedOrderId === order.order_id && (
+                                      <span className="picking-order-copied">Copiato</span>
+                                    )}
+                                    <span>{order.customer_name}</span>
+                                    {order.date_add && (
+                                      <span className="picking-skipped-date">
+                                        {new Date(order.date_add).toLocaleString('it-IT')} · {getRelativeTimeString(order.date_add)}
+                                      </span>
+                                    )}
+                                    {order.current_state_label && (
+                                      <span className={getStateBadgeClass(order.current_state_label)}>
+                                        {order.current_state_label}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="picking-skip-reason">
+                                    <span className={`picking-status-chip ${order.currently_preparable ? 'success' : 'danger'}`}>
+                                      {order.currently_preparable ? 'Ancora preparabile' : 'Non preparabile'}
+                                    </span>
+                                    <span className="picking-skip-reason-label">{order.reason}</span>
+                                    <small>{order.reason_detail}</small>
+                                    <div className="picking-order-impact">
+                                      {formatPickingQty(order.total_units)} unità · {order.distinct_skus} SKU
+                                    </div>
+                                    {order.missing_items?.length > 0 && (
+                                      <div className="picking-skip-missing-list">
+                                        {order.missing_items.map(item => (
+                                          <span key={item.sku} className="picking-skip-missing-chip">
+                                            <strong>{item.sku}</strong>
+                                            <span>
+                                              {item.violation_type === 'protected_residual'
+                                                ? `residuo ${formatPickingQty(item.qty_available_after)} < min ${formatPickingQty(item.min_residual)}`
+                                                : `manca ${formatPickingQty(item.qty_missing)}`}
+                                            </span>
+                                            <small>
+                                              richiesti {formatPickingQty(item.qty_required)} / disp. {formatPickingQty(item.qty_available)}
+                                            </small>
+                                          </span>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                              {filteredAutomaticRemainingOrders.length === 0 && (
+                                <div className="picking-skipped-empty">
+                                  Nessun ordine corrisponde ai filtri impostati.
+                                </div>
+                              )}
+                            </div>
+                            {visibleAutomaticRemainingOrders.length < filteredAutomaticRemainingOrders.length && (
+                              <button
+                                type="button"
+                                className="btn btn-neutral picking-load-more"
+                                onClick={() => setAutoPickingRemainingVisibleLimit(limit => limit + 100)}
+                              >
+                                Mostra altri 100 ({filteredAutomaticRemainingOrders.length - visibleAutomaticRemainingOrders.length} rimanenti)
+                              </button>
+                            )}
+                          </div>
+                        ) : automaticUnclassifiedCount > 0 ? (
+                          <div className="picking-alert picking-alert-warning" role="status">
+                            <strong>{automaticUnclassifiedCount} ordini fuori proposta.</strong>
+                            <span>
+                              Il backend in esecuzione non restituisce ancora il dettaglio di questi ordini.
+                              Riavvia l’applicazione e rigenera la simulazione per consultarli e filtrarli.
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="picking-skipped-empty">
+                            Tutti gli ordini candidati sono stati inclusi o classificati come non preparabili.
                           </div>
                         )}
                       </div>
@@ -5319,8 +5908,34 @@ function App() {
 
       {/* Association Editor Modal */}
       {isAssociationModalOpen && (() => {
-        // Unique warehouse SKUs list for autocomplete suggestions
-        const uniqueWarehouseSkus = Array.from(new Set(stockData.map(item => item.sku))).filter(Boolean).sort();
+        const warehouseSkuMetaMap = new Map();
+        stockData.forEach(item => {
+          const sku = String(item.sku || '').trim();
+          if (!sku || sku.startsWith('__spacer_') || item.is_spacer) return;
+          const key = sku.toUpperCase();
+          const existing = warehouseSkuMetaMap.get(key) || {
+            sku,
+            description: item.description || '',
+            qty_total: 0
+          };
+          existing.qty_total += Number(item.qty_total || 0);
+          if (!existing.description && item.description) existing.description = item.description;
+          warehouseSkuMetaMap.set(key, existing);
+        });
+        const uniqueWarehouseSkus = Array.from(warehouseSkuMetaMap.values())
+          .sort((a, b) => a.sku.localeCompare(b.sku));
+        const configuredGuidedComponents = guidedComponents.filter(component => component.sku.trim());
+        const configuredSkuKeys = configuredGuidedComponents.map(component => component.sku.trim().toUpperCase());
+        const duplicateSkuKeys = new Set(
+          configuredSkuKeys.filter((sku, index) => configuredSkuKeys.indexOf(sku) !== index)
+        );
+        const totalAssociationUnits = configuredGuidedComponents.reduce(
+          (total, component) => total + Number(component.qty_required || 0),
+          0
+        );
+        const associationHasContent = associationModalMode === 'guided'
+          ? configuredGuidedComponents.length > 0
+          : rawAssociationText.split(',').some(value => value.trim());
         
         const handleAddGuidedRow = () => {
           setGuidedComponents(prev => [...prev, { sku: '', qty_required: 1 }]);
@@ -5375,120 +5990,175 @@ function App() {
         return (
           <>
             <div className="modal-overlay" onClick={() => setIsAssociationModalOpen(false)} />
-            <div className="custom-modal association-editor-modal">
-              <div className="modal-header">
-                <h3>{isNewAssociation ? "Nuova Associazione" : `Modifica Associazione - Prodotto ${editingProductId}`}</h3>
-                <button className="modal-close" onClick={() => setIsAssociationModalOpen(false)} aria-label="Chiudi editor associazione">x</button>
+            <div className="custom-modal association-editor-modal" role="dialog" aria-modal="true" aria-labelledby="association-editor-title">
+              <div className="modal-header association-editor-header">
+                <div>
+                  <span className="association-editor-eyebrow">Associazione prodotto-componenti</span>
+                  <h3 id="association-editor-title">{isNewAssociation ? "Nuova associazione" : "Modifica associazione"}</h3>
+                  {!isNewAssociation && (
+                    <span className="association-product-badge">Prodotto PrestaShop #{editingProductId}</span>
+                  )}
+                </div>
+                <button className="modal-close" onClick={() => setIsAssociationModalOpen(false)} aria-label="Chiudi editor associazione">×</button>
               </div>
-              
+               
               <form onSubmit={handleSaveAssociation}>
                 <div className="modal-body">
-                  {/* Product ID Input (editable only if creating a new one) */}
-                  <div className="form-group" style={{ marginBottom: '20px' }}>
-                    <label style={{ fontWeight: '600', fontSize: '0.9rem', color: 'var(--text-primary)', marginBottom: '6px', display: 'block' }}>
-                      Product ID (ID Prodotto PrestaShop)
-                    </label>
-                    <input 
-                      type="text" 
-                      className="settings-input" 
-                      placeholder="Esempio: 614988" 
-                      value={editingProductId}
-                      onChange={(e) => setEditingProductId(e.target.value)}
-                      disabled={!isNewAssociation}
-                      required
-                    />
-                  </div>
+                  {isNewAssociation && (
+                    <section className="association-product-identity">
+                      <label htmlFor="association-product-id">ID prodotto PrestaShop</label>
+                      <input
+                        id="association-product-id"
+                        type="number"
+                        min="1"
+                        step="1"
+                        className="settings-input"
+                        placeholder="Esempio: 614988"
+                        value={editingProductId}
+                        onChange={(e) => setEditingProductId(e.target.value)}
+                        required
+                      />
+                      <small>Inserisci l’ID numerico del prodotto da collegare alle SKU fisiche.</small>
+                    </section>
+                  )}
 
-                  {/* Mode Selector tabs */}
-                  <div className="modal-mode-selector">
+                  <div className="modal-mode-selector association-mode-selector" role="tablist" aria-label="Modalità editor associazione">
                     <button 
                       type="button"
                       className={`mode-tab ${associationModalMode === 'guided' ? 'active' : ''}`}
                       onClick={() => handleSwitchMode('guided')}
+                      role="tab"
+                      aria-selected={associationModalMode === 'guided'}
                     >
-                      Modalità Guidata (Interattiva)
+                      <strong>Editor visuale</strong>
+                      <small>Configura e verifica ogni componente</small>
                     </button>
                     <button 
                       type="button"
                       className={`mode-tab ${associationModalMode === 'raw' ? 'active' : ''}`}
                       onClick={() => handleSwitchMode('raw')}
+                      role="tab"
+                      aria-selected={associationModalMode === 'raw'}
                     >
-                      Modalità Testo (Raw)
+                      <strong>Inserimento rapido</strong>
+                      <small>Incolla un elenco separato da virgole</small>
                     </button>
                   </div>
 
                   {associationModalMode === 'guided' ? (
-                    /* GUIDED MODE LAYOUT */
                     <div className="guided-mode-container">
-                      <div className="guided-headers">
-                        <span style={{ flexGrow: 1, fontWeight: '600', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Componente SKU</span>
-                        <span style={{ width: '80px', fontWeight: '600', fontSize: '0.85rem', color: 'var(--text-secondary)', textAlign: 'right' }}>Quantità</span>
-                        <span style={{ width: '40px' }}></span>
+                      <div className="association-components-heading">
+                        <div>
+                          <span>Componenti di magazzino</span>
+                          <p>Il prodotto verrà esploso nelle SKU e quantità indicate.</p>
+                        </div>
+                        <strong>{configuredGuidedComponents.length} componenti</strong>
                       </div>
-                      
+                       
                       <div className="guided-rows-list">
                         {guidedComponents.map((comp, idx) => {
-                          // Autocomplete filtering
                           const query = comp.sku || '';
                           const suggestions = query.length >= 1
-                            ? uniqueWarehouseSkus.filter(s => s.toLowerCase().includes(query.toLowerCase())).slice(0, 8)
+                            ? uniqueWarehouseSkus.filter(item =>
+                              item.sku.toLowerCase().includes(query.toLowerCase())
+                              || item.description.toLowerCase().includes(query.toLowerCase())
+                            ).slice(0, 8)
                             : [];
+                          const skuKey = query.trim().toUpperCase();
+                          const skuMeta = warehouseSkuMetaMap.get(skuKey);
+                          const isDuplicate = duplicateSkuKeys.has(skuKey);
+                          const rowTone = !query.trim() ? '' : isDuplicate ? 'duplicate' : skuMeta ? 'valid' : 'unknown';
 
                           return (
-                            <div key={idx} className="guided-row" style={{ position: 'relative' }}>
-                              {/* SKU Input & Autocomplete */}
-                              <div style={{ flexGrow: 1, position: 'relative' }}>
-                                <input 
-                                  type="text" 
-                                  className="settings-input sku-input" 
-                                  placeholder="Inserisci o cerca SKU..." 
-                                  value={comp.sku}
-                                  onChange={(e) => {
-                                    handleUpdateGuidedRow(idx, 'sku', e.target.value);
-                                    setActiveAutocompleteIndex(idx);
-                                  }}
-                                  onFocus={() => setActiveAutocompleteIndex(idx)}
-                                  onBlur={() => {
-                                    // Delay blur to allow clicks on autocomplete items
-                                    setTimeout(() => {
-                                      setActiveAutocompleteIndex(prev => prev === idx ? null : prev);
-                                    }, 200);
-                                  }}
-                                  autoComplete="off"
-                                />
-                                {/* Suggestions dropdown */}
-                                {activeAutocompleteIndex === idx && suggestions.length > 0 && (
-                                  <ul className="autocomplete-dropdown">
-                                    {suggestions.map((s, sIdx) => (
-                                      <li 
-                                        key={sIdx} 
-                                        onClick={() => handleSelectAutocomplete(idx, s)}
-                                      >
-                                        {s}
-                                      </li>
-                                    ))}
-                                  </ul>
+                            <div key={idx} className={`guided-row association-component-row ${rowTone}`}>
+                              <span className="association-component-index">{idx + 1}</span>
+                              <div className="association-component-main">
+                                <label htmlFor={`association-sku-${idx}`}>SKU componente</label>
+                                <div className="association-sku-input-wrap">
+                                  <input 
+                                    id={`association-sku-${idx}`}
+                                    type="text" 
+                                    className="settings-input sku-input" 
+                                    placeholder="Cerca SKU o descrizione..." 
+                                    value={comp.sku}
+                                    onChange={(e) => {
+                                      handleUpdateGuidedRow(idx, 'sku', e.target.value);
+                                      setActiveAutocompleteIndex(idx);
+                                    }}
+                                    onFocus={() => setActiveAutocompleteIndex(idx)}
+                                    onBlur={() => {
+                                      setTimeout(() => {
+                                        setActiveAutocompleteIndex(prev => prev === idx ? null : prev);
+                                      }, 200);
+                                    }}
+                                    autoComplete="off"
+                                  />
+                                  {activeAutocompleteIndex === idx && suggestions.length > 0 && (
+                                    <ul className="autocomplete-dropdown">
+                                      {suggestions.map(item => (
+                                        <li 
+                                          key={item.sku}
+                                          onClick={() => handleSelectAutocomplete(idx, item.sku)}
+                                        >
+                                          <strong>{item.sku}</strong>
+                                          <span>{item.description || 'Nessuna descrizione'} · Stock {formatPickingQty(item.qty_total)}</span>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  )}
+                                </div>
+                                {query.trim() && (
+                                  <div className={`association-sku-feedback ${rowTone}`}>
+                                    {isDuplicate ? (
+                                      <>SKU già presente in un’altra riga: al salvataggio le quantità saranno sommate.</>
+                                    ) : skuMeta ? (
+                                      <><strong>{skuMeta.description || 'SKU presente in magazzino'}</strong><span>Stock totale {formatPickingQty(skuMeta.qty_total)}</span></>
+                                    ) : (
+                                      <>SKU non trovata nella giacenza corrente. Verifica il codice prima di salvare.</>
+                                    )}
+                                  </div>
                                 )}
                               </div>
 
-                              {/* Quantity input */}
-                              <input 
-                                type="number" 
-                                className="settings-input qty-input" 
-                                style={{ width: '80px', textAlign: 'right' }} 
-                                min="1"
-                                value={comp.qty_required}
-                                onChange={(e) => handleUpdateGuidedRow(idx, 'qty_required', parseInt(e.target.value) || 1)}
-                              />
+                              <div className="association-quantity-control">
+                                <label htmlFor={`association-qty-${idx}`}>Quantità</label>
+                                <div>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleUpdateGuidedRow(idx, 'qty_required', Math.max(1, Number(comp.qty_required || 1) - 1))}
+                                    aria-label={`Riduci quantità della SKU ${comp.sku || idx + 1}`}
+                                  >
+                                    −
+                                  </button>
+                                  <input 
+                                    id={`association-qty-${idx}`}
+                                    type="number" 
+                                    className="settings-input qty-input"
+                                    min="1"
+                                    step="1"
+                                    value={comp.qty_required}
+                                    onChange={(e) => handleUpdateGuidedRow(idx, 'qty_required', parseInt(e.target.value, 10) || 1)}
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => handleUpdateGuidedRow(idx, 'qty_required', Number(comp.qty_required || 1) + 1)}
+                                    aria-label={`Aumenta quantità della SKU ${comp.sku || idx + 1}`}
+                                  >
+                                    +
+                                  </button>
+                                </div>
+                              </div>
 
-                              {/* Delete row */}
                               <button 
-                                type="button" 
-                                className="btn btn-neutral btn-sm"
-                                style={{ width: '36px', height: '36px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(239, 68, 68, 0.05)', color: 'var(--color-danger)', border: '1px solid rgba(239, 68, 68, 0.1)' }}
+                                type="button"
+                                className="association-component-remove"
                                 onClick={() => handleRemoveGuidedRow(idx)}
+                                aria-label={`Rimuovi componente ${comp.sku || idx + 1}`}
+                                title="Rimuovi componente"
                               >
-                                x
+                                <svg width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 6h18m-2 0-.867 13.142A2 2 0 0 1 16.138 21H7.862a2 2 0 0 1-1.995-1.858L5 6m3 0V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m-7 4v7m4-7v7" />
+                                </svg>
                               </button>
                             </div>
                           );
@@ -5497,33 +6167,60 @@ function App() {
 
                       <button 
                         type="button" 
-                        className="btn btn-neutral btn-sm" 
-                        style={{ marginTop: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}
+                        className="association-add-component"
                         onClick={handleAddGuidedRow}
                       >
-                        <Icons.Plus /> Aggiungi Componente
+                        <Icons.Plus /> Aggiungi un altro componente
                       </button>
+
+                      {configuredGuidedComponents.length > 0 && (
+                        <div className="association-preview">
+                          <div>
+                            <span>Anteprima associazione</span>
+                            <strong>Prodotto #{editingProductId || '—'} = {totalAssociationUnits} unità complessive</strong>
+                          </div>
+                          <div>
+                            {configuredGuidedComponents.map((component, index) => (
+                              <span key={`${component.sku}-${index}`}>
+                                {formatPickingQty(component.qty_required)} × {component.sku}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ) : (
-                    /* RAW MODE LAYOUT */
                     <div className="raw-mode-container">
-                      <label style={{ fontWeight: '500', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '8px', display: 'block' }}>
-                        Inserisci le SKU separate da virgole (es. <code>SKU_A, SKU_B, SKU_A</code> per indicare 2x SKU_A e 1x SKU_B)
-                      </label>
+                      <div className="association-raw-intro">
+                        <strong>Inserimento rapido da testo</strong>
+                        <p>Ripeti una SKU per indicare più unità. Esempio: <code>SKU_A, SKU_B, SKU_A</code> equivale a 2 × SKU_A e 1 × SKU_B.</p>
+                      </div>
                       <textarea 
-                        className="settings-input"
-                        style={{ width: '100%', minHeight: '120px', fontFamily: 'monospace', fontSize: '0.9rem', padding: '12px', resize: 'vertical' }}
+                        className="settings-input association-raw-textarea"
                         placeholder="SKU_1, SKU_2, SKU_2, SKU_3"
                         value={rawAssociationText}
                         onChange={(e) => setRawAssociationText(e.target.value)}
+                        aria-label="Elenco testuale SKU componenti"
                       />
                     </div>
                   )}
                 </div>
 
-                <div className="modal-footer" style={{ marginTop: '24px' }}>
-                  <button type="button" className="btn btn-neutral" onClick={() => setIsAssociationModalOpen(false)}>Annulla</button>
-                  <button type="submit" className="btn btn-primary">Salva Associazione</button>
+                <div className="modal-footer association-editor-footer">
+                  <div>
+                    <strong>
+                      {associationModalMode === 'guided'
+                        ? `${configuredGuidedComponents.length} componenti · ${totalAssociationUnits} unità`
+                        : 'Modalità inserimento rapido'}
+                    </strong>
+                    <span>Il salvataggio aggiornerà automaticamente il calcolo delle disponibilità.</span>
+                  </div>
+                  <div>
+                    <button type="button" className="btn btn-neutral" onClick={() => setIsAssociationModalOpen(false)}>Annulla</button>
+                    <button type="submit" className="btn btn-primary" disabled={!associationHasContent || !editingProductId}>
+                      Salva associazione
+                    </button>
+                  </div>
                 </div>
               </form>
             </div>

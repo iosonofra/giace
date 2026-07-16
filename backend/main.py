@@ -26,6 +26,7 @@ from backend.models import (
 from backend.excel_parser import parse_warehouse_excel, parse_associations_excel, get_excel_sheets, parse_picking_orders_excel
 from backend.prestashop_client import PrestaShopClient
 from backend.calculator import run_calculation
+from backend.picking_rules import is_ignored_picking_sku
 
 # Initialize logger
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -1964,14 +1965,17 @@ def get_stock_orders_smart_counter(sku: str, db: Session = Depends(get_db)):
         product_qty = line.product_quantity or 1
         reqs = {}
 
+        if is_ignored_picking_sku(line.product_reference):
+            return reqs
+
         if line.product_id in components_map:
             for comp in components_map.get(line.product_id, []):
                 sku_key = comp.sku.strip()
-                if sku_key:
+                if sku_key and not is_ignored_picking_sku(sku_key):
                     reqs[sku_key] = reqs.get(sku_key, 0.0) + (comp.qty_required * product_qty)
         else:
             sku_key = (line.product_reference or "").strip()
-            if sku_key:
+            if sku_key and not is_ignored_picking_sku(sku_key):
                 reqs[sku_key] = reqs.get(sku_key, 0.0) + product_qty
 
         return reqs
@@ -2312,6 +2316,8 @@ def analyze_orders(payload: dict, db: Session = Depends(get_db)):
     # Calculate required SKUs (aggregated)
     sku_required_map = {}
     for line in order_lines:
+        if is_ignored_picking_sku(line.product_reference):
+            continue
         prod_id = line.product_id
         qty_ordered = line.product_quantity or 1
         
@@ -2319,11 +2325,13 @@ def analyze_orders(payload: dict, db: Session = Depends(get_db)):
             # Composed product (explode it!)
             for sku, qty_req in components_map[prod_id]:
                 sku_key = sku.strip()
+                if is_ignored_picking_sku(sku_key):
+                    continue
                 sku_required_map[sku_key] = sku_required_map.get(sku_key, 0) + (qty_req * qty_ordered)
         else:
             # Single product, reference is SKU
             sku_key = (line.product_reference or "").strip()
-            if sku_key:
+            if sku_key and not is_ignored_picking_sku(sku_key):
                 sku_required_map[sku_key] = sku_required_map.get(sku_key, 0) + qty_ordered
                 
     # Build aggregated result
@@ -2351,16 +2359,20 @@ def analyze_orders(payload: dict, db: Session = Depends(get_db)):
         
         sku_reqs = {}
         for line in lines:
+            if is_ignored_picking_sku(line.product_reference):
+                continue
             prod_id = line.product_id
             qty_ordered = line.product_quantity or 1
             
             if prod_id in components_map:
                 for sku, qty_req in components_map[prod_id]:
                     sku_key = sku.strip()
+                    if is_ignored_picking_sku(sku_key):
+                        continue
                     sku_reqs[sku_key] = sku_reqs.get(sku_key, 0.0) + (qty_req * qty_ordered)
             else:
                 sku_key = (line.product_reference or "").strip()
-                if sku_key:
+                if sku_key and not is_ignored_picking_sku(sku_key):
                     sku_reqs[sku_key] = sku_reqs.get(sku_key, 0.0) + qty_ordered
                     
         items = []
@@ -2440,6 +2452,29 @@ def auto_picking_orders(payload: dict, db: Session = Depends(get_db)):
         if str(sku).strip()
     }
 
+    sku_limits_raw = payload.get("sku_limits", {})
+    if not isinstance(sku_limits_raw, dict):
+        raise HTTPException(status_code=400, detail="I limiti quantità per SKU devono essere una mappa valida.")
+    sku_limits = {}
+    for raw_sku, raw_limit in sku_limits_raw.items():
+        sku_key = str(raw_sku).strip().upper()
+        if not sku_key:
+            continue
+        try:
+            max_per_order_value = float(raw_limit)
+        except (ValueError, TypeError):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Il massimo per ordine della SKU {raw_sku} deve essere un numero valido."
+            )
+        if max_per_order_value <= 0 or not max_per_order_value.is_integer():
+            raise HTTPException(
+                status_code=400,
+                detail=f"Il massimo per ordine della SKU {raw_sku} deve essere un numero intero superiore a 0."
+            )
+        sku_limits[sku_key] = int(max_per_order_value)
+    sku_filter.update(sku_limits.keys())
+
     active_a = db.query(ImportBatch).filter(ImportBatch.file_type == "associations", ImportBatch.is_active == True).first()
     components_map = {}
     if active_a:
@@ -2496,23 +2531,26 @@ def auto_picking_orders(payload: dict, db: Session = Depends(get_db)):
     sku_required_map = {}
     evaluated_count = 0
     candidate_orders = []
+    sku_limit_excluded_orders = []
 
     for order in orders:
         sku_reqs = {}
         missing_reference_lines = []
 
         for line in lines_by_order.get(order.order_id, []):
+            if is_ignored_picking_sku(line.product_reference):
+                continue
             prod_id = line.product_id
             qty_ordered = line.product_quantity or 1
 
             if prod_id in components_map:
                 for sku, qty_req in components_map[prod_id]:
                     sku_key = sku.strip()
-                    if sku_key:
+                    if sku_key and not is_ignored_picking_sku(sku_key):
                         sku_reqs[sku_key] = sku_reqs.get(sku_key, 0.0) + (qty_req * qty_ordered)
             else:
                 sku_key = (line.product_reference or "").strip()
-                if sku_key:
+                if sku_key and not is_ignored_picking_sku(sku_key):
                     sku_reqs[sku_key] = sku_reqs.get(sku_key, 0.0) + qty_ordered
                 else:
                     missing_reference_lines.append({
@@ -2523,10 +2561,34 @@ def auto_picking_orders(payload: dict, db: Session = Depends(get_db)):
         if sku_filter and not any(sku.upper() in sku_filter for sku in sku_reqs):
             continue
 
+        exceeded_sku_limits = []
+        for sku, required_qty in sorted(sku_reqs.items()):
+            max_per_order = sku_limits.get(sku.upper())
+            if max_per_order is not None and required_qty > max_per_order:
+                exceeded_sku_limits.append({
+                    "sku": sku,
+                    "qty_required": required_qty,
+                    "max_per_order": max_per_order,
+                    "qty_excess": required_qty - max_per_order
+                })
+
+        if exceeded_sku_limits:
+            sku_limit_excluded_orders.append({
+                "order_id": str(order.order_id),
+                "customer_name": order.customer_name or "Cliente sconosciuto",
+                "date_add": order.date_add.isoformat() if order.date_add else None,
+                "current_state": order.current_state,
+                "current_state_label": order.current_state_label or f"Stato {order.current_state}",
+                "reason": "Quantità SKU superiore al massimo per ordine",
+                "exceeded_items": exceeded_sku_limits
+            })
+            continue
+
         candidate_orders.append({
             "order": order,
             "sku_reqs": sku_reqs,
-            "missing_reference_lines": missing_reference_lines
+            "missing_reference_lines": missing_reference_lines,
+            "chronological_position": len(candidate_orders) + 1
         })
 
     def _stock_violations(sku_reqs, stock_snapshot):
@@ -2586,6 +2648,9 @@ def auto_picking_orders(payload: dict, db: Session = Depends(get_db)):
             "date_add": order.date_add.isoformat() if order.date_add else None,
             "current_state": order.current_state,
             "current_state_label": order.current_state_label or f"Stato {order.current_state}",
+            "chronological_position": candidate["chronological_position"],
+            "total_units": sum(candidate["sku_reqs"].values()),
+            "distinct_skus": len(candidate["sku_reqs"]),
             "reason": reason,
             "reason_detail": reason_detail,
             "missing_items": violations,
@@ -2620,6 +2685,10 @@ def auto_picking_orders(payload: dict, db: Session = Depends(get_db)):
             "date_add": order.date_add.isoformat() if order.date_add else None,
             "current_state": order.current_state,
             "current_state_label": order.current_state_label or f"Stato {order.current_state}",
+            "chronological_position": candidate["chronological_position"],
+            "selection_position": len(selected_orders) + 1,
+            "total_units": sum(sku_reqs.values()),
+            "distinct_skus": len(sku_reqs),
             "items": items
         })
         selected_orders.append({
@@ -2627,7 +2696,11 @@ def auto_picking_orders(payload: dict, db: Session = Depends(get_db)):
             "customer_name": order.customer_name or "Cliente sconosciuto",
             "date_add": order.date_add.isoformat() if order.date_add else None,
             "current_state": order.current_state,
-            "current_state_label": order.current_state_label or f"Stato {order.current_state}"
+            "current_state_label": order.current_state_label or f"Stato {order.current_state}",
+            "chronological_position": candidate["chronological_position"],
+            "selection_position": len(selected_orders) + 1,
+            "total_units": sum(sku_reqs.values()),
+            "distinct_skus": len(sku_reqs)
         })
 
     if selection_strategy == "maximize_orders":
@@ -2686,6 +2759,84 @@ def auto_picking_orders(payload: dict, db: Session = Depends(get_db)):
 
     sku_requirements.sort(key=lambda item: (stock_order.get(item["sku"], 10**9), item["sku"]))
 
+    selected_ids = {item["order_id"] for item in selected_orders}
+    skipped_ids = {item["order_id"] for item in skipped_orders}
+    remaining_orders = []
+    stopped_by_strict_chronology = (
+        selection_strategy == "chronological"
+        and strict_chronology
+        and len(selected_orders) < limit
+        and bool(skipped_orders)
+    )
+
+    for candidate in candidate_orders:
+        order = candidate["order"]
+        order_id = str(order.order_id)
+        if order_id in selected_ids or order_id in skipped_ids:
+            continue
+
+        violations = _stock_violations(candidate["sku_reqs"], running_stock)
+        currently_preparable = (
+            bool(candidate["sku_reqs"])
+            and not violations
+            and not candidate["missing_reference_lines"]
+        )
+
+        if len(selected_orders) >= limit:
+            pending_reason = "Limite lista raggiunto"
+            pending_detail = "L'ordine resta fuori dalla proposta perché è stato raggiunto il numero massimo richiesto."
+        elif stopped_by_strict_chronology:
+            pending_reason = "Non valutato dopo il blocco cronologico"
+            pending_detail = "La coda rigida si è fermata sul primo ordine non preparabile."
+        else:
+            pending_reason = "Non incluso nella proposta"
+            pending_detail = "L'ordine è rimasto fuori dalla selezione corrente."
+
+        remaining_orders.append({
+            "order_id": order_id,
+            "customer_name": order.customer_name or "Cliente sconosciuto",
+            "date_add": order.date_add.isoformat() if order.date_add else None,
+            "current_state": order.current_state,
+            "current_state_label": order.current_state_label or f"Stato {order.current_state}",
+            "chronological_position": candidate["chronological_position"],
+            "total_units": sum(candidate["sku_reqs"].values()),
+            "distinct_skus": len(candidate["sku_reqs"]),
+            "currently_preparable": currently_preparable,
+            "reason": pending_reason,
+            "reason_detail": pending_detail,
+            "missing_items": violations,
+            "missing_references": candidate["missing_reference_lines"]
+        })
+
+    simulated_units = sum(item["qty_required"] for item in sku_requirements)
+    initial_units_on_touched_skus = sum(item["qty_stock"] for item in sku_requirements)
+    remaining_units_on_touched_skus = sum(item["qty_remaining"] for item in sku_requirements)
+    stock_simulation = []
+    for item in sku_requirements:
+        initial_stock = item["qty_stock"]
+        simulated_pick = item["qty_required"]
+        final_stock = item["qty_remaining"]
+        usable_stock = max(0.0, initial_stock - min_sku_residual)
+        utilization_pct = (simulated_pick / usable_stock * 100) if usable_stock > 0 else 0
+        stock_simulation.append({
+            "sku": item["sku"],
+            "description": item["description"],
+            "initial_stock": initial_stock,
+            "simulated_pick": simulated_pick,
+            "final_stock": final_stock,
+            "min_residual": min_sku_residual,
+            "usable_stock": usable_stock,
+            "utilization_pct": round(utilization_pct, 1),
+            "at_minimum": min_sku_residual > 0 and final_stock == min_sku_residual,
+            "near_minimum": min_sku_residual > 0 and final_stock < (min_sku_residual + max(1.0, simulated_pick))
+        })
+
+    selected_dates = [
+        item["date_add"]
+        for item in selected_orders
+        if item.get("date_add")
+    ]
+
     return {
         "mode": "automatic",
         "orders_found": [int(o["order_id"]) for o in selected_orders],
@@ -2694,6 +2845,20 @@ def auto_picking_orders(payload: dict, db: Session = Depends(get_db)):
         "order_requirements": order_requirements,
         "selected_orders": selected_orders,
         "skipped_orders": skipped_orders,
+        "remaining_orders": remaining_orders,
+        "sku_limit_excluded_orders": sku_limit_excluded_orders,
+        "stock_simulation": stock_simulation,
+        "simulation_summary": {
+            "selected_units": simulated_units,
+            "selected_distinct_skus": len(sku_requirements),
+            "initial_units_on_touched_skus": initial_units_on_touched_skus,
+            "remaining_units_on_touched_skus": remaining_units_on_touched_skus,
+            "oldest_selected_date": min(selected_dates) if selected_dates else None,
+            "newest_selected_date": max(selected_dates) if selected_dates else None,
+            "remaining_count": len(remaining_orders),
+            "remaining_preparable_count": sum(1 for item in remaining_orders if item["currently_preparable"]),
+            "stopped_by_strict_chronology": stopped_by_strict_chronology
+        },
         "auto_picking": {
             "requested_limit": limit,
             "selected_count": len(selected_orders),
@@ -2703,7 +2868,10 @@ def auto_picking_orders(payload: dict, db: Session = Depends(get_db)):
             "selection_strategy": selection_strategy,
             "min_sku_residual": min_sku_residual,
             "candidate_count": len(candidate_orders),
-            "sku_filter": sorted(sku_filter)
+            "sku_filter": sorted(sku_filter),
+            "sku_limits": sku_limits,
+            "sku_limit_excluded_count": len(sku_limit_excluded_orders),
+            "remaining_count": len(remaining_orders)
         }
     }
 
@@ -2792,6 +2960,8 @@ def analyze_orders_files(
             # Composed product
             for sku, qty_req in components_map[pid]:
                 sku_key = sku.strip()
+                if is_ignored_picking_sku(sku_key):
+                    continue
                 sku_required_map[sku_key] = sku_required_map.get(sku_key, 0.0) + (qty_req * qty_ordered)
         else:
             # Single product, let's find the reference
@@ -2826,7 +2996,8 @@ def analyze_orders_files(
                     "message": f"Impossibile trovare il codice SKU (riferimento) per il Prodotto ID {pid}. Utilizzato SKU provvisorio '{sku_key}'."
                 })
                 
-            sku_required_map[sku_key] = sku_required_map.get(sku_key, 0.0) + qty_ordered
+            if not is_ignored_picking_sku(sku_key):
+                sku_required_map[sku_key] = sku_required_map.get(sku_key, 0.0) + qty_ordered
             
     # Build aggregated result
     sku_requirements = []
@@ -2886,6 +3057,8 @@ def analyze_orders_files(
             if pid in components_map:
                 for sku, qty_req in components_map[pid]:
                     sku_key = sku.strip()
+                    if is_ignored_picking_sku(sku_key):
+                        continue
                     sku_reqs[sku_key] = sku_reqs.get(sku_key, 0.0) + (qty_req * qty_ordered)
             else:
                 sku_key = None
@@ -2909,7 +3082,8 @@ def analyze_orders_files(
                 if not sku_key:
                     sku_key = f"ID-{pid}"
                     
-                sku_reqs[sku_key] = sku_reqs.get(sku_key, 0.0) + qty_ordered
+                if not is_ignored_picking_sku(sku_key):
+                    sku_reqs[sku_key] = sku_reqs.get(sku_key, 0.0) + qty_ordered
                 
         items = []
         for sku, req_qty in sorted(sku_reqs.items()):

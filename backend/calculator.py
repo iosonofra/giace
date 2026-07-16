@@ -7,6 +7,7 @@ from backend.models import (
     SkuCommitment, ProductAvailability, ImportAnomaly,
     AppSetting
 )
+from backend.picking_rules import is_ignored_picking_sku
 import json
 
 def run_calculation(db: Session, warehouse_batch_id: int = None, associations_batch_id: int = None) -> int:
@@ -111,6 +112,8 @@ def run_calculation(db: Session, warehouse_batch_id: int = None, associations_ba
         db.query(ImportAnomaly).filter(ImportAnomaly.source == "calculation").delete()
         
         for line in order_lines:
+            if is_ignored_picking_sku(line.product_reference):
+                continue
             product_id = line.product_id
             order_qty = line.product_quantity
             
@@ -131,6 +134,8 @@ def run_calculation(db: Session, warehouse_batch_id: int = None, associations_ba
             product_comps = components_map[product_id]
             for comp in product_comps:
                 sku = comp["sku"]
+                if is_ignored_picking_sku(sku):
+                    continue
                 req_qty = comp["qty_required"]
                 
                 committed_for_line = req_qty * order_qty
@@ -182,6 +187,8 @@ def run_calculation(db: Session, warehouse_batch_id: int = None, associations_ba
             
             for comp in product_comps:
                 sku = comp["sku"]
+                if is_ignored_picking_sku(sku):
+                    continue
                 qty_req = comp["qty_required"]
                 
                 # Get residual stock of component
