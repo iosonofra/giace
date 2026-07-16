@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Giac Feedback Ordini - Configurazione</title>
+    <link rel="stylesheet" href="options.css">
+  </head>
+  <body>
+    <main>
+      <header>
+        <span class="eyebrow">Estensione Firefox</span>
+        <h1>Giac Feedback Ordini</h1>
+        <p>Collega la lista ordini PrestaShop esclusivamente alla webapp Giac scelta dall’utente.</p>
+      </header>
+
+      <form id="settings-form">
+        <label class="toggle-row">
+          <span>
+            <strong>Estensione attiva</strong>
+            <small>Mostra i badge soltanto sul dominio PrestaShop autorizzato.</small>
+          </span>
+          <input id="enabled" type="checkbox">
+        </label>
+
+        <section>
+          <h2>Connessione</h2>
+          <label for="webapp-url">URL webapp Giac</label>
+          <input id="webapp-url" type="url" placeholder="https://pick.esempio.it" required>
+          <small>È richiesto HTTPS. HTTP è consentito esclusivamente su localhost o 127.0.0.1.</small>
+
+          <label for="extension-token">Token estensione</label>
+          <input id="extension-token" type="password" autocomplete="off" placeholder="Token configurato nella webapp">
+          <small>Il token viene conservato localmente in Firefox e inviato soltanto alla webapp indicata.</small>
+        </section>
+
+        <section>
+          <h2>Pagina PrestaShop</h2>
+          <label for="prestashop-origin">Dominio amministrazione PrestaShop</label>
+          <input id="prestashop-origin" type="url" placeholder="https://admin.esempio.it" required>
+          <small>Firefox richiederà accesso soltanto a questo dominio e al dominio della webapp.</small>
+
+          <label for="min-residual">Scorta minima simulata</label>
+          <input id="min-residual" type="number" min="0" step="1" value="0">
+          <small>Un ordine viene segnalato come protetto se porta una SKU sotto questa quantità.</small>
+        </section>
+
+        <section class="privacy-note" aria-labelledby="privacy-title">
+          <h2 id="privacy-title">Dati trasmessi</h2>
+          <p>
+            L’estensione invia alla webapp configurata soltanto gli ID degli ordini visibili e,
+            se presente, il token di autenticazione. Non usa analytics, pubblicità o server dello sviluppatore.
+          </p>
+        </section>
+
+        <div id="status" role="status" aria-live="polite"></div>
+
+        <footer>
+          <button id="test-button" type="button" class="secondary">Verifica connessione</button>
+          <button type="submit" class="primary">Autorizza e salva</button>
+        </footer>
+      </form>
+
+      <aside>
+        <strong>Installazione completata</strong>
+        <ol>
+          <li>Inserisci i due indirizzi e il token.</li>
+          <li>Conferma l’accesso ai soli domini indicati.</li>
+          <li>Apri o ricarica Ordini++ e controlla i badge.</li>
+        </ol>
+      </aside>
+    </main>
+    <script src="options.js"></script>
+  </body>
+</html>

@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "Giac Feedback Ordini PrestaShop",
+  "version": "0.2.2",
+  "description": "Beta: mostra nella lista ordini PrestaShop il feedback di disponibilità calcolato dalla webapp Giac.",
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "service-worker.js"
+  },
+  "options_page": "options.html",
+  "action": {
+    "default_title": "Configura Giac Feedback"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "css": [
+        "content-style.css"
+      ],
+      "js": [
+        "content-script.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ]
+}

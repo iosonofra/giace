@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Giac Feedback - Configurazione</title>
+    <link rel="stylesheet" href="options.css">
+  </head>
+  <body>
+    <main>
+      <header>
+        <span class="eyebrow">Estensione beta</span>
+        <h1>Giac Feedback Ordini</h1>
+        <p>Collega la lista ordini PrestaShop alla webapp Giac e mostra la disponibilità cronologica.</p>
+      </header>
+
+      <form id="settings-form">
+        <label class="toggle-row">
+          <span>
+            <strong>Estensione attiva</strong>
+            <small>Mostra i badge nella pagina ordini configurata.</small>
+          </span>
+          <input id="enabled" type="checkbox">
+        </label>
+
+        <section>
+          <h2>Connessione</h2>
+          <label for="webapp-url">URL webapp Giac</label>
+          <input id="webapp-url" type="url" placeholder="http://192.168.1.50:8000" required>
+          <small>Indirizzo raggiungibile dal computer su cui è installata l’estensione.</small>
+
+          <label for="extension-token">Token estensione</label>
+          <input id="extension-token" type="password" autocomplete="off" placeholder="Opzionale se non configurato nel backend">
+          <small>Deve corrispondere al token configurato nella sezione Estensione beta della webapp.</small>
+        </section>
+
+        <section>
+          <h2>Pagina PrestaShop</h2>
+          <label for="prestashop-origin">Dominio amministrazione PrestaShop</label>
+          <input id="prestashop-origin" type="url" placeholder="https://admin.esempio.it">
+          <small>Solo l’origine, senza il percorso della pagina. Lascia vuoto per il rilevamento automatico.</small>
+
+          <label for="min-residual">Scorta minima simulata</label>
+          <input id="min-residual" type="number" min="0" step="1" value="0">
+          <small>Un ordine viene segnalato come protetto se porta una SKU sotto questa quantità.</small>
+        </section>
+
+        <div id="status" role="status" aria-live="polite"></div>
+
+        <footer>
+          <button id="test-button" type="button" class="secondary">Verifica connessione</button>
+          <button type="submit" class="primary">Salva configurazione</button>
+        </footer>
+      </form>
+
+      <aside>
+        <strong>Come provarla</strong>
+        <ol>
+          <li>Salva e verifica la connessione.</li>
+          <li>Apri o ricarica la pagina Ordini++.</li>
+          <li>Passa il mouse sui badge per vedere SKU e residui.</li>
+        </ol>
+      </aside>
+    </main>
+    <script src="options.js"></script>
+  </body>
+</html>
