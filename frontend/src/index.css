@@ -2602,7 +2602,7 @@ body.light-theme .association-component-row {
 
 .settings-summary-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -2758,11 +2758,564 @@ body.light-theme .association-component-row {
   padding: 7px 10px;
 }
 
+.settings-card-header-actions {
+  align-items: center;
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.extension-download-button {
+  min-height: 34px;
+  padding: 8px 12px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
 .settings-connection-form {
   display: grid;
   grid-template-columns: minmax(320px, 560px) minmax(280px, 380px);
   gap: 24px;
   align-items: start;
+}
+
+.extension-settings-form {
+  display: grid;
+  grid-template-columns: minmax(360px, 620px) minmax(280px, 380px);
+  gap: 24px;
+  align-items: start;
+}
+
+.settings-extension-workbench {
+  align-self: stretch;
+  margin-inline: 0;
+  max-width: none;
+  width: 100%;
+}
+
+.extension-guided-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.extension-step-card {
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+  padding: 18px;
+}
+
+body.light-theme .extension-step-card {
+  background: rgba(15, 23, 42, 0.012);
+}
+
+.extension-step-header {
+  align-items: flex-start;
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.extension-step-number {
+  align-items: center;
+  background: var(--color-primary-bg);
+  border: 1px solid rgba(99, 102, 241, 0.24);
+  border-radius: 8px;
+  color: var(--color-primary);
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: 0.8rem;
+  font-weight: 900;
+  height: 30px;
+  justify-content: center;
+  width: 30px;
+}
+
+.extension-step-header h3 {
+  color: var(--text-primary);
+  font-size: 0.96rem;
+  line-height: 1.3;
+  margin: 1px 0 3px;
+}
+
+.extension-step-header p {
+  color: var(--text-secondary);
+  font-size: 0.76rem;
+  line-height: 1.4;
+  margin: 0;
+}
+
+.extension-browser-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.extension-browser-card {
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--bg-secondary);
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  transition: var(--transition-smooth);
+}
+
+.extension-browser-card.active {
+  border-color: rgba(99, 102, 241, 0.48);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.08);
+}
+
+.extension-browser-select {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  padding: 0;
+  text-align: left;
+  width: 100%;
+}
+
+.extension-browser-select:focus-visible,
+.extension-browser-download:focus-visible {
+  border-radius: 7px;
+  outline: 2px solid var(--color-primary);
+  outline-offset: 3px;
+}
+
+.extension-browser-mark {
+  align-items: center;
+  border-radius: 9px;
+  color: #ffffff;
+  display: inline-flex;
+  font-size: 0.94rem;
+  font-weight: 900;
+  height: 38px;
+  justify-content: center;
+  width: 38px;
+}
+
+.extension-browser-mark.chrome {
+  background: #4f46e5;
+}
+
+.extension-browser-mark.firefox {
+  background: #7c3aed;
+}
+
+.extension-browser-select strong,
+.extension-browser-select small {
+  display: block;
+}
+
+.extension-browser-select strong {
+  color: var(--text-primary);
+  font-size: 0.88rem;
+}
+
+.extension-browser-select small {
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+  line-height: 1.35;
+  margin-top: 2px;
+}
+
+.extension-version-badge {
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  font-size: 0.68rem;
+  font-weight: 800;
+  padding: 4px 7px;
+  white-space: nowrap;
+}
+
+.extension-browser-download {
+  justify-content: center;
+  min-height: 34px;
+  text-decoration: none;
+  width: 100%;
+}
+
+.extension-browser-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.extension-browser-actions .extension-browser-download {
+  flex: 1;
+}
+
+.extension-browser-instructions {
+  border: 1px solid rgba(99, 102, 241, 0.18);
+  border-radius: 10px;
+  background: rgba(99, 102, 241, 0.035);
+  margin-top: 12px;
+  padding: 14px;
+}
+
+.extension-guide-heading strong,
+.extension-guide-heading span {
+  display: block;
+}
+
+.extension-guide-heading strong {
+  color: var(--text-primary);
+  font-size: 0.82rem;
+}
+
+.extension-guide-heading span {
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+  line-height: 1.4;
+  margin-top: 2px;
+}
+
+.extension-install-steps {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+}
+
+.extension-install-steps li {
+  align-items: flex-start;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 24px minmax(0, 1fr);
+}
+
+.extension-install-steps li > span {
+  align-items: center;
+  background: var(--color-primary-bg);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 999px;
+  color: var(--color-primary);
+  display: inline-flex;
+  font-size: 0.68rem;
+  font-weight: 900;
+  height: 24px;
+  justify-content: center;
+  width: 24px;
+}
+
+.extension-install-steps strong,
+.extension-install-steps small {
+  display: block;
+}
+
+.extension-install-steps strong {
+  color: var(--text-primary);
+  font-size: 0.74rem;
+}
+
+.extension-install-steps small {
+  color: var(--text-secondary);
+  font-size: 0.68rem;
+  line-height: 1.35;
+  margin-top: 2px;
+}
+
+.extension-install-steps code {
+  color: var(--text-primary);
+  font-size: 0.68rem;
+}
+
+.extension-config-grid {
+  align-items: stretch;
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(0, 1.55fr) minmax(260px, 0.75fr);
+}
+
+.extension-copy-field {
+  align-items: center;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 6px 6px 6px 11px;
+}
+
+.extension-copy-field code {
+  color: var(--text-primary);
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+.extension-copy-field .btn {
+  min-height: 32px;
+  padding: 6px 10px;
+}
+
+.extension-security-panel {
+  align-items: flex-start;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  display: flex;
+  gap: 11px;
+  padding: 14px;
+}
+
+.extension-security-panel.protected {
+  border-color: rgba(16, 185, 129, 0.25);
+  background: rgba(16, 185, 129, 0.05);
+}
+
+.extension-security-panel.open {
+  border-color: rgba(245, 158, 11, 0.28);
+  background: rgba(245, 158, 11, 0.06);
+}
+
+.extension-security-icon {
+  align-items: center;
+  border-radius: 999px;
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: 0.72rem;
+  font-weight: 900;
+  height: 24px;
+  justify-content: center;
+  width: 24px;
+}
+
+.extension-security-panel.protected .extension-security-icon {
+  background: var(--color-success);
+  color: #ffffff;
+}
+
+.extension-security-panel.open .extension-security-icon {
+  background: var(--color-warning);
+  color: #ffffff;
+}
+
+.extension-security-panel strong {
+  color: var(--text-primary);
+  display: block;
+  font-size: 0.82rem;
+}
+
+.extension-security-panel p {
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  line-height: 1.45;
+  margin: 4px 0 0;
+}
+
+.extension-verification-card {
+  padding-bottom: 16px;
+}
+
+.extension-verification-status {
+  align-items: center;
+  border: 1px solid var(--border-color);
+  border-radius: 9px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 9px minmax(0, 1fr) auto;
+  padding: 12px 13px;
+}
+
+.extension-verification-status > .settings-status-dot {
+  height: 9px;
+  width: 9px;
+}
+
+.extension-verification-status.success > .settings-status-dot {
+  background: var(--color-success);
+}
+
+.extension-verification-status.warning > .settings-status-dot {
+  background: var(--color-warning);
+}
+
+.extension-verification-status.danger > .settings-status-dot {
+  background: var(--color-danger);
+}
+
+.extension-verification-status strong,
+.extension-verification-status span {
+  display: block;
+}
+
+.extension-verification-status strong {
+  color: var(--text-primary);
+  font-size: 0.8rem;
+}
+
+.extension-verification-status div > span {
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+  line-height: 1.4;
+  margin-top: 2px;
+}
+
+.extension-save-footer {
+  align-items: center;
+  border-top: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  padding-top: 16px;
+}
+
+.extension-save-footer > span {
+  font-size: 0.74rem;
+}
+
+.extension-token-input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  letter-spacing: 0.02em;
+}
+
+.extension-endpoint-box {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: rgba(99, 102, 241, 0.045);
+}
+
+.extension-endpoint-box code {
+  color: var(--text-primary);
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+
+.extension-endpoint-box small {
+  color: var(--text-secondary);
+  font-size: 0.74rem;
+  line-height: 1.4;
+}
+
+.extension-token-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.extension-security-notice {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+}
+
+.extension-security-notice.protected {
+  border-color: rgba(16, 185, 129, 0.24);
+  background: rgba(16, 185, 129, 0.055);
+}
+
+.extension-security-notice.open {
+  border-color: rgba(245, 158, 11, 0.28);
+  background: rgba(245, 158, 11, 0.065);
+}
+
+.extension-security-notice strong {
+  color: var(--text-primary);
+  font-size: 0.82rem;
+}
+
+.extension-security-notice span {
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.extension-setup-panel {
+  justify-content: space-between;
+  min-height: 100%;
+}
+
+.extension-browser-guide {
+  margin-top: 14px;
+}
+
+.extension-browser-guide + .extension-browser-guide {
+  padding-top: 14px;
+  border-top: 1px solid var(--border-color);
+}
+
+.extension-browser-guide > strong {
+  color: var(--text-primary);
+  display: block;
+  font-size: 0.78rem;
+}
+
+.extension-setup-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+}
+
+.extension-setup-steps li {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.extension-setup-steps li > span {
+  align-items: center;
+  background: var(--color-primary-bg);
+  border: 1px solid rgba(99, 102, 241, 0.22);
+  border-radius: 999px;
+  color: var(--color-primary);
+  display: inline-flex;
+  font-size: 0.72rem;
+  font-weight: 800;
+  height: 26px;
+  justify-content: center;
+  width: 26px;
+}
+
+.extension-setup-steps strong,
+.extension-setup-steps small {
+  display: block;
+}
+
+.extension-setup-steps strong {
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  margin-bottom: 2px;
+}
+
+.extension-setup-steps small {
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.extension-setup-steps code {
+  color: var(--text-primary);
+  font-size: 0.74rem;
+}
+
+.extension-install-note {
+  margin: 16px 0 0;
+  padding-top: 13px;
+  border-top: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  line-height: 1.45;
 }
 
 .settings-form-stack,
@@ -3193,7 +3746,12 @@ body.light-theme .settings-side-panel {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .settings-connection-form {
+  .settings-connection-form,
+  .extension-settings-form {
+    grid-template-columns: 1fr;
+  }
+
+  .extension-config-grid {
     grid-template-columns: 1fr;
   }
 
@@ -3220,6 +3778,49 @@ body.light-theme .settings-side-panel {
     padding: 16px;
   }
 
+  .extension-step-card {
+    padding: 14px;
+  }
+
+  .extension-browser-grid,
+  .extension-install-steps {
+    grid-template-columns: 1fr;
+  }
+
+  .extension-browser-select {
+    grid-template-columns: 36px minmax(0, 1fr) auto;
+  }
+
+  .extension-browser-actions {
+    flex-direction: column;
+  }
+
+  .extension-copy-field {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+    padding: 10px;
+  }
+
+  .extension-copy-field .btn {
+    justify-content: center;
+    width: 100%;
+  }
+
+  .extension-verification-status {
+    grid-template-columns: 9px minmax(0, 1fr);
+  }
+
+  .extension-verification-status .btn {
+    grid-column: 1 / -1;
+    justify-content: center;
+    width: 100%;
+  }
+
+  .extension-save-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
   .order-states-card {
     padding: 16px;
   }
@@ -3233,6 +3834,17 @@ body.light-theme .settings-side-panel {
 
   .settings-status-pill {
     width: fit-content;
+  }
+
+  .settings-card-header-actions {
+    align-items: stretch;
+    justify-content: flex-start;
+    width: 100%;
+  }
+
+  .extension-download-button {
+    justify-content: center;
+    width: 100%;
   }
 
   .settings-action-buttons,

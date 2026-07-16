@@ -1,17 +1,19 @@
 import os
+import io
 import json
 import logging
 import hashlib
+import zipfile
 import requests
 import threading
 import time
 import re
 from typing import List, Optional
 from datetime import datetime, timezone, timedelta
-from fastapi import FastAPI, Depends, UploadFile, File, Form, HTTPException, BackgroundTasks
+from fastapi import FastAPI, Depends, UploadFile, File, Form, HTTPException, BackgroundTasks, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc, asc, inspect, text
 
@@ -85,6 +87,20 @@ def _parse_setting_datetime(value: Optional[str]) -> Optional[datetime]:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc)
+
+def _utc_iso(value) -> Optional[str]:
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        parsed = value
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc).isoformat()
+    try:
+        parsed = _parse_setting_datetime(str(value))
+        return parsed.isoformat() if parsed else None
+    except Exception:
+        return None
 
 def _get_setting_int(db: Session, key: str, default: int = 10, minimum: int = 1) -> int:
     setting = db.query(AppSetting).filter(AppSetting.key == key).first()
@@ -520,6 +536,7 @@ def get_settings(db: Session = Depends(get_db)):
     admin_url_setting = db.query(AppSetting).filter(AppSetting.key == "prestashop_admin_url").first()
     key_setting = db.query(AppSetting).filter(AppSetting.key == "prestashop_api_key").first()
     mock_setting = db.query(AppSetting).filter(AppSetting.key == "prestashop_mock_mode").first()
+    extension_token_setting = db.query(AppSetting).filter(AppSetting.key == "extension_api_token").first()
     
     # Google Sheets settings
     source_setting = db.query(AppSetting).filter(AppSetting.key == "stock_source").first()
@@ -544,6 +561,11 @@ def get_settings(db: Session = Depends(get_db)):
     prestashop_url = url_setting.value if url_setting else os.getenv("PRESTASHOP_URL", "")
     prestashop_admin_url = admin_url_setting.value if admin_url_setting else ""
     prestashop_api_key = key_setting.value if key_setting else os.getenv("PRESTASHOP_API_KEY", "")
+    extension_api_token = (
+        extension_token_setting.value
+        if extension_token_setting
+        else os.getenv("GIAC_EXTENSION_TOKEN", "")
+    )
     
     if mock_setting:
         prestashop_mock_mode = mock_setting.value.lower() in ("true", "1", "yes")
@@ -556,6 +578,8 @@ def get_settings(db: Session = Depends(get_db)):
         "prestashop_admin_url": prestashop_admin_url,
         "prestashop_api_key": prestashop_api_key,
         "prestashop_mock_mode": prestashop_mock_mode,
+        "extension_api_token": extension_api_token,
+        "extension_api_token_configured": bool(extension_api_token.strip()),
         # Google Sheets
         "stock_source": source_setting.value if source_setting else "local_upload",
         "google_sheet_url": g_url_setting.value if g_url_setting else "",
@@ -604,6 +628,7 @@ def _sync_env_file(db: Session):
         "MOCK_MODE":          _db_val("prestashop_mock_mode", "True"),
         "DATABASE_URL":       os.getenv("DATABASE_URL", "sqlite:///./inventory.db"),
         "DEFAULT_STATE_IDS":  _db_val("included_state_ids", ""),
+        "GIAC_EXTENSION_TOKEN": _db_val("extension_api_token", os.getenv("GIAC_EXTENSION_TOKEN", "")),
     }
 
     # Normalizza: MOCK_MODE → "True"/"False"
@@ -654,6 +679,7 @@ def update_settings(payload: dict, db: Session = Depends(get_db)):
     admin_url = payload.get("prestashop_admin_url")
     key = payload.get("prestashop_api_key")
     mock_mode = payload.get("prestashop_mock_mode")
+    extension_api_token = payload.get("extension_api_token")
     # Google Sheets
     stock_source = payload.get("stock_source")
     google_sheet_url = payload.get("google_sheet_url")
@@ -754,6 +780,30 @@ def update_settings(payload: dict, db: Session = Depends(get_db)):
             db.add(AppSetting(key="prestashop_api_key", value=key.strip()))
         else:
             setting.value = key.strip()
+
+    # Chrome extension API token
+    if extension_api_token is not None:
+        if not isinstance(extension_api_token, str):
+            raise HTTPException(status_code=400, detail="Il token estensione deve essere una stringa.")
+        clean_extension_token = extension_api_token.strip()
+        if clean_extension_token and len(clean_extension_token) < 16:
+            raise HTTPException(
+                status_code=400,
+                detail="Il token estensione deve contenere almeno 16 caratteri."
+            )
+        if len(clean_extension_token) > 256 or (
+            clean_extension_token
+            and not re.fullmatch(r"[A-Za-z0-9._~-]+", clean_extension_token)
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="Il token estensione può contenere solo lettere, numeri, punto, trattino e underscore (massimo 256 caratteri)."
+            )
+        setting = db.query(AppSetting).filter(AppSetting.key == "extension_api_token").first()
+        if not setting:
+            db.add(AppSetting(key="extension_api_token", value=clean_extension_token))
+        else:
+            setting.value = clean_extension_token
 
     # Mock Mode
     if mock_mode is not None:
@@ -2426,8 +2476,8 @@ def auto_picking_orders(payload: dict, db: Session = Depends(get_db)):
     except (ValueError, TypeError):
         raise HTTPException(status_code=400, detail="Il numero ordini deve essere un intero valido.")
 
-    if limit < 1 or limit > 500:
-        raise HTTPException(status_code=400, detail="Il numero ordini deve essere compreso tra 1 e 500.")
+    if limit < 1 or limit > 5000:
+        raise HTTPException(status_code=400, detail="Il numero ordini deve essere compreso tra 1 e 5000.")
 
     strict_chronology = bool(payload.get("strict_chronology", False))
     selection_strategy = str(payload.get("selection_strategy", "chronological")).strip().lower()
@@ -2873,6 +2923,275 @@ def auto_picking_orders(payload: dict, db: Session = Depends(get_db)):
             "sku_limit_excluded_count": len(sku_limit_excluded_orders),
             "remaining_count": len(remaining_orders)
         }
+    }
+
+def _verify_extension_api_token(provided_token: Optional[str], db: Session) -> bool:
+    token_setting = db.query(AppSetting).filter(AppSetting.key == "extension_api_token").first()
+    expected_token = (token_setting.value if token_setting else os.getenv("GIAC_EXTENSION_TOKEN", "")).strip()
+    if expected_token and provided_token != expected_token:
+        raise HTTPException(status_code=401, detail="Token estensione non valido.")
+    return bool(expected_token)
+
+
+@app.get("/api/extension/health")
+def extension_health(
+    x_giac_extension_token: Optional[str] = Header(default=None, alias="X-Giac-Extension-Token"),
+    db: Session = Depends(get_db)
+):
+    token_required = _verify_extension_api_token(x_giac_extension_token, db)
+    return {
+        "status": "ok",
+        "extension_api": True,
+        "token_required": token_required
+    }
+
+
+def _build_extension_archive_response(directory_name: str, filename_prefix: str, browser_label: str):
+    extension_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", directory_name))
+    manifest_path = os.path.join(extension_dir, "manifest.json")
+    if not os.path.isdir(extension_dir) or not os.path.isfile(manifest_path):
+        raise HTTPException(
+            status_code=404,
+            detail=f"Pacchetto dell'estensione {browser_label} non disponibile."
+        )
+
+    try:
+        with open(manifest_path, "r", encoding="utf-8") as manifest_file:
+            manifest = json.load(manifest_file)
+        version = str(manifest.get("version") or "beta").strip()
+    except Exception:
+        version = "beta"
+
+    archive_buffer = io.BytesIO()
+    with zipfile.ZipFile(archive_buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for root, directories, files in os.walk(extension_dir):
+            directories[:] = [
+                directory for directory in directories
+                if directory not in {"__pycache__", ".git"}
+            ]
+            for filename in files:
+                if filename in {".DS_Store"} or filename.endswith((".pyc", ".zip")):
+                    continue
+                absolute_path = os.path.join(root, filename)
+                archive_name = os.path.relpath(absolute_path, extension_dir).replace(os.sep, "/")
+                archive.write(absolute_path, archive_name)
+
+    archive_buffer.seek(0)
+    download_filename = f"{filename_prefix}_{version}.zip"
+    return StreamingResponse(
+        archive_buffer,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{download_filename}"',
+            "Cache-Control": "no-store"
+        }
+    )
+
+
+@app.get("/api/extension/download")
+def download_chrome_extension():
+    return _build_extension_archive_response(
+        "chrome-extension",
+        "giac_chrome_extension_beta",
+        "Chrome"
+    )
+
+
+@app.get("/api/extension/firefox/download")
+def download_firefox_extension():
+    return _build_extension_archive_response(
+        "firefox-extension",
+        "giac_firefox_extension_beta",
+        "Firefox"
+    )
+
+
+@app.get("/api/extension/firefox/install")
+def install_signed_firefox_extension():
+    signed_xpi_path = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "signed-xpi-giacenza.xpi")
+    )
+    if not os.path.isfile(signed_xpi_path):
+        raise HTTPException(
+            status_code=404,
+            detail="Versione Firefox firmata da Mozilla non disponibile."
+        )
+    return FileResponse(
+        signed_xpi_path,
+        media_type="application/x-xpinstall",
+        headers={
+            "Content-Disposition": 'inline; filename="giac-feedback-ordini-firefox.xpi"',
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff"
+        }
+    )
+
+
+@app.post("/api/extension/orders-availability")
+def extension_orders_availability(
+    payload: dict,
+    x_giac_extension_token: Optional[str] = Header(default=None, alias="X-Giac-Extension-Token"),
+    db: Session = Depends(get_db)
+):
+    token_required = _verify_extension_api_token(x_giac_extension_token, db)
+    requested_ids = []
+    for raw_order_id in payload.get("visible_order_ids", []):
+        try:
+            order_id = int(raw_order_id)
+        except (ValueError, TypeError):
+            continue
+        if order_id > 0 and order_id not in requested_ids:
+            requested_ids.append(order_id)
+        if len(requested_ids) >= 1000:
+            break
+
+    if not requested_ids:
+        return {
+            "calculated_at": datetime.now(timezone.utc).isoformat(),
+            "orders": {},
+            "summary": {
+                "requested_count": 0,
+                "queue_count": 0,
+                "preparable_count": 0,
+                "blocked_count": 0
+            },
+            "token_required": token_required
+        }
+
+    try:
+        min_sku_residual = float(payload.get("min_sku_residual", 0) or 0)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="La scorta minima deve essere un numero valido.")
+    if min_sku_residual < 0:
+        raise HTTPException(status_code=400, detail="La scorta minima non può essere negativa.")
+
+    simulation = auto_picking_orders({
+        "limit": 5000,
+        "strict_chronology": False,
+        "selection_strategy": "chronological",
+        "min_sku_residual": min_sku_residual,
+        "sku_filter": []
+    }, db)
+
+    response_orders = {}
+    for order in simulation.get("order_requirements", []):
+        order_id = str(order["order_id"])
+        if int(order_id) not in requested_ids:
+            continue
+        items = order.get("items", [])
+        response_orders[order_id] = {
+            "status": "preparable",
+            "label": "Gestibile",
+            "queue_position": order.get("chronological_position"),
+            "selection_position": order.get("selection_position"),
+            "customer_name": order.get("customer_name"),
+            "date_add": order.get("date_add"),
+            "current_state_label": order.get("current_state_label"),
+            "minimum_remaining": min((item.get("avail_after", 0) for item in items), default=None),
+            "items": items
+        }
+
+    for order in simulation.get("skipped_orders", []):
+        order_id = str(order["order_id"])
+        if int(order_id) not in requested_ids:
+            continue
+        missing_items = order.get("missing_items", [])
+        protected_only = bool(missing_items) and all(
+            item.get("violation_type") == "protected_residual"
+            for item in missing_items
+        )
+        response_orders[order_id] = {
+            "status": "protected" if protected_only else "blocked",
+            "label": "Scorta protetta" if protected_only else "Non gestibile",
+            "queue_position": order.get("chronological_position"),
+            "customer_name": order.get("customer_name"),
+            "date_add": order.get("date_add"),
+            "current_state_label": order.get("current_state_label"),
+            "reason": order.get("reason"),
+            "reason_detail": order.get("reason_detail"),
+            "limiting_skus": missing_items,
+            "missing_references": order.get("missing_references", [])
+        }
+
+    for order in simulation.get("remaining_orders", []):
+        order_id = str(order["order_id"])
+        if int(order_id) not in requested_ids:
+            continue
+        response_orders[order_id] = {
+            "status": "pending",
+            "label": "Non valutato",
+            "queue_position": order.get("chronological_position"),
+            "customer_name": order.get("customer_name"),
+            "date_add": order.get("date_add"),
+            "current_state_label": order.get("current_state_label"),
+            "reason": order.get("reason"),
+            "reason_detail": order.get("reason_detail")
+        }
+
+    requested_order_rows = db.query(PrestashopOrder).filter(PrestashopOrder.order_id.in_(requested_ids)).all()
+    requested_order_map = {order.order_id: order for order in requested_order_rows}
+    for order_id in requested_ids:
+        key = str(order_id)
+        if key in response_orders:
+            continue
+        order = requested_order_map.get(order_id)
+        response_orders[key] = {
+            "status": "not_in_scope" if order else "not_found",
+            "label": "Fuori dagli stati inclusi" if order else "Non sincronizzato",
+            "current_state_label": order.current_state_label if order else None,
+            "date_add": order.date_add.isoformat() if order and order.date_add else None
+        }
+
+    active_warehouse = db.query(ImportBatch).filter(
+        ImportBatch.file_type == "warehouse",
+        ImportBatch.is_active == True
+    ).first()
+    active_associations = db.query(ImportBatch).filter(
+        ImportBatch.file_type == "associations",
+        ImportBatch.is_active == True
+    ).first()
+    latest_order_sync = db.query(func.max(PrestashopOrder.synced_at)).scalar()
+    stock_source_setting = db.query(AppSetting).filter(AppSetting.key == "stock_source").first()
+    google_sheet_sync_setting = db.query(AppSetting).filter(AppSetting.key == "google_sheet_last_sync").first()
+    prestashop_sync_setting = db.query(AppSetting).filter(AppSetting.key == "prestashop_last_sync").first()
+
+    stock_source = stock_source_setting.value if stock_source_setting else "local_upload"
+    warehouse_changed_at = _utc_iso(active_warehouse.imported_at) if active_warehouse else None
+    warehouse_checked_at = (
+        _utc_iso(google_sheet_sync_setting.value)
+        if stock_source == "google_sheets" and google_sheet_sync_setting and google_sheet_sync_setting.value
+        else warehouse_changed_at
+    )
+    orders_checked_at = (
+        _utc_iso(prestashop_sync_setting.value)
+        if prestashop_sync_setting and prestashop_sync_setting.value
+        else _utc_iso(latest_order_sync)
+    )
+
+    return {
+        "calculated_at": datetime.now(timezone.utc).isoformat(),
+        "policy": {
+            "selection_strategy": "chronological",
+            "skip_unpreparable": True,
+            "min_sku_residual": min_sku_residual
+        },
+        "freshness": {
+            "stock_source": stock_source,
+            "warehouse_checked_at": warehouse_checked_at,
+            "warehouse_changed_at": warehouse_changed_at,
+            "warehouse_imported_at": warehouse_changed_at,
+            "associations_imported_at": _utc_iso(active_associations.imported_at) if active_associations else None,
+            "orders_checked_at": orders_checked_at,
+            "orders_synced_at": orders_checked_at
+        },
+        "orders": response_orders,
+        "summary": {
+            "requested_count": len(requested_ids),
+            "queue_count": simulation.get("auto_picking", {}).get("candidate_count", 0),
+            "preparable_count": sum(1 for item in response_orders.values() if item["status"] == "preparable"),
+            "blocked_count": sum(1 for item in response_orders.values() if item["status"] in ("blocked", "protected"))
+        },
+        "token_required": token_required
     }
 
 @app.post("/api/orders/analyze-files")

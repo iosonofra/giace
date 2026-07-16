@@ -413,6 +413,13 @@ function App() {
   const [prestashopSyncInterval, setPrestashopSyncInterval] = useState(10);
   const [showApiKey, setShowApiKey] = useState(false);
   const [savingConnectionSettings, setSavingConnectionSettings] = useState(false);
+  const [extensionApiToken, setExtensionApiToken] = useState('');
+  const [savedExtensionApiToken, setSavedExtensionApiToken] = useState('');
+  const [showExtensionToken, setShowExtensionToken] = useState(false);
+  const [savingExtensionSettings, setSavingExtensionSettings] = useState(false);
+  const [testingExtensionConnection, setTestingExtensionConnection] = useState(false);
+  const [extensionTestResult, setExtensionTestResult] = useState(null);
+  const [extensionBrowserGuide, setExtensionBrowserGuide] = useState('chrome');
   const [savingStockSettings, setSavingStockSettings] = useState(false);
   const [savingStateSettings, setSavingStateSettings] = useState(false);
   const [settingsError, setSettingsError] = useState(null);
@@ -749,6 +756,9 @@ function App() {
         setPrestashopApiKey(currentSettings.prestashop_api_key || '');
         setPrestashopMockMode(currentSettings.prestashop_mock_mode !== false);
         setPrestashopSyncInterval(currentSettings.prestashop_sync_interval || 10);
+        setExtensionApiToken(currentSettings.extension_api_token || '');
+        setSavedExtensionApiToken(currentSettings.extension_api_token || '');
+        setExtensionTestResult(null);
         // Google Sheets Sync Settings
         setStockSource(currentSettings.stock_source || 'local_upload');
         setGoogleSheetUrl(currentSettings.google_sheet_url || '');
@@ -1212,6 +1222,119 @@ function App() {
       setSettingsError("Errore di rete durante il salvataggio.");
     } finally {
       setSavingConnectionSettings(false);
+    }
+  };
+
+  const handleGenerateExtensionToken = () => {
+    const randomBytes = new Uint8Array(32);
+    window.crypto.getRandomValues(randomBytes);
+    const generatedToken = Array.from(
+      randomBytes,
+      byte => byte.toString(16).padStart(2, '0')
+    ).join('');
+    setExtensionApiToken(generatedToken);
+    setShowExtensionToken(true);
+    setExtensionTestResult(null);
+  };
+
+  const handleCopyExtensionToken = async () => {
+    if (!extensionApiToken.trim()) {
+      showActionMsg("Non c'è ancora un token da copiare.", 'danger');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(extensionApiToken.trim());
+      showActionMsg("Token estensione copiato negli appunti.");
+    } catch (err) {
+      console.error(err);
+      showActionMsg("Impossibile copiare automaticamente il token.", 'danger');
+    }
+  };
+
+  const handleCopyExtensionEndpoint = async () => {
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}/api/extension`);
+      showActionMsg("Endpoint estensione copiato negli appunti.");
+    } catch (err) {
+      console.error(err);
+      showActionMsg("Impossibile copiare automaticamente l'endpoint.", 'danger');
+    }
+  };
+
+  const handleTestExtensionConnection = async () => {
+    setTestingExtensionConnection(true);
+    setExtensionTestResult(null);
+    try {
+      const headers = {};
+      if (extensionApiToken.trim()) {
+        headers['X-Giac-Extension-Token'] = extensionApiToken.trim();
+      }
+      const res = await fetch('/api/extension/health', { headers });
+      const data = await res.json();
+      if (res.ok) {
+        setExtensionTestResult({
+          status: 'success',
+          message: data.token_required
+            ? 'API raggiungibile e token verificato.'
+            : 'API raggiungibile, ma al momento non richiede un token.'
+        });
+      } else {
+        setExtensionTestResult({
+          status: 'error',
+          message: data.detail || 'Token non valido o API non raggiungibile.'
+        });
+      }
+    } catch (err) {
+      console.error(err);
+      setExtensionTestResult({
+        status: 'error',
+        message: "Errore durante la verifica dell'API estensione."
+      });
+    } finally {
+      setTestingExtensionConnection(false);
+    }
+  };
+
+  const handleSaveExtensionSettings = async (e) => {
+    e.preventDefault();
+    const cleanToken = extensionApiToken.trim();
+    if (cleanToken && cleanToken.length < 16) {
+      setSettingsError("Il token estensione deve contenere almeno 16 caratteri.");
+      return;
+    }
+    if (cleanToken.length > 256 || (cleanToken && !/^[A-Za-z0-9._~-]+$/.test(cleanToken))) {
+      setSettingsError("Il token può contenere solo lettere, numeri, punto, trattino e underscore (massimo 256 caratteri).");
+      return;
+    }
+
+    setSavingExtensionSettings(true);
+    setSettingsError(null);
+    setExtensionTestResult(null);
+    try {
+      const res = await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ extension_api_token: cleanToken })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        const savedToken = data.extension_api_token || '';
+        setExtensionApiToken(savedToken);
+        setSavedExtensionApiToken(savedToken);
+        showActionMsg(
+          savedToken
+            ? "Token estensione salvato. Copialo ora nelle opzioni dell'estensione Chrome."
+            : "Token rimosso. L'API estensione ora non richiede autenticazione.",
+          savedToken ? 'success' : 'warning'
+        );
+      } else {
+        setSettingsError(data.detail || "Errore nel salvataggio del token estensione.");
+      }
+    } catch (err) {
+      console.error(err);
+      setSettingsError("Errore di rete durante il salvataggio del token estensione.");
+    } finally {
+      setSavingExtensionSettings(false);
     }
   };
 
@@ -2099,10 +2222,27 @@ function App() {
   const orderStatesDirty = selectedStatesKey !== savedSelectedStatesKey;
   const settingsSections = [
     { id: 'connection', label: 'Connessione' },
+    { id: 'extension', label: 'Estensione beta' },
     { id: 'stock', label: 'Giacenze' },
     { id: 'orders', label: 'Ordini' },
     { id: 'backup', label: 'Backup' }
   ];
+  const extensionTokenConfigured = savedExtensionApiToken.trim().length > 0;
+  const extensionTokenDirty = extensionApiToken !== savedExtensionApiToken;
+  const extensionApiStatusTone = extensionTokenDirty
+    ? 'warning'
+    : extensionTestResult?.status === 'success'
+      ? 'success'
+      : extensionTestResult?.status === 'error'
+        ? 'danger'
+        : 'neutral';
+  const extensionApiStatusLabel = extensionTokenDirty
+    ? 'Modifiche da salvare'
+    : extensionTestResult?.status === 'success'
+      ? 'API verificata'
+      : extensionTestResult?.status === 'error'
+        ? 'Verifica fallita'
+        : 'API non verificata';
   const prestashopUrlValid = prestashopUrl.trim().endsWith('/api/');
   const prestashopApiKeyPresent = prestashopApiKey.trim().length > 0;
   const prestashopRealReady = !prestashopMockMode && prestashopUrlValid && prestashopApiKeyPresent;
@@ -4954,6 +5094,10 @@ function App() {
                 <span className="settings-summary-label">Stati impegnato</span>
                 <strong><span className="settings-status-dot" />{selectedStates.length} selezionati{orderStatesDirty ? ' - non salvati' : ''}</strong>
               </div>
+              <div className={`settings-summary-item ${extensionTokenConfigured ? 'success' : 'warning'}`}>
+                <span className="settings-summary-label">Estensione Chrome</span>
+                <strong><span className="settings-status-dot" />{extensionTokenConfigured ? 'Token protetto' : 'API senza token'}</strong>
+              </div>
             </div>
 
             <div className="settings-section-tabs" role="tablist" aria-label="Sezioni impostazioni">
@@ -5141,6 +5285,276 @@ function App() {
                     </button>
                   </div>
                 </div>
+              </form>
+            </div>
+            )}
+
+            {/* Card 1a: Token API estensione Chrome */}
+            {settingsSection === 'extension' && (
+            <div className="glass-panel widget-card settings-workbench settings-extension-workbench">
+              <div className="settings-card-header">
+                <div>
+                  <h2>Estensioni browser · Feedback ordini</h2>
+                  <p>
+                    Scarica l’estensione, configura il collegamento e verifica che l’API risponda correttamente.
+                  </p>
+                </div>
+                <div className="settings-card-header-actions">
+                  <span className={`settings-status-pill ${extensionTokenConfigured ? 'success' : 'warning'}`}>
+                    <span className="settings-status-dot" />
+                    {extensionTokenConfigured ? 'Token configurato' : 'Accesso non protetto'}
+                  </span>
+                  <span className={`settings-status-pill ${extensionApiStatusTone}`}>
+                    <span className="settings-status-dot" />
+                    {extensionApiStatusLabel}
+                  </span>
+                </div>
+              </div>
+
+              <form onSubmit={handleSaveExtensionSettings} className="extension-guided-form">
+                <section className="extension-step-card" aria-labelledby="extension-step-browser">
+                  <div className="extension-step-header">
+                    <span className="extension-step-number">1</span>
+                    <div>
+                      <h3 id="extension-step-browser">Scegli il browser</h3>
+                      <p>Scarica il pacchetto e visualizza soltanto le istruzioni che ti servono.</p>
+                    </div>
+                  </div>
+
+                  <div className="extension-browser-grid" role="group" aria-label="Browser disponibili">
+                    <article className={`extension-browser-card ${extensionBrowserGuide === 'chrome' ? 'active' : ''}`}>
+                      <button
+                        type="button"
+                        id="extension-browser-chrome"
+                        className="extension-browser-select"
+                        aria-pressed={extensionBrowserGuide === 'chrome'}
+                        aria-controls="extension-browser-guide"
+                        onClick={() => setExtensionBrowserGuide('chrome')}
+                      >
+                        <span className="extension-browser-mark chrome" aria-hidden="true">C</span>
+                        <span>
+                          <strong>Chrome</strong>
+                          <small>Manifest V3 · installazione locale</small>
+                        </span>
+                        <span className="extension-version-badge">v0.2.2</span>
+                      </button>
+                      <div className="extension-browser-actions">
+                        <a className="btn btn-primary extension-browser-download" href="/api/extension/download" download>
+                          ↓ Scarica ZIP Chrome
+                        </a>
+                      </div>
+                    </article>
+
+                    <article className={`extension-browser-card ${extensionBrowserGuide === 'firefox' ? 'active' : ''}`}>
+                      <button
+                        type="button"
+                        id="extension-browser-firefox"
+                        className="extension-browser-select"
+                        aria-pressed={extensionBrowserGuide === 'firefox'}
+                        aria-controls="extension-browser-guide"
+                        onClick={() => setExtensionBrowserGuide('firefox')}
+                      >
+                        <span className="extension-browser-mark firefox" aria-hidden="true">F</span>
+                        <span>
+                          <strong>Firefox</strong>
+                          <small>Firmata Mozilla · installazione permanente</small>
+                        </span>
+                        <span className="extension-version-badge">v0.1.1</span>
+                      </button>
+                      <div className="extension-browser-actions">
+                        <a className="btn btn-primary extension-browser-download" href="/api/extension/firefox/install">
+                          Installa versione firmata
+                        </a>
+                        <a className="btn btn-secondary extension-browser-download" href="/api/extension/firefox/download" download>
+                          ↓ ZIP beta
+                        </a>
+                      </div>
+                    </article>
+                  </div>
+
+                  <div
+                    id="extension-browser-guide"
+                    className="extension-browser-instructions"
+                    role="region"
+                    aria-labelledby={`extension-browser-${extensionBrowserGuide}`}
+                  >
+                    <div className="extension-guide-heading">
+                      <div>
+                        <strong>
+                          Installazione {extensionBrowserGuide === 'chrome' ? 'Chrome' : 'Firefox beta'}
+                        </strong>
+                        <span>
+                          {extensionBrowserGuide === 'chrome'
+                            ? 'Installazione locale permanente dalla cartella estratta.'
+                            : 'Installazione permanente tramite il pacchetto XPI firmato da Mozilla.'}
+                        </span>
+                      </div>
+                    </div>
+                    <ol className="extension-install-steps">
+                      {extensionBrowserGuide === 'chrome' ? (
+                        <>
+                          <li><span>1</span><div><strong>Estrai lo ZIP</strong><small>Conserva la cartella in una posizione stabile.</small></div></li>
+                          <li><span>2</span><div><strong>Apri <code>chrome://extensions</code></strong><small>Attiva la modalità sviluppatore.</small></div></li>
+                          <li><span>3</span><div><strong>Carica la cartella</strong><small>Premi “Carica estensione non pacchettizzata”.</small></div></li>
+                        </>
+                      ) : (
+                        <>
+                          <li><span>1</span><div><strong>Premi “Installa versione firmata”</strong><small>Firefox aprirà la richiesta di installazione.</small></div></li>
+                          <li><span>2</span><div><strong>Conferma i permessi</strong><small>Controlla i dati dichiarati e completa l’installazione.</small></div></li>
+                          <li><span>3</span><div><strong>Configura l’estensione</strong><small>Inserisci URL webapp, dominio PrestaShop e token.</small></div></li>
+                        </>
+                      )}
+                    </ol>
+                  </div>
+                </section>
+
+                <section className="extension-step-card" aria-labelledby="extension-step-config">
+                  <div className="extension-step-header">
+                    <span className="extension-step-number">2</span>
+                    <div>
+                      <h3 id="extension-step-config">Configura il collegamento</h3>
+                      <p>Copia endpoint e token nelle opzioni dell’estensione installata.</p>
+                    </div>
+                  </div>
+
+                  <div className="extension-config-grid">
+                    <div className="settings-form-stack">
+                      <div className="form-group">
+                        <label className="settings-label">Endpoint API estensione</label>
+                        <div className="extension-copy-field">
+                          <code>{window.location.origin}/api/extension</code>
+                          <button type="button" className="btn btn-secondary" onClick={handleCopyExtensionEndpoint}>
+                            Copia endpoint
+                          </button>
+                        </div>
+                        <small className="settings-help">
+                          Come URL webapp nelle opzioni usa <code>{window.location.origin}</code>.
+                        </small>
+                      </div>
+
+                      <div className="form-group">
+                        <label className="settings-label" htmlFor="extension-api-token">
+                          Token estensione
+                        </label>
+                        <div className="settings-secret-field">
+                          <input
+                            id="extension-api-token"
+                            type={showExtensionToken ? "text" : "password"}
+                            className="settings-input extension-token-input"
+                            placeholder="Genera un token sicuro oppure inseriscine uno esistente"
+                            value={extensionApiToken}
+                            onChange={(e) => {
+                              setExtensionApiToken(e.target.value);
+                              setExtensionTestResult(null);
+                            }}
+                            autoComplete="off"
+                            spellCheck="false"
+                          />
+                          <button
+                            type="button"
+                            className="settings-secret-toggle"
+                            onClick={() => setShowExtensionToken(!showExtensionToken)}
+                            title={showExtensionToken ? "Nascondi token" : "Mostra token"}
+                            aria-label={showExtensionToken ? "Nascondi token estensione" : "Mostra token estensione"}
+                          >
+                            <Icons.Eye />
+                          </button>
+                        </div>
+                        <small className="settings-help">
+                          Minimo 16 caratteri. Il generatore crea un token casuale da 64 caratteri.
+                        </small>
+                      </div>
+
+                      <div className="extension-token-actions">
+                        <button type="button" className="btn btn-secondary" onClick={handleGenerateExtensionToken}>
+                          Genera token sicuro
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-secondary"
+                          onClick={handleCopyExtensionToken}
+                          disabled={!extensionApiToken.trim()}
+                        >
+                          Copia token
+                        </button>
+                      </div>
+                    </div>
+
+                    <aside className={`extension-security-panel ${extensionApiToken.trim() ? 'protected' : 'open'}`}>
+                      <span className="extension-security-icon" aria-hidden="true">
+                        {extensionApiToken.trim() ? '✓' : '!'}
+                      </span>
+                      <div>
+                        <strong>
+                          {extensionApiToken.trim()
+                            ? 'Collegamento autenticato'
+                            : 'API estensione senza protezione'}
+                        </strong>
+                        <p>
+                          {extensionApiToken.trim()
+                            ? 'Dopo il salvataggio, incolla lo stesso token nelle opzioni del browser.'
+                            : 'Genera un token prima di usare l’estensione su una rete condivisa.'}
+                        </p>
+                      </div>
+                    </aside>
+                  </div>
+                </section>
+
+                <section className="extension-step-card extension-verification-card" aria-labelledby="extension-step-verify">
+                  <div className="extension-step-header">
+                    <span className="extension-step-number">3</span>
+                    <div>
+                      <h3 id="extension-step-verify">Verifica il collegamento</h3>
+                      <p>Controlla che endpoint e token siano accettati dal backend.</p>
+                    </div>
+                  </div>
+                  <div className={`extension-verification-status ${extensionApiStatusTone}`}>
+                    <span className="settings-status-dot" />
+                    <div>
+                      <strong>{extensionApiStatusLabel}</strong>
+                      <span>
+                        {extensionTokenDirty
+                          ? 'Salva la configurazione prima di eseguire il test.'
+                          : extensionTestResult?.message || 'La connessione non è ancora stata controllata.'}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={handleTestExtensionConnection}
+                      disabled={testingExtensionConnection || savingExtensionSettings || extensionTokenDirty}
+                    >
+                      {testingExtensionConnection ? 'Verifica...' : 'Verifica ora'}
+                    </button>
+                  </div>
+                </section>
+
+                <footer className="extension-save-footer">
+                  <span>
+                    {extensionTokenDirty
+                      ? 'Sono presenti modifiche non salvate.'
+                      : extensionTokenConfigured
+                        ? 'Configurazione salvata e attiva immediatamente.'
+                        : 'Nessuna modifica da salvare.'}
+                  </span>
+                  <div className="settings-action-buttons">
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => {
+                        setExtensionApiToken(savedExtensionApiToken);
+                        setExtensionTestResult(null);
+                        setSettingsError(null);
+                      }}
+                      disabled={!extensionTokenDirty || savingExtensionSettings}
+                    >
+                      Annulla modifiche
+                    </button>
+                    <button type="submit" className="btn btn-primary" disabled={savingExtensionSettings || !extensionTokenDirty}>
+                      {savingExtensionSettings ? 'Salvataggio...' : 'Salva configurazione'}
+                    </button>
+                  </div>
+                </footer>
               </form>
             </div>
             )}
