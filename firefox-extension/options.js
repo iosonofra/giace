@@ -4,6 +4,7 @@ const DEFAULT_SETTINGS = {
   prestashopOrigin: "",
   extensionToken: "",
   minSkuResidual: 0,
+  chronologicalMode: true,
   grantedOrigins: []
 };
 
@@ -13,6 +14,7 @@ const webappUrlInput = document.getElementById("webapp-url");
 const prestashopOriginInput = document.getElementById("prestashop-origin");
 const tokenInput = document.getElementById("extension-token");
 const minResidualInput = document.getElementById("min-residual");
+const chronologicalModeInput = document.getElementById("chronological-mode");
 const testButton = document.getElementById("test-button");
 const statusBox = document.getElementById("status");
 
@@ -52,7 +54,8 @@ function readForm() {
     webappUrl,
     prestashopOrigin: new URL(prestashopUrl).origin,
     extensionToken: tokenInput.value.trim(),
-    minSkuResidual: Math.max(0, Math.floor(Number(minResidualInput.value || 0)))
+    minSkuResidual: Math.max(0, Math.floor(Number(minResidualInput.value || 0))),
+    chronologicalMode: chronologicalModeInput.checked
   };
 }
 
@@ -77,6 +80,7 @@ async function loadSettings() {
   prestashopOriginInput.value = settings.prestashopOrigin || "";
   tokenInput.value = settings.extensionToken || "";
   minResidualInput.value = Number(settings.minSkuResidual || 0);
+  chronologicalModeInput.checked = settings.chronologicalMode !== false;
 }
 
 form.addEventListener("submit", async event => {

@@ -1,4 +1,6 @@
 [data-giac-feedback],
+#giac-feedback-toolbar,
+#giac-feedback-toolbar *,
 #giac-feedback-popover,
 #giac-feedback-popover * {
   box-sizing: border-box;
@@ -36,6 +38,294 @@
 .giac-feedback-badge:focus-visible {
   outline: 2px solid #2563eb;
   outline-offset: 2px;
+}
+
+.giac-feedback-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 38px;
+  margin: 0 0 8px;
+  padding: 6px 9px;
+  border: 1px solid #dbe2ea;
+  border-radius: 7px;
+  background: #f8fafc;
+  color: #334155;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.giac-toolbar-label {
+  flex: 0 0 auto;
+  color: #172033;
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.giac-toolbar-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.giac-toolbar-filters button {
+  appearance: none;
+  min-height: 24px;
+  margin: 0;
+  padding: 3px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #475569;
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.giac-toolbar-filters button:hover {
+  border-color: #93c5fd;
+  color: #1d4ed8;
+}
+
+.giac-toolbar-filters button:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 1px;
+}
+
+.giac-toolbar-filters button.active {
+  border-color: #93c5fd;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.giac-toolbar-freshness {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  margin-left: 0;
+  color: #64748b;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.giac-toolbar-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 18px;
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.giac-toolbar-mode {
+  position: relative;
+  display: inline-grid !important;
+  grid-template-columns: 26px minmax(62px, auto);
+  align-items: center !important;
+  column-gap: 10px !important;
+  flex: 0 0 auto;
+  margin: 0 !important;
+  height: 26px;
+  min-height: 26px;
+  padding: 0 9px 0 5px !important;
+  box-sizing: border-box;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #475569;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: normal !important;
+  vertical-align: middle !important;
+  cursor: pointer;
+  user-select: none;
+  transition: border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
+}
+
+.giac-toolbar-mode:hover {
+  border-color: #94a3b8;
+  background: #f8fafc;
+}
+
+.giac-toolbar-mode input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.giac-toolbar-mode-track {
+  position: relative;
+  display: inline-block;
+  flex: 0 0 26px;
+  width: 26px;
+  height: 14px;
+  margin: 0 !important;
+  box-sizing: border-box;
+  border-radius: 999px;
+  background: #0891b2;
+  transition: background 140ms ease;
+}
+
+.giac-toolbar-mode-track::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.22);
+  transition: transform 140ms ease;
+}
+
+.giac-toolbar-mode input:checked + .giac-toolbar-mode-track {
+  background: #2563eb;
+}
+
+.giac-toolbar-mode input:checked + .giac-toolbar-mode-track::after {
+  transform: translateX(12px);
+}
+
+.giac-toolbar-mode input:focus-visible + .giac-toolbar-mode-track {
+  outline: 2px solid #0f172a;
+  outline-offset: 2px;
+}
+
+.giac-toolbar-mode:focus-within {
+  border-color: #60a5fa;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.14);
+}
+
+.giac-toolbar-mode input:disabled + .giac-toolbar-mode-track {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+.giac-toolbar-mode-text {
+  display: inline-flex !important;
+  align-items: center;
+  height: 14px;
+  min-width: 62px;
+  margin: 0 !important;
+  padding: 0 !important;
+  color: #334155;
+  line-height: 14px !important;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.giac-toolbar-freshness.stale {
+  color: #b45309;
+  font-weight: 700;
+}
+
+.giac-toolbar-freshness.stale::before {
+  content: "!";
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  margin-right: 4px;
+  border-radius: 999px;
+  background: #f59e0b;
+  color: #ffffff;
+  font-size: 9px;
+}
+
+.giac-order-filter-hidden {
+  display: none !important;
+}
+
+.giac-feedback-data-stale {
+  position: relative;
+}
+
+.giac-feedback-data-stale::after {
+  content: "";
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 7px;
+  height: 7px;
+  border: 1px solid #ffffff;
+  border-radius: 999px;
+  background: #f59e0b;
+}
+
+@media (max-width: 760px) {
+  .giac-feedback-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .giac-toolbar-freshness {
+    margin-left: 0;
+  }
+
+  .giac-toolbar-actions {
+    width: 100%;
+    margin-left: 0;
+    justify-content: space-between;
+  }
+
+  .giac-toolbar-mode {
+    margin-left: 0;
+  }
+}
+
+.giac-detail-feedback-slot {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+}
+
+.giac-detail-feedback-slot .giac-feedback-badge {
+  margin-top: 0;
+}
+
+.giac-detail-feedback-slot[data-giac-detail-placement="title-inline"] {
+  margin-left: 10px;
+  transform: translateY(-3px);
+}
+
+.giac-detail-feedback-slot[data-giac-detail-placement="title-inline"] .giac-feedback-badge {
+  min-height: 22px !important;
+  max-width: 150px !important;
+  gap: 4px !important;
+  padding: 2px 8px 2px 5px !important;
+  border-radius: 999px !important;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  line-height: 1 !important;
+  letter-spacing: 0 !important;
+  white-space: nowrap !important;
+}
+
+.giac-detail-feedback-slot[data-giac-detail-placement="title-inline"] .giac-feedback-badge-symbol {
+  width: 14px !important;
+  height: 14px !important;
+  font-size: 9px !important;
+}
+
+.giac-detail-feedback-slot[data-giac-detail-placement="fallback"] {
+  display: flex;
+  width: fit-content;
+  margin: 8px 0 12px;
+}
+
+@media (max-width: 720px) {
+  .giac-detail-feedback-slot[data-giac-detail-placement="title-inline"] {
+    display: flex;
+    width: fit-content;
+    margin: 8px 0 0;
+    transform: none;
+  }
 }
 
 .giac-feedback-badge-symbol {

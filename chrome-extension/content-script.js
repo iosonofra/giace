@@ -2,6 +2,7 @@
   const BADGE_ATTRIBUTE = "data-giac-feedback";
   const ROW_ATTRIBUTE = "data-giac-order-id";
   const POPOVER_ID = "giac-feedback-popover";
+  const TOOLBAR_ID = "giac-feedback-toolbar";
   const STALE_AFTER_MS = 30 * 60 * 1000;
   const badgeData = new WeakMap();
   let observer = null;
@@ -14,6 +15,10 @@
   let extensionEnabled = false;
   let activeBadge = null;
   let popoverPinned = false;
+  let activeOrderFilter = "all";
+  let chronologicalMode = true;
+  let latestListEntries = [];
+  let latestListFreshness = {};
 
   function sendMessage(message) {
     return new Promise(resolve => {
@@ -96,6 +101,83 @@
     return null;
   }
 
+  function extractDetailOrderId() {
+    let url;
+    try {
+      url = new URL(window.location.href);
+    } catch {
+      return null;
+    }
+
+    for (const key of ["id_order", "idOrder", "order_id", "orderId"]) {
+      const value = String(url.searchParams.get(key) || "").trim();
+      if (/^\d{4,10}$/.test(value)) return Number(value);
+    }
+
+    for (const pattern of [
+      /\/sell\/orders\/(\d{4,10})(?:\/|$)/i,
+      /\/orders\/(\d{4,10})(?:\/|$)/i
+    ]) {
+      const match = url.pathname.match(pattern);
+      if (match) return Number(match[1]);
+    }
+
+    for (const heading of document.querySelectorAll("h1, h2, .page-title")) {
+      const match = String(heading.textContent || "")
+        .replace(/\s+/g, " ")
+        .match(/\b(?:ordine|order)\s*#?\s*(\d{4,10})\b/i);
+      if (match) return Number(match[1]);
+    }
+    return null;
+  }
+
+  function collectDetailOrderEntry() {
+    const orderId = extractDetailOrderId();
+    if (!orderId) return null;
+
+    let slot = document.querySelector('[data-giac-detail-feedback="true"]');
+    if (!slot) {
+      slot = document.createElement("span");
+      slot.className = "giac-detail-feedback-slot";
+      slot.setAttribute("data-giac-detail-feedback", "true");
+    }
+
+    const titleCandidates = Array.from(document.querySelectorAll(
+      "h1, h2, .page-title"
+    ));
+    const orderTitle = titleCandidates.find(element => {
+      const text = String(element.textContent || "").replace(/\s+/g, " ").trim();
+      return /^ordine\b/i.test(text) && !/^ordini\b/i.test(text) && text.length > 8;
+    });
+
+    if (orderTitle) {
+      slot.setAttribute("data-giac-detail-placement", "title-inline");
+      if (slot.parentElement !== orderTitle || orderTitle.lastElementChild !== slot) {
+        orderTitle.appendChild(slot);
+      }
+    } else {
+      const orderHeaders = Array.from(document.querySelectorAll(
+        ".panel-heading, .card-header, .box-header, .order-heading, legend"
+      ));
+      const orderHeader = orderHeaders.find(element => (
+        String(element.textContent || "").includes(String(orderId))
+      ));
+      const fallback = document.querySelector("main, #content, .content-div");
+      if (!orderHeader && !fallback) return null;
+
+      slot.setAttribute("data-giac-detail-placement", "fallback");
+      if (orderHeader && orderHeader.nextElementSibling !== slot) {
+        orderHeader.insertAdjacentElement("afterend", slot);
+      } else if (!orderHeader && slot.parentElement !== fallback) {
+        fallback.prepend(slot);
+      }
+    }
+
+    slot.setAttribute(ROW_ATTRIBUTE, String(orderId));
+
+    return { row: slot, targetCell: slot, orderId, isDetail: true };
+  }
+
   function findOrderIdCell(row, orderId) {
     const cells = Array.from(row.querySelectorAll(":scope > th, :scope > td"));
     return cells.find(cell => {
@@ -105,6 +187,9 @@
   }
 
   function collectOrderRows() {
+    const detailEntry = collectDetailOrderEntry();
+    if (detailEntry) return [detailEntry];
+
     const rows = [];
     for (const row of document.querySelectorAll("table tbody tr")) {
       if (row.closest(".autocomplete-dropdown")) continue;
@@ -211,6 +296,140 @@
       exact: formatDateTime(value),
       stale: ageMs > STALE_AFTER_MS
     };
+  }
+
+  function isFreshnessStale(freshness) {
+    const values = [
+      freshness?.warehouse_checked_at || freshness?.warehouse_imported_at,
+      freshness?.orders_checked_at || freshness?.orders_synced_at
+    ].filter(Boolean);
+    if (values.length === 0) return false;
+    return values.some(value => getFreshnessMeta(value).stale);
+  }
+
+  function orderMatchesFilter(status, filter) {
+    if (filter === "all") return true;
+    if (filter === "preparable") return status === "preparable";
+    if (filter === "not_found") return status === "not_found";
+    if (filter === "attention") {
+      return ["blocked", "protected", "pending", "error"].includes(status);
+    }
+    return true;
+  }
+
+  function applyOrderFilter(entries) {
+    for (const entry of entries) {
+      if (entry.isDetail) continue;
+      const status = entry.row.dataset.giacFeedbackStatus || "loading";
+      entry.row.classList.toggle(
+        "giac-order-filter-hidden",
+        !orderMatchesFilter(status, activeOrderFilter)
+      );
+    }
+  }
+
+  function renderOrdersToolbar(entries, freshness = {}) {
+    if (entries.length === 0 || entries.some(entry => entry.isDetail)) {
+      document.getElementById(TOOLBAR_ID)?.remove();
+      return;
+    }
+    const table = entries[0].row.closest("table");
+    if (!table) return;
+    latestListEntries = entries;
+    latestListFreshness = freshness;
+
+    let toolbar = document.getElementById(TOOLBAR_ID);
+    if (!toolbar) {
+      toolbar = document.createElement("section");
+      toolbar.id = TOOLBAR_ID;
+      toolbar.className = "giac-feedback-toolbar";
+      toolbar.setAttribute("aria-label", "Riepilogo disponibilità ordini");
+
+      const label = appendTextElement(toolbar, "strong", "giac-toolbar-label", "Disponibilità");
+      label.setAttribute("aria-hidden", "true");
+      const filters = document.createElement("div");
+      filters.className = "giac-toolbar-filters";
+      for (const filter of ["all", "preparable", "attention", "not_found"]) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.dataset.giacFilter = filter;
+        button.addEventListener("click", () => {
+          activeOrderFilter = filter;
+          renderOrdersToolbar(latestListEntries, latestListFreshness);
+        });
+        filters.appendChild(button);
+      }
+      toolbar.appendChild(filters);
+
+      const modeControl = document.createElement("label");
+      modeControl.className = "giac-toolbar-mode";
+      modeControl.title = "Cambia tra disponibilità corrente e valutazione cronologica";
+      const modeInput = document.createElement("input");
+      modeInput.type = "checkbox";
+      modeInput.setAttribute("role", "switch");
+      modeInput.setAttribute("aria-label", "Valutazione cronologica degli ordini");
+      const modeTrack = document.createElement("span");
+      modeTrack.className = "giac-toolbar-mode-track";
+      modeTrack.setAttribute("aria-hidden", "true");
+      const modeText = appendTextElement(modeControl, "span", "giac-toolbar-mode-text", "");
+      modeControl.prepend(modeInput, modeTrack);
+      modeInput.addEventListener("change", async () => {
+        const nextValue = modeInput.checked;
+        modeInput.disabled = true;
+        const response = await sendMessage({
+          type: "UPDATE_EVALUATION_MODE",
+          chronologicalMode: nextValue
+        });
+        modeInput.disabled = false;
+        if (!response?.ok) {
+          modeInput.checked = chronologicalMode;
+          return;
+        }
+        chronologicalMode = response.chronologicalMode !== false;
+        modeText.textContent = chronologicalMode ? "Cronologico" : "Disponibilità";
+        lastSignature = "";
+        scheduleRefresh(true);
+      });
+      const toolbarActions = document.createElement("div");
+      toolbarActions.className = "giac-toolbar-actions";
+      appendTextElement(toolbarActions, "span", "giac-toolbar-freshness", "");
+      toolbarActions.appendChild(modeControl);
+      toolbar.appendChild(toolbarActions);
+      table.insertAdjacentElement("beforebegin", toolbar);
+    } else if (toolbar.nextElementSibling !== table) {
+      table.insertAdjacentElement("beforebegin", toolbar);
+    }
+
+    const counts = { all: entries.length, preparable: 0, attention: 0, not_found: 0 };
+    for (const entry of entries) {
+      const status = entry.row.dataset.giacFeedbackStatus || "loading";
+      if (status === "preparable") counts.preparable += 1;
+      if (["blocked", "protected", "pending", "error"].includes(status)) counts.attention += 1;
+      if (status === "not_found") counts.not_found += 1;
+    }
+    const labels = {
+      all: `Tutti ${counts.all}`,
+      preparable: `Gestibili ${counts.preparable}`,
+      attention: `Da verificare ${counts.attention}`,
+      not_found: `Non sincronizzati ${counts.not_found}`
+    };
+    for (const button of toolbar.querySelectorAll("[data-giac-filter]")) {
+      const filter = button.dataset.giacFilter;
+      button.textContent = labels[filter];
+      button.classList.toggle("active", filter === activeOrderFilter);
+      button.setAttribute("aria-pressed", String(filter === activeOrderFilter));
+    }
+    const modeInput = toolbar.querySelector(".giac-toolbar-mode input");
+    const modeText = toolbar.querySelector(".giac-toolbar-mode-text");
+    modeInput.checked = chronologicalMode;
+    modeText.textContent = chronologicalMode ? "Cronologico" : "Disponibilità";
+
+    const freshnessElement = toolbar.querySelector(".giac-toolbar-freshness");
+    const checkedAt = freshness?.orders_checked_at || freshness?.orders_synced_at;
+    const freshnessMeta = getFreshnessMeta(checkedAt);
+    freshnessElement.textContent = checkedAt ? `Ordini verificati ${freshnessMeta.relative}` : "Verifica in corso";
+    freshnessElement.classList.toggle("stale", isFreshnessStale(freshness));
+    applyOrderFilter(entries);
   }
 
   function getStatusMeta(status) {
@@ -392,7 +611,9 @@
     );
     const detail = order?.reason_detail || (
       status === "preparable"
-        ? "Le SKU richieste sono disponibili rispettando la sequenza cronologica."
+        ? order?.evaluation_mode === "availability"
+          ? "Le SKU richieste sono disponibili rispetto alla giacenza corrente, senza consumi simulati degli altri ordini."
+          : "Le SKU richieste sono disponibili rispettando la sequenza cronologica."
         : order?.message || ""
     );
     const reasonBox = document.createElement("div");
@@ -413,16 +634,8 @@
         "giac-popover-section-label",
         status === "preparable" ? "Impatto sulle giacenze" : "SKU che bloccano l’ordine"
       );
-      for (const item of items.slice(0, 5)) {
+      for (const item of items) {
         skuSection.appendChild(createSkuCard(item, status));
-      }
-      if (items.length > 5) {
-        appendTextElement(
-          skuSection,
-          "small",
-          "giac-popover-more",
-          `Altre ${items.length - 5} SKU non mostrate.`
-        );
       }
       body.appendChild(skuSection);
     }
@@ -570,8 +783,16 @@
     badge.removeAttribute("title");
     badgeData.set(badge, { order: normalizedOrder, freshness: freshness || {} });
     renderBadge(badge, normalizedOrder);
-    entry.row.classList.toggle("giac-order-blocked", normalizedOrder.status === "blocked");
-    entry.row.classList.toggle("giac-order-protected", normalizedOrder.status === "protected");
+    const stale = isFreshnessStale(freshness || {});
+    badge.classList.toggle("giac-feedback-data-stale", stale);
+    if (stale) {
+      badge.setAttribute("aria-label", `${badge.getAttribute("aria-label")} Dati non aggiornati.`);
+    }
+    if (!entry.isDetail) {
+      entry.row.dataset.giacFeedbackStatus = normalizedOrder.status;
+      entry.row.classList.toggle("giac-order-blocked", normalizedOrder.status === "blocked");
+      entry.row.classList.toggle("giac-order-protected", normalizedOrder.status === "protected");
+    }
     if (activeBadge === badge) {
       const popover = createPopover();
       renderPopoverContent(popover, normalizedOrder, freshness || {});
@@ -588,6 +809,7 @@
         reason_detail: message || "Impossibile contattare la webapp."
       }, {});
     }
+    renderOrdersToolbar(entries, {});
   }
 
   async function refreshFeedback(force = false) {
@@ -597,7 +819,10 @@
 
     const orderIds = entries.map(entry => entry.orderId);
     const signature = orderIds.join(",");
-    if (!force && signature === lastSignature) return;
+    const allBadgesPresent = entries.every(entry => (
+      entry.targetCell.querySelector(`[${BADGE_ATTRIBUTE}]`)
+    ));
+    if (!force && signature === lastSignature && allBadgesPresent) return;
     lastSignature = signature;
 
     for (const entry of entries) {
@@ -608,6 +833,7 @@
         reason_detail: "La webapp sta verificando la sequenza cronologica e le giacenze."
       }, {});
     }
+    renderOrdersToolbar(entries, {});
 
     const response = await sendMessage({ type: "FETCH_AVAILABILITY", orderIds });
     if (!response?.ok) {
@@ -617,20 +843,23 @@
 
     const orders = response.data?.orders || {};
     for (const entry of entries) {
+      const order = orders[String(entry.orderId)] || {
+        status: "not_found",
+        label: "Non sincronizzato",
+        reason: "Ordine non presente nella webapp",
+        reason_detail: "Sincronizza gli ordini PrestaShop e ripeti la verifica."
+      };
       setBadgeFeedback(
         entry,
-        orders[String(entry.orderId)] || {
-          status: "not_found",
-          label: "Non sincronizzato",
-          reason: "Ordine non presente nella webapp",
-          reason_detail: "Sincronizza gli ordini PrestaShop e ripeti la verifica."
-        },
+        { ...order, evaluation_mode: response.data?.policy?.evaluation_mode },
         response.data?.freshness
       );
     }
+    renderOrdersToolbar(entries, response.data?.freshness || {});
   }
 
   function scheduleRefresh(force = false) {
+    if (document.hidden) return;
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => refreshFeedback(force), 450);
   }
@@ -641,6 +870,7 @@
     extensionEnabled = response.settings?.enabled !== false;
     configuredOrigin = String(response.settings?.prestashopOrigin || "").trim();
     configuredWebappUrl = String(response.settings?.webappUrl || "").trim();
+    chronologicalMode = response.settings?.chronologicalMode !== false;
     if (!extensionEnabled || !originAllowed() || !looksLikeOrdersPage()) return;
 
     createPopover();
@@ -666,12 +896,20 @@
 
     scheduleRefresh(true);
     observer = new MutationObserver(() => scheduleRefresh(false));
-    observer.observe(document.body, { childList: true, subtree: true });
+    const observationRoot = document.querySelector("#content, main, .content-div") || document.body;
+    observer.observe(observationRoot, { childList: true, subtree: true });
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) {
+        lastSignature = "";
+        scheduleRefresh(true);
+      }
+    });
 
     chrome.storage.onChanged.addListener(changes => {
       if (changes.enabled) extensionEnabled = changes.enabled.newValue !== false;
       if (changes.prestashopOrigin) configuredOrigin = changes.prestashopOrigin.newValue || "";
       if (changes.webappUrl) configuredWebappUrl = changes.webappUrl.newValue || "";
+      if (changes.chronologicalMode) chronologicalMode = changes.chronologicalMode.newValue !== false;
       lastSignature = "";
       closePopover();
       scheduleRefresh(true);

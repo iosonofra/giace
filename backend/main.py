@@ -2480,6 +2480,7 @@ def auto_picking_orders(payload: dict, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Il numero ordini deve essere compreso tra 1 e 5000.")
 
     strict_chronology = bool(payload.get("strict_chronology", False))
+    independent_availability = bool(payload.get("independent_availability", False))
     selection_strategy = str(payload.get("selection_strategy", "chronological")).strip().lower()
     if selection_strategy not in ("chronological", "maximize_orders"):
         raise HTTPException(status_code=400, detail="Strategia lista automatica non valida.")
@@ -2550,6 +2551,7 @@ def auto_picking_orders(payload: dict, db: Session = Depends(get_db)):
             stock_map[sku_key]["qty_total"] += item.qty_total
 
     running_stock = {sku: info["qty_total"] for sku, info in stock_map.items()}
+    initial_stock = dict(running_stock)
 
     state_setting = db.query(AppSetting).filter(AppSetting.key == "included_state_ids").first()
     try:
@@ -2713,10 +2715,11 @@ def auto_picking_orders(payload: dict, db: Session = Depends(get_db)):
         items = []
         for sku, req_qty in sorted(sku_reqs.items(), key=lambda item: (stock_order.get(item[0], 10**9), item[0])):
             stock_info = stock_map.get(sku, {"description": "Non presente in magazzino", "qty_total": 0.0})
-            avail_before = running_stock.get(sku, 0.0)
-            running_stock[sku] = avail_before - req_qty
-            avail_after = running_stock[sku]
-            sku_required_map[sku] = sku_required_map.get(sku, 0.0) + req_qty
+            avail_before = initial_stock.get(sku, 0.0) if independent_availability else running_stock.get(sku, 0.0)
+            avail_after = avail_before - req_qty
+            if not independent_availability:
+                running_stock[sku] = avail_after
+                sku_required_map[sku] = sku_required_map.get(sku, 0.0) + req_qty
 
             items.append({
                 "sku": sku,
@@ -2761,7 +2764,8 @@ def auto_picking_orders(payload: dict, db: Session = Depends(get_db)):
             blocked = []
 
             for candidate in remaining_candidates:
-                violations = _stock_violations(candidate["sku_reqs"], running_stock)
+                stock_snapshot = initial_stock if independent_availability else running_stock
+                violations = _stock_violations(candidate["sku_reqs"], stock_snapshot)
                 can_prepare = bool(candidate["sku_reqs"]) and not violations and not candidate["missing_reference_lines"]
                 if can_prepare:
                     total_required = sum(candidate["sku_reqs"].values())
@@ -2785,7 +2789,8 @@ def auto_picking_orders(payload: dict, db: Session = Depends(get_db)):
                 break
 
             evaluated_count += 1
-            violations = _stock_violations(candidate["sku_reqs"], running_stock)
+            stock_snapshot = initial_stock if independent_availability else running_stock
+            violations = _stock_violations(candidate["sku_reqs"], stock_snapshot)
             can_prepare = bool(candidate["sku_reqs"]) and not violations and not candidate["missing_reference_lines"]
 
             if not can_prepare:
@@ -2825,7 +2830,8 @@ def auto_picking_orders(payload: dict, db: Session = Depends(get_db)):
         if order_id in selected_ids or order_id in skipped_ids:
             continue
 
-        violations = _stock_violations(candidate["sku_reqs"], running_stock)
+        stock_snapshot = initial_stock if independent_availability else running_stock
+        violations = _stock_violations(candidate["sku_reqs"], stock_snapshot)
         currently_preparable = (
             bool(candidate["sku_reqs"])
             and not violations
@@ -2915,6 +2921,7 @@ def auto_picking_orders(payload: dict, db: Session = Depends(get_db)):
             "skipped_count": len(skipped_orders),
             "evaluated_count": evaluated_count,
             "strict_chronology": strict_chronology,
+            "independent_availability": independent_availability,
             "selection_strategy": selection_strategy,
             "min_sku_residual": min_sku_residual,
             "candidate_count": len(candidate_orders),
@@ -3065,10 +3072,13 @@ def extension_orders_availability(
     if min_sku_residual < 0:
         raise HTTPException(status_code=400, detail="La scorta minima non può essere negativa.")
 
+    chronological_mode = payload.get("chronological_mode", True) is not False
+
     simulation = auto_picking_orders({
         "limit": 5000,
         "strict_chronology": False,
         "selection_strategy": "chronological",
+        "independent_availability": not chronological_mode,
         "min_sku_residual": min_sku_residual,
         "sku_filter": []
     }, db)
@@ -3082,9 +3092,8 @@ def extension_orders_availability(
         response_orders[order_id] = {
             "status": "preparable",
             "label": "Gestibile",
-            "queue_position": order.get("chronological_position"),
+            "queue_position": order.get("chronological_position") if chronological_mode else None,
             "selection_position": order.get("selection_position"),
-            "customer_name": order.get("customer_name"),
             "date_add": order.get("date_add"),
             "current_state_label": order.get("current_state_label"),
             "minimum_remaining": min((item.get("avail_after", 0) for item in items), default=None),
@@ -3103,8 +3112,7 @@ def extension_orders_availability(
         response_orders[order_id] = {
             "status": "protected" if protected_only else "blocked",
             "label": "Scorta protetta" if protected_only else "Non gestibile",
-            "queue_position": order.get("chronological_position"),
-            "customer_name": order.get("customer_name"),
+            "queue_position": order.get("chronological_position") if chronological_mode else None,
             "date_add": order.get("date_add"),
             "current_state_label": order.get("current_state_label"),
             "reason": order.get("reason"),
@@ -3120,8 +3128,7 @@ def extension_orders_availability(
         response_orders[order_id] = {
             "status": "pending",
             "label": "Non valutato",
-            "queue_position": order.get("chronological_position"),
-            "customer_name": order.get("customer_name"),
+            "queue_position": order.get("chronological_position") if chronological_mode else None,
             "date_add": order.get("date_add"),
             "current_state_label": order.get("current_state_label"),
             "reason": order.get("reason"),
@@ -3171,7 +3178,8 @@ def extension_orders_availability(
     return {
         "calculated_at": datetime.now(timezone.utc).isoformat(),
         "policy": {
-            "selection_strategy": "chronological",
+            "evaluation_mode": "chronological" if chronological_mode else "availability",
+            "selection_strategy": "chronological" if chronological_mode else "independent_availability",
             "skip_unpreparable": True,
             "min_sku_residual": min_sku_residual
         },

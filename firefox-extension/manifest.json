@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Giac Feedback Ordini",
-  "version": "0.1.1",
-  "description": "Mostra nella lista ordini PrestaShop la disponibilità calcolata dalla webapp Giac configurata dall'utente.",
+  "version": "0.1.4",
+  "description": "Mostra nella lista e nel dettaglio ordini PrestaShop la disponibilità calcolata dalla webapp Giac configurata dall'utente.",
   "permissions": [
     "storage",
     "scripting"

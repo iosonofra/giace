@@ -11,14 +11,14 @@
       <header>
         <span class="eyebrow">Estensione Firefox</span>
         <h1>Giac Feedback Ordini</h1>
-        <p>Collega la lista ordini PrestaShop esclusivamente alla webapp Giac scelta dall’utente.</p>
+        <p>Collega lista e dettaglio ordine PrestaShop esclusivamente alla webapp Giac scelta dall’utente.</p>
       </header>
 
       <form id="settings-form">
         <label class="toggle-row">
           <span>
             <strong>Estensione attiva</strong>
-            <small>Mostra i badge soltanto sul dominio PrestaShop autorizzato.</small>
+            <small>Mostra badge, riepilogo e filtri soltanto sul dominio PrestaShop autorizzato.</small>
           </span>
           <input id="enabled" type="checkbox">
         </label>
@@ -43,13 +43,23 @@
           <label for="min-residual">Scorta minima simulata</label>
           <input id="min-residual" type="number" min="0" step="1" value="0">
           <small>Un ordine viene segnalato come protetto se porta una SKU sotto questa quantità.</small>
+
+          <label class="setting-toggle" for="chronological-mode">
+            <span>
+              <strong>Valutazione cronologica</strong>
+              <small>Se disattivata, ogni ordine viene confrontato con la giacenza corrente senza consumare virtualmente lo stock degli ordini precedenti.</small>
+            </span>
+            <input id="chronological-mode" type="checkbox" role="switch" checked>
+          </label>
         </section>
 
         <section class="privacy-note" aria-labelledby="privacy-title">
           <h2 id="privacy-title">Dati trasmessi</h2>
           <p>
-            L’estensione invia alla webapp configurata soltanto gli ID degli ordini visibili e,
-            se presente, il token di autenticazione. Non usa analytics, pubblicità o server dello sviluppatore.
+            Quando apri o aggiorni lista e dettaglio ordine, l’estensione invia automaticamente
+            alla webapp configurata soltanto gli ID degli ordini visibili o dell’ordine aperto,
+            la modalità di calcolo selezionata e, se presente, il token di autenticazione. La modalità
+            serve solo a eseguire il calcolo richiesto. Non usa analytics, pubblicità o server dello sviluppatore.
           </p>
         </section>
 

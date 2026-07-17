@@ -3,14 +3,34 @@ const DEFAULT_SETTINGS = {
   webappUrl: "http://127.0.0.1:8000",
   prestashopOrigin: "",
   extensionToken: "",
-  minSkuResidual: 0
+  minSkuResidual: 0,
+  chronologicalMode: true
 };
 
 const responseCache = new Map();
 const CACHE_TTL_MS = 30_000;
+const MAX_CACHE_ENTRIES = 50;
 
 function normalizeBaseUrl(value) {
-  return String(value || "").trim().replace(/\/+$/, "");
+  const normalized = String(value || "").trim().replace(/\/+$/, "");
+  if (!normalized) return "";
+  try {
+    const url = new URL(normalized);
+    if (url.username || url.password) return "";
+    if (!["http:", "https:"].includes(url.protocol)) return "";
+    return normalized;
+  } catch {
+    return "";
+  }
+}
+
+function pruneResponseCache(now = Date.now()) {
+  for (const [key, entry] of responseCache) {
+    if (now - entry.createdAt >= CACHE_TTL_MS) responseCache.delete(key);
+  }
+  while (responseCache.size >= MAX_CACHE_ENTRIES) {
+    responseCache.delete(responseCache.keys().next().value);
+  }
 }
 
 async function getSettings() {
@@ -54,7 +74,18 @@ async function handleMessage(message, sender) {
   const settings = await getSettings();
 
   if (message?.type === "GET_SETTINGS") {
-    return { ok: true, settings };
+    const { extensionToken, ...publicSettings } = settings;
+    return { ok: true, settings: publicSettings };
+  }
+
+  if (message?.type === "UPDATE_EVALUATION_MODE") {
+    if (!senderMatchesPrestashop(settings, sender)) {
+      return { ok: false, error: "Pagina PrestaShop non autorizzata." };
+    }
+    const chronologicalMode = message.chronologicalMode !== false;
+    await chrome.storage.local.set({ chronologicalMode });
+    responseCache.clear();
+    return { ok: true, chronologicalMode };
   }
 
   if (message?.type === "TEST_CONNECTION") {
@@ -89,8 +120,10 @@ async function handleMessage(message, sender) {
     const cacheKey = JSON.stringify([
       baseUrl,
       Number(settings.minSkuResidual || 0),
+      settings.chronologicalMode !== false,
       orderIds.slice().sort((a, b) => a - b)
     ]);
+    pruneResponseCache();
     const cached = responseCache.get(cacheKey);
     if (cached && Date.now() - cached.createdAt < CACHE_TTL_MS) {
       return { ok: true, data: cached.data, cached: true };
@@ -101,9 +134,11 @@ async function handleMessage(message, sender) {
       headers: buildHeaders(settings),
       body: JSON.stringify({
         visible_order_ids: orderIds,
-        min_sku_residual: Number(settings.minSkuResidual || 0)
+        min_sku_residual: Number(settings.minSkuResidual || 0),
+        chronological_mode: settings.chronologicalMode !== false
       })
     });
+    pruneResponseCache();
     responseCache.set(cacheKey, { createdAt: Date.now(), data });
     return { ok: true, data, cached: false };
   }

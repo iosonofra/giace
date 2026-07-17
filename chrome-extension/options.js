@@ -3,7 +3,8 @@ const DEFAULT_SETTINGS = {
   webappUrl: "http://127.0.0.1:8000",
   prestashopOrigin: "",
   extensionToken: "",
-  minSkuResidual: 0
+  minSkuResidual: 0,
+  chronologicalMode: true
 };
 
 const form = document.getElementById("settings-form");
@@ -12,6 +13,7 @@ const webappUrlInput = document.getElementById("webapp-url");
 const prestashopOriginInput = document.getElementById("prestashop-origin");
 const tokenInput = document.getElementById("extension-token");
 const minResidualInput = document.getElementById("min-residual");
+const chronologicalModeInput = document.getElementById("chronological-mode");
 const testButton = document.getElementById("test-button");
 const statusBox = document.getElementById("status");
 
@@ -30,7 +32,8 @@ function readForm() {
     webappUrl: normalizeUrl(webappUrlInput.value),
     prestashopOrigin: normalizeUrl(prestashopOriginInput.value),
     extensionToken: tokenInput.value.trim(),
-    minSkuResidual: Math.max(0, Number(minResidualInput.value || 0))
+    minSkuResidual: Math.max(0, Number(minResidualInput.value || 0)),
+    chronologicalMode: chronologicalModeInput.checked
   };
 }
 
@@ -41,6 +44,7 @@ async function loadSettings() {
   prestashopOriginInput.value = settings.prestashopOrigin || "";
   tokenInput.value = settings.extensionToken || "";
   minResidualInput.value = Number(settings.minSkuResidual || 0);
+  chronologicalModeInput.checked = settings.chronologicalMode !== false;
 }
 
 function sendMessage(message) {
