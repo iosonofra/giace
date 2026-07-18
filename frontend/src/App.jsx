@@ -3913,288 +3913,6 @@ function App() {
                 </div>
               ) : (
                 <form onSubmit={handleGenerateAutomaticPicking} className="picking-workflow-form picking-auto-configurator">
-                  <div className="picking-config-grid">
-                    <section className="picking-config-card picking-config-objective" aria-labelledby="picking-objective-title">
-                      <div className="picking-config-heading">
-                        <span className="picking-config-step">1</span>
-                        <div>
-                          <h3 id="picking-objective-title">Obiettivo della lista</h3>
-                          <p>Definisci quanti ordini proporre all’operatore.</p>
-                        </div>
-                      </div>
-                      <label className="picking-field-label" htmlFor="auto-picking-limit">
-                        Numero massimo di ordini
-                      </label>
-                      <div className="picking-number-control">
-                        <input
-                          id="auto-picking-limit"
-                          className="settings-input"
-                          type="number"
-                          min="1"
-                          max="500"
-                          step="1"
-                          value={autoPickingLimit}
-                          onChange={(e) => setAutoPickingLimit(e.target.value)}
-                          aria-describedby="auto-picking-limit-help"
-                        />
-                        <span>ordini</span>
-                      </div>
-                      <small id="auto-picking-limit-help" className="picking-field-help">
-                        La simulazione può valutarne di più, ma ne propone al massimo questo numero.
-                      </small>
-                    </section>
-
-                    <section className="picking-config-card picking-config-priority" aria-labelledby="picking-priority-title">
-                      <div className="picking-config-heading">
-                        <span className="picking-config-step">2</span>
-                        <span>
-                          <strong id="picking-priority-title">Priorità di selezione</strong>
-                          <small>Scegli quale obiettivo deve guidare la proposta.</small>
-                        </span>
-                      </div>
-                      <div className="picking-option-grid" role="group" aria-label="Priorità di selezione">
-                        <button
-                          type="button"
-                          aria-pressed={autoPickingStrategy === 'chronological'}
-                          className={`picking-option-card ${autoPickingStrategy === 'chronological' ? 'active' : ''}`}
-                          onClick={() => setAutoPickingStrategy('chronological')}
-                        >
-                          <span className="picking-option-indicator" aria-hidden="true"></span>
-                          <span>
-                            <strong>Priorità agli ordini più vecchi</strong>
-                            <small>Segue la coda cronologica e scala progressivamente la giacenza.</small>
-                          </span>
-                        </button>
-                        <button
-                          type="button"
-                          aria-pressed={autoPickingStrategy === 'maximize_orders'}
-                          className={`picking-option-card ${autoPickingStrategy === 'maximize_orders' ? 'active' : ''}`}
-                          onClick={() => setAutoPickingStrategy('maximize_orders')}
-                        >
-                          <span className="picking-option-indicator" aria-hidden="true"></span>
-                          <span>
-                            <strong>Massimizza ordini gestibili</strong>
-                            <small>Privilegia gli ordini con minore consumo; la data decide a parità.</small>
-                          </span>
-                        </button>
-                      </div>
-                    </section>
-
-                    {autoPickingStrategy === 'chronological' && (
-                      <section className="picking-config-card" aria-labelledby="picking-blocked-orders-title">
-                        <div className="picking-config-heading">
-                          <span className="picking-config-step">3</span>
-                          <span>
-                            <strong id="picking-blocked-orders-title">Gestione degli ordini bloccati</strong>
-                            <small>Decidi cosa fare quando un ordine non è preparabile.</small>
-                          </span>
-                        </div>
-                        <div className="picking-option-grid compact" role="group" aria-label="Gestione ordini bloccati">
-                          <button
-                            type="button"
-                            aria-pressed={!autoPickingStrict}
-                            className={`picking-option-card ${!autoPickingStrict ? 'active' : ''}`}
-                            onClick={() => setAutoPickingStrict(false)}
-                          >
-                            <span className="picking-option-indicator" aria-hidden="true"></span>
-                            <span>
-                              <strong>Continua con i successivi</strong>
-                              <small>Registra il blocco senza consumare stock e prova il prossimo ordine.</small>
-                            </span>
-                          </button>
-                          <button
-                            type="button"
-                            aria-pressed={autoPickingStrict}
-                            className={`picking-option-card ${autoPickingStrict ? 'active' : ''}`}
-                            onClick={() => setAutoPickingStrict(true)}
-                          >
-                            <span className="picking-option-indicator" aria-hidden="true"></span>
-                            <span>
-                              <strong>Ferma la coda al primo blocco</strong>
-                              <small>Preserva rigidamente la precedenza cronologica.</small>
-                            </span>
-                          </button>
-                        </div>
-                      </section>
-                    )}
-
-                    <section
-                      className={`picking-config-card picking-config-stock ${autoPickingStrategy === 'chronological' ? '' : 'wide'}`}
-                      aria-labelledby="picking-stock-protection-title"
-                    >
-                      <div className="picking-config-heading">
-                        <span className="picking-config-step">{autoPickingStrategy === 'chronological' ? '4' : '3'}</span>
-                        <div>
-                          <h3 id="picking-stock-protection-title">Protezione giacenze</h3>
-                          <p>Impedisci alla simulazione di esaurire completamente le SKU.</p>
-                        </div>
-                      </div>
-                      <label className="picking-field-label" htmlFor="auto-picking-min-residual">
-                        Residuo minimo uniforme
-                      </label>
-                      <div className="picking-number-control">
-                        <input
-                          id="auto-picking-min-residual"
-                          className="settings-input"
-                          type="number"
-                          min="0"
-                          step="1"
-                          value={autoPickingMinResidual}
-                          onChange={(e) => setAutoPickingMinResidual(e.target.value)}
-                          aria-describedby="auto-picking-residual-help"
-                        />
-                        <span>unità</span>
-                      </div>
-                      <small id="auto-picking-residual-help" className="picking-field-help">
-                        Con 0 non viene protetta alcuna scorta. La soglia viene applicata a ogni SKU.
-                      </small>
-                    </section>
-
-                    <section className="picking-config-card picking-config-filter" aria-labelledby="picking-filter-title">
-                      <div className="picking-config-heading">
-                        <span className="picking-config-step">{autoPickingStrategy === 'chronological' ? '5' : '4'}</span>
-                        <div>
-                          <h3 id="picking-filter-title">Filtro degli ordini</h3>
-                          <p>Limita facoltativamente i candidati alle SKU che vuoi gestire.</p>
-                        </div>
-                      </div>
-                      <div className="picking-sku-rule-builder">
-                        <div>
-                          <label className="picking-field-label" htmlFor="auto-picking-sku-filter">
-                            SKU componente
-                          </label>
-                          <input
-                            id="auto-picking-sku-filter"
-                            className="settings-input"
-                            type="text"
-                            list="auto-picking-sku-options"
-                            placeholder="Esempio: ATXC35D"
-                            value={autoPickingSkuQuery}
-                            onChange={(e) => setAutoPickingSkuQuery(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                e.preventDefault();
-                                addAutoPickingSkuFilter(autoPickingSkuQuery, autoPickingSkuMaxQuery);
-                              }
-                            }}
-                            aria-describedby="auto-picking-filter-help"
-                          />
-                          <datalist id="auto-picking-sku-options">
-                            {autoPickingSkuSuggestions.map(sku => (
-                              <option key={sku} value={sku} />
-                            ))}
-                          </datalist>
-                        </div>
-                        <div>
-                          <label className="picking-field-label" htmlFor="auto-picking-sku-max">
-                            Massimo per ordine
-                          </label>
-                          <div className="picking-number-control compact">
-                            <input
-                              id="auto-picking-sku-max"
-                              className="settings-input"
-                              type="number"
-                              min="1"
-                              step="1"
-                              placeholder="Nessun limite"
-                              value={autoPickingSkuMaxQuery}
-                              onChange={(e) => setAutoPickingSkuMaxQuery(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  e.preventDefault();
-                                  addAutoPickingSkuFilter(autoPickingSkuQuery, autoPickingSkuMaxQuery);
-                                }
-                              }}
-                            />
-                            <span>unità</span>
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          className="btn btn-neutral"
-                          onClick={() => addAutoPickingSkuFilter(autoPickingSkuQuery, autoPickingSkuMaxQuery)}
-                          disabled={!autoPickingSkuQuery.trim()}
-                        >
-                          Aggiungi regola
-                        </button>
-                      </div>
-                      <small id="auto-picking-filter-help" className="picking-field-help">
-                        Il massimo è opzionale. Se impostato, vengono esclusi gli ordini che richiedono una quantità superiore per quella SKU.
-                      </small>
-                      {autoPickingSkuFilter.length > 0 ? (
-                        <div className="picking-sku-rule-list" aria-label="Regole SKU configurate">
-                          {autoPickingSkuFilter.map(sku => (
-                            <div key={sku} className="picking-sku-rule">
-                              <strong>{sku}</strong>
-                              <label htmlFor={`auto-sku-limit-${sku}`}>Massimo per ordine</label>
-                              <div className="picking-sku-rule-limit">
-                                <input
-                                  id={`auto-sku-limit-${sku}`}
-                                  className="settings-input"
-                                  type="number"
-                                  min="1"
-                                  step="1"
-                                  placeholder="Nessun limite"
-                                  value={autoPickingSkuLimits[sku] ?? ''}
-                                  onChange={(e) => updateAutoPickingSkuLimit(sku, e.target.value)}
-                                />
-                                <span>unità</span>
-                              </div>
-                              <button
-                                type="button"
-                                className="picking-sku-rule-remove"
-                                onClick={() => removeAutoPickingSkuFilter(sku)}
-                                aria-label={`Rimuovi regola ${sku}`}
-                              >
-                                Rimuovi
-                              </button>
-                            </div>
-                          ))}
-                          <button
-                            type="button"
-                            className="picking-sku-filter-clear"
-                            onClick={() => {
-                              setAutoPickingSkuFilter([]);
-                              setAutoPickingSkuLimits({});
-                            }}
-                          >
-                            Rimuovi tutte le regole
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="picking-filter-empty">Nessun filtro: saranno valutati tutti gli ordini negli stati configurati.</div>
-                      )}
-                    </section>
-                  </div>
-
-                  <div className="picking-config-summary" aria-live="polite" aria-atomic="true">
-                    <div>
-                      <span className="picking-config-summary-label">Configurazione attuale</span>
-                      <strong>
-                        Massimo {autoPickingLimit || 0} ordini ·{' '}
-                        {autoPickingStrategy === 'maximize_orders'
-                          ? 'priorità agli ordini con minore consumo'
-                          : 'priorità cronologica'}
-                      </strong>
-                      <p>
-                        {autoPickingStrategy === 'chronological'
-                          ? (autoPickingStrict
-                            ? 'La coda si fermerà al primo ordine non preparabile.'
-                            : 'Gli ordini non preparabili saranno saltati senza consumare giacenza.')
-                          : 'La cronologia sarà utilizzata come criterio di spareggio.'}
-                      </p>
-                    </div>
-                    <div className="picking-config-summary-tags">
-                      <span>{Number(autoPickingMinResidual || 0) > 0 ? `Residuo minimo ${autoPickingMinResidual}` : 'Nessuna scorta protetta'}</span>
-                      <span>
-                        {autoPickingSkuFilter.length > 0
-                          ? `${autoPickingSkuFilter.length} SKU filtrate · ${Object.keys(autoPickingSkuLimits).length} con massimo`
-                          : 'Tutte le SKU'}
-                      </span>
-                      <span>Solo simulazione</span>
-                    </div>
-                  </div>
-
                   {pickingError && (
                     <div className="picking-alert picking-alert-danger" role="alert">
                       <strong>Simulazione non generata.</strong>
@@ -4202,29 +3920,318 @@ function App() {
                     </div>
                   )}
 
-                  <div className="picking-auto-actions">
-                    <button
-                      type="button"
-                      className="btn btn-neutral"
-                      onClick={resetAutomaticPickingConfiguration}
-                      disabled={pickingLoading}
-                    >
-                      Ripristina parametri
-                    </button>
-                    <button
-                      type="submit"
-                      className="btn btn-primary picking-auto-submit"
-                      disabled={pickingLoading}
-                    >
-                      {pickingLoading ? (
-                        <>
-                          <div className="spinner" style={{ width: '16px', height: '16px', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff' }}></div>
-                          Simulazione in corso...
-                        </>
-                      ) : (
-                        <>Simula preparazione <span aria-hidden="true">→</span></>
-                      )}
-                    </button>
+                  <div className="picking-config-workbench">
+                    <div className="picking-config-main">
+                      <section className="picking-config-section" aria-labelledby="picking-selection-title">
+                        <div className="picking-config-section-head">
+                          <div>
+                            <h3 id="picking-selection-title">Selezione ordini</h3>
+                            <p>Definisci la dimensione della proposta e il criterio con cui comporla.</p>
+                          </div>
+                        </div>
+
+                        <div className="picking-selection-layout">
+                          <div className="picking-setting-block picking-setting-limit">
+                            <label className="picking-field-label" htmlFor="auto-picking-limit">
+                              Ordini da proporre
+                            </label>
+                            <div className="picking-number-control">
+                              <input
+                                id="auto-picking-limit"
+                                className="settings-input"
+                                type="number"
+                                min="1"
+                                max="500"
+                                step="1"
+                                value={autoPickingLimit}
+                                onChange={(e) => setAutoPickingLimit(e.target.value)}
+                                aria-describedby="auto-picking-limit-help"
+                              />
+                              <span>ordini</span>
+                            </div>
+                            <small id="auto-picking-limit-help" className="picking-field-help">
+                              La simulazione può valutarne di più, ma ne propone al massimo questo numero.
+                            </small>
+                          </div>
+
+                          <div className="picking-setting-block">
+                            <span className="picking-field-label" id="picking-priority-title">Priorità</span>
+                            <div className="picking-option-grid picking-option-list" role="group" aria-labelledby="picking-priority-title">
+                              <button
+                                type="button"
+                                aria-pressed={autoPickingStrategy === 'chronological'}
+                                className={`picking-option-card ${autoPickingStrategy === 'chronological' ? 'active' : ''}`}
+                                onClick={() => setAutoPickingStrategy('chronological')}
+                              >
+                                <span className="picking-option-indicator" aria-hidden="true"></span>
+                                <span>
+                                  <strong>Ordini più vecchi</strong>
+                                  <small>Segue la coda cronologica e scala progressivamente la giacenza.</small>
+                                </span>
+                              </button>
+                              <button
+                                type="button"
+                                aria-pressed={autoPickingStrategy === 'maximize_orders'}
+                                className={`picking-option-card ${autoPickingStrategy === 'maximize_orders' ? 'active' : ''}`}
+                                onClick={() => setAutoPickingStrategy('maximize_orders')}
+                              >
+                                <span className="picking-option-indicator" aria-hidden="true"></span>
+                                <span>
+                                  <strong>Massimizza ordini gestibili</strong>
+                                  <small>Privilegia gli ordini con minore consumo; la data decide a parità.</small>
+                                </span>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </section>
+
+                      <section className="picking-config-section" aria-labelledby="picking-behavior-title">
+                        <div className="picking-config-section-head">
+                          <div>
+                            <h3 id="picking-behavior-title">Comportamento della simulazione</h3>
+                            <p>Stabilisci come trattare i blocchi e quanta giacenza preservare.</p>
+                          </div>
+                        </div>
+
+                        <div className={`picking-behavior-layout ${autoPickingStrategy === 'chronological' ? '' : 'single'}`}>
+                          {autoPickingStrategy === 'chronological' && (
+                            <div className="picking-setting-block" aria-labelledby="picking-blocked-orders-title">
+                              <span className="picking-field-label" id="picking-blocked-orders-title">Se un ordine è bloccato</span>
+                              <div className="picking-option-grid picking-option-list" role="group" aria-labelledby="picking-blocked-orders-title">
+                                <button
+                                  type="button"
+                                  aria-pressed={!autoPickingStrict}
+                                  className={`picking-option-card ${!autoPickingStrict ? 'active' : ''}`}
+                                  onClick={() => setAutoPickingStrict(false)}
+                                >
+                                  <span className="picking-option-indicator" aria-hidden="true"></span>
+                                  <span>
+                                    <strong>Continua con i successivi</strong>
+                                    <small>Registra il blocco senza consumare stock e prova il prossimo ordine.</small>
+                                  </span>
+                                </button>
+                                <button
+                                  type="button"
+                                  aria-pressed={autoPickingStrict}
+                                  className={`picking-option-card ${autoPickingStrict ? 'active' : ''}`}
+                                  onClick={() => setAutoPickingStrict(true)}
+                                >
+                                  <span className="picking-option-indicator" aria-hidden="true"></span>
+                                  <span>
+                                    <strong>Ferma la coda</strong>
+                                    <small>Preserva rigidamente la precedenza cronologica.</small>
+                                  </span>
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="picking-setting-block" aria-labelledby="picking-stock-protection-title">
+                            <label className="picking-field-label" id="picking-stock-protection-title" htmlFor="auto-picking-min-residual">
+                              Scorta minima per SKU
+                            </label>
+                            <div className="picking-number-control">
+                              <input
+                                id="auto-picking-min-residual"
+                                className="settings-input"
+                                type="number"
+                                min="0"
+                                step="1"
+                                value={autoPickingMinResidual}
+                                onChange={(e) => setAutoPickingMinResidual(e.target.value)}
+                                aria-describedby="auto-picking-residual-help"
+                              />
+                              <span>unità</span>
+                            </div>
+                            <small id="auto-picking-residual-help" className="picking-field-help">
+                              Con 0 non viene protetta alcuna scorta. La soglia viene applicata a ogni SKU.
+                            </small>
+                          </div>
+                        </div>
+                      </section>
+
+                      <details className="picking-advanced-filter">
+                        <summary>
+                          <span>
+                            <strong>Filtri SKU avanzati</strong>
+                            <small>Limita facoltativamente gli ordini candidati.</small>
+                          </span>
+                          <span className="picking-advanced-status">
+                            {autoPickingSkuFilter.length > 0 ? `${autoPickingSkuFilter.length} configurati` : 'Nessuno'}
+                          </span>
+                        </summary>
+                        <div className="picking-advanced-content">
+                          <div className="picking-sku-rule-builder">
+                            <div>
+                              <label className="picking-field-label" htmlFor="auto-picking-sku-filter">
+                                SKU componente
+                              </label>
+                              <input
+                                id="auto-picking-sku-filter"
+                                className="settings-input"
+                                type="text"
+                                list="auto-picking-sku-options"
+                                placeholder="Esempio: ATXC35D"
+                                value={autoPickingSkuQuery}
+                                onChange={(e) => setAutoPickingSkuQuery(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    addAutoPickingSkuFilter(autoPickingSkuQuery, autoPickingSkuMaxQuery);
+                                  }
+                                }}
+                                aria-describedby="auto-picking-filter-help"
+                              />
+                              <datalist id="auto-picking-sku-options">
+                                {autoPickingSkuSuggestions.map(sku => (
+                                  <option key={sku} value={sku} />
+                                ))}
+                              </datalist>
+                            </div>
+                            <div>
+                              <label className="picking-field-label" htmlFor="auto-picking-sku-max">
+                                Massimo per ordine
+                              </label>
+                              <div className="picking-number-control compact">
+                                <input
+                                  id="auto-picking-sku-max"
+                                  className="settings-input"
+                                  type="number"
+                                  min="1"
+                                  step="1"
+                                  placeholder="Nessun limite"
+                                  value={autoPickingSkuMaxQuery}
+                                  onChange={(e) => setAutoPickingSkuMaxQuery(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      e.preventDefault();
+                                      addAutoPickingSkuFilter(autoPickingSkuQuery, autoPickingSkuMaxQuery);
+                                    }
+                                  }}
+                                />
+                                <span>unità</span>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              className="btn btn-neutral"
+                              onClick={() => addAutoPickingSkuFilter(autoPickingSkuQuery, autoPickingSkuMaxQuery)}
+                              disabled={!autoPickingSkuQuery.trim()}
+                            >
+                              Aggiungi regola
+                            </button>
+                          </div>
+                          <small id="auto-picking-filter-help" className="picking-field-help">
+                            Il massimo è opzionale. Se impostato, vengono esclusi gli ordini che richiedono una quantità superiore per quella SKU.
+                          </small>
+                          {autoPickingSkuFilter.length > 0 ? (
+                            <div className="picking-sku-rule-list" aria-label="Regole SKU configurate">
+                              {autoPickingSkuFilter.map(sku => (
+                                <div key={sku} className="picking-sku-rule">
+                                  <strong>{sku}</strong>
+                                  <label htmlFor={`auto-sku-limit-${sku}`}>Massimo per ordine</label>
+                                  <div className="picking-sku-rule-limit">
+                                    <input
+                                      id={`auto-sku-limit-${sku}`}
+                                      className="settings-input"
+                                      type="number"
+                                      min="1"
+                                      step="1"
+                                      placeholder="Nessun limite"
+                                      value={autoPickingSkuLimits[sku] ?? ''}
+                                      onChange={(e) => updateAutoPickingSkuLimit(sku, e.target.value)}
+                                    />
+                                    <span>unità</span>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    className="picking-sku-rule-remove"
+                                    onClick={() => removeAutoPickingSkuFilter(sku)}
+                                    aria-label={`Rimuovi regola ${sku}`}
+                                  >
+                                    Rimuovi
+                                  </button>
+                                </div>
+                              ))}
+                              <button
+                                type="button"
+                                className="picking-sku-filter-clear"
+                                onClick={() => {
+                                  setAutoPickingSkuFilter([]);
+                                  setAutoPickingSkuLimits({});
+                                }}
+                              >
+                                Rimuovi tutte le regole
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="picking-filter-empty">Nessun filtro: saranno valutati tutti gli ordini negli stati configurati.</div>
+                          )}
+                        </div>
+                      </details>
+                    </div>
+
+                    <aside className="picking-plan-summary" aria-live="polite" aria-atomic="true">
+                      <div className="picking-plan-summary-head">
+                        <span>Riepilogo piano</span>
+                        <strong>Pronto per la simulazione</strong>
+                      </div>
+                      <dl className="picking-plan-facts">
+                        <div>
+                          <dt>Ordini proposti</dt>
+                          <dd>{autoPickingLimit || 0}</dd>
+                        </div>
+                        <div>
+                          <dt>Priorità</dt>
+                          <dd>{autoPickingStrategy === 'maximize_orders' ? 'Minore consumo' : 'Cronologica'}</dd>
+                        </div>
+                        {autoPickingStrategy === 'chronological' && (
+                          <div>
+                            <dt>Ordini bloccati</dt>
+                            <dd>{autoPickingStrict ? 'Ferma la coda' : 'Continua oltre'}</dd>
+                          </div>
+                        )}
+                        <div>
+                          <dt>Scorta protetta</dt>
+                          <dd>{Number(autoPickingMinResidual || 0) > 0 ? `${autoPickingMinResidual} unità` : 'Nessuna'}</dd>
+                        </div>
+                        <div>
+                          <dt>Filtro SKU</dt>
+                          <dd>{autoPickingSkuFilter.length > 0 ? `${autoPickingSkuFilter.length} configurati` : 'Tutte le SKU'}</dd>
+                        </div>
+                      </dl>
+                      <p className="picking-plan-note">
+                        {autoPickingStrategy === 'chronological'
+                          ? (autoPickingStrict
+                            ? 'La coda si fermerà al primo ordine non preparabile.'
+                            : 'Gli ordini non preparabili saranno saltati senza consumare giacenza.')
+                          : 'La cronologia sarà utilizzata come criterio di spareggio.'}
+                      </p>
+                      <span className="picking-plan-simulation-note">Solo simulazione: nessuna giacenza verrà modificata.</span>
+                      <button
+                        type="submit"
+                        className="btn btn-primary picking-auto-submit"
+                        disabled={pickingLoading}
+                      >
+                        {pickingLoading ? (
+                          <>
+                            <div className="spinner" style={{ width: '16px', height: '16px', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff' }}></div>
+                            Simulazione in corso...
+                          </>
+                        ) : (
+                          <>Simula preparazione <span aria-hidden="true">→</span></>
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        className="picking-reset-action"
+                        onClick={resetAutomaticPickingConfiguration}
+                        disabled={pickingLoading}
+                      >
+                        Ripristina parametri
+                      </button>
+                    </aside>
                   </div>
                 </form>
               )}
@@ -5123,7 +5130,7 @@ function App() {
 
             {/* Card 1: Configurazione Connessione PrestaShop */}
             {settingsSection === 'connection' && (
-            <div className="glass-panel widget-card settings-workbench">
+            <div className="glass-panel widget-card settings-workbench prestashop-settings-workbench">
               <div className="settings-card-header">
                 <div>
                   <h2>Configurazione Connessione PrestaShop</h2>
@@ -5137,136 +5144,137 @@ function App() {
                 </span>
               </div>
 
-              <form onSubmit={handleSaveConnectionSettings} className="settings-connection-form">
-                <div className="settings-form-stack">
-                  <div className="form-group">
-                    <label className="settings-label">
-                      URL API PrestaShop
-                    </label>
-                    <input 
-                      type="text" 
-                      className="settings-input" 
-                      placeholder="https://mio-sito.it/api/" 
-                      value={prestashopUrl} 
-                      onChange={(e) => setPrestashopUrl(e.target.value)}
-                      disabled={prestashopMockMode}
-                    />
-                    <small className="settings-help">
-                      Formato richiesto: <code>https://www.tuonegozio.it/api/</code>
-                    </small>
+              <form onSubmit={handleSaveConnectionSettings} className="prestashop-console-form">
+                <div className="prestashop-console-layout">
+                  <div className="prestashop-console-main">
+                    <section className="prestashop-form-section">
+                      <div className="prestashop-section-heading">
+                        <h3>Credenziali Webservice</h3>
+                        <p>Indica l’endpoint API e la chiave autorizzata a leggere gli ordini.</p>
+                      </div>
+
+                      <div className="form-group">
+                        <label className="settings-label">
+                          URL API PrestaShop
+                        </label>
+                        <input 
+                          type="text" 
+                          className="settings-input" 
+                          placeholder="https://mio-sito.it/api/" 
+                          value={prestashopUrl} 
+                          onChange={(e) => setPrestashopUrl(e.target.value)}
+                          disabled={prestashopMockMode}
+                        />
+                        <small className="settings-help">
+                          Formato richiesto: <code>https://www.tuonegozio.it/api/</code>
+                        </small>
+                      </div>
+
+                      <div className="form-group">
+                        <label className="settings-label">
+                          Chiave API Webservice
+                        </label>
+                        <div className="settings-secret-field">
+                          <input 
+                            type={showApiKey ? "text" : "password"} 
+                            className="settings-input" 
+                            placeholder="Inserisci la chiave API del webservice" 
+                            value={prestashopApiKey} 
+                            onChange={(e) => setPrestashopApiKey(e.target.value)}
+                            disabled={prestashopMockMode}
+                          />
+                          <button 
+                            type="button" 
+                            className="settings-secret-toggle"
+                            onClick={() => setShowApiKey(!showApiKey)}
+                            disabled={prestashopMockMode}
+                            title={showApiKey ? "Nascondi chiave" : "Mostra chiave"}
+                            aria-label={showApiKey ? "Nascondi chiave API" : "Mostra chiave API"}
+                          >
+                            <Icons.Eye />
+                          </button>
+                        </div>
+                      </div>
+                    </section>
+
+                    <section className="prestashop-form-section prestashop-sync-section">
+                      <div className="prestashop-section-heading">
+                        <h3>Sincronizzazione ordini</h3>
+                        <p>Definisci ogni quanto il backend deve controllare la presenza di nuovi ordini.</p>
+                      </div>
+                      <div className="form-group prestashop-interval-group">
+                        <label className="settings-label">
+                          Intervallo di aggiornamento
+                        </label>
+                        <div className="prestashop-number-field">
+                          <input 
+                            type="number" 
+                            min="1" 
+                            className="settings-input" 
+                            placeholder="10" 
+                            value={prestashopSyncInterval} 
+                            onChange={(e) => setPrestashopSyncInterval(parseInt(e.target.value) || 10)}
+                          />
+                          <span>minuti</span>
+                        </div>
+                      </div>
+                    </section>
                   </div>
 
-                  <div className="form-group">
-                    <label className="settings-label">
-                      Chiave API Webservice
-                    </label>
-                    <div className="settings-secret-field">
-                      <input 
-                        type={showApiKey ? "text" : "password"} 
-                        className="settings-input" 
-                        placeholder="Inserisci la chiave API del webservice" 
-                        value={prestashopApiKey} 
-                        onChange={(e) => setPrestashopApiKey(e.target.value)}
-                        disabled={prestashopMockMode}
-                      />
-                      <button 
-                        type="button" 
-                        className="settings-secret-toggle"
-                        onClick={() => setShowApiKey(!showApiKey)}
-                        disabled={prestashopMockMode}
-                        title={showApiKey ? "Nascondi chiave" : "Mostra chiave"}
-                        aria-label={showApiKey ? "Nascondi chiave API" : "Mostra chiave API"}
-                      >
-                        <Icons.Eye />
-                      </button>
+                  <aside className="prestashop-console-rail">
+                    <div className="prestashop-rail-heading">
+                      <h3>Stato connessione</h3>
+                      <p>Riepilogo della configurazione Webservice attualmente impostata.</p>
                     </div>
-                  </div>
 
-                  <div className="form-group">
-                    <label className="settings-label">
-                      Intervallo Sincronizzazione Ordini
-                    </label>
-                    <div className="settings-inline-input">
-                      <input 
-                        type="number" 
-                        min="1" 
-                        className="settings-input" 
-                        placeholder="10" 
-                        value={prestashopSyncInterval} 
-                        onChange={(e) => setPrestashopSyncInterval(parseInt(e.target.value) || 10)}
-                      />
-                      <span>minuti</span>
-                    </div>
-                    <small className="settings-help">
-                      Frequenza con cui il backend scarica nuovi ordini in background.
-                    </small>
-                  </div>
-                </div>
-
-                <aside className="settings-side-panel">
-                  <label className={`settings-switch-card ${prestashopMockMode ? 'active' : ''}`}>
-                    <div>
-                      <strong>Modalità simulazione</strong>
-                      <span>
-                        {prestashopMockMode
-                          ? 'Attiva: usa dati di test, nessuna chiamata reale.'
-                          : 'Disattiva: usa il Webservice PrestaShop reale.'}
+                    <label className={`settings-switch-card prestashop-mode-switch ${prestashopMockMode ? 'active' : ''}`}>
+                      <div>
+                        <strong>Modalità simulazione</strong>
+                        <span>
+                          {prestashopMockMode
+                            ? 'Attiva: usa dati di test, nessuna chiamata reale.'
+                            : 'Disattiva: usa il Webservice PrestaShop reale.'}
+                        </span>
+                      </div>
+                      <span className="settings-switch">
+                        <input 
+                          type="checkbox" 
+                          checked={prestashopMockMode} 
+                          onChange={(e) => setPrestashopMockMode(e.target.checked)} 
+                        />
+                        <span />
                       </span>
-                    </div>
-                    <span className="settings-switch">
-                      <input 
-                        type="checkbox" 
-                        checked={prestashopMockMode} 
-                        onChange={(e) => setPrestashopMockMode(e.target.checked)} 
-                      />
-                      <span />
-                    </span>
-                  </label>
+                    </label>
 
-                  <div className="connection-health-panel">
-                    <div className="connection-health-header">
-                      <span>Checklist configurazione</span>
-                      <strong>{prestashopMockMode ? 'Mock' : `${[prestashopUrlValid, prestashopApiKeyPresent].filter(Boolean).length}/2`}</strong>
-                    </div>
-                    <div className={`settings-check-item ${prestashopMockMode || prestashopUrlValid ? 'complete' : ''}`}>
-                      <span className="settings-check-dot" />
-                      <span>URL API termina con <code>/api/</code></span>
-                    </div>
-                    <div className={`settings-check-item ${prestashopMockMode || prestashopApiKeyPresent ? 'complete' : ''}`}>
-                      <span className="settings-check-dot" />
-                      <span>Chiave Webservice presente</span>
-                    </div>
-                    <div className={`settings-check-item ${!prestashopMockMode ? 'complete' : ''}`}>
-                      <span className="settings-check-dot" />
-                      <span>Modalità reale abilitata</span>
-                    </div>
-                  </div>
+                    <dl className="prestashop-status-list">
+                      <div>
+                        <dt>Modalità</dt>
+                        <dd>{prestashopMockMode ? 'Simulazione' : 'Webservice reale'}</dd>
+                      </div>
+                      <div>
+                        <dt>Endpoint</dt>
+                        <dd>{prestashopMockMode ? 'Dati di test' : prestashopUrlValid ? 'Valido · /api/' : 'Da completare'}</dd>
+                      </div>
+                      <div>
+                        <dt>Chiave API</dt>
+                        <dd>{prestashopMockMode ? 'Non richiesta' : prestashopApiKeyPresent ? 'Configurata' : 'Assente'}</dd>
+                      </div>
+                      <div>
+                        <dt>Stato test</dt>
+                        <dd>
+                          {prestashopMockMode
+                            ? 'Non necessario'
+                            : testConnectionResult
+                              ? testConnectionResult.message
+                              : 'Connessione non verificata'}
+                        </dd>
+                      </div>
+                    </dl>
 
-                  <div className={`connection-test-panel ${testConnectionResult?.status || (prestashopMockMode ? 'skipped' : 'idle')}`}>
-                    <span className="settings-panel-label">Stato test</span>
-                    <strong>
-                      {prestashopMockMode
-                        ? 'Non necessario in simulazione'
-                        : testConnectionResult
-                          ? testConnectionResult.message
-                          : 'Connessione non verificata'}
-                    </strong>
-                  </div>
-                </aside>
-
-                <div className="settings-action-footer">
-                  <span>
-                    {prestashopMockMode
-                      ? 'Salva per mantenere la modalità simulazione.'
-                      : prestashopRealReady
-                        ? 'Configurazione pronta per verifica e salvataggio.'
-                        : 'Completa URL e chiave prima del test.'}
-                  </span>
-                  <div className="settings-action-buttons">
                     {!prestashopMockMode && (
                       <button
                         type="button"
-                        className="btn btn-secondary"
+                        className="btn btn-secondary prestashop-test-button"
                         onClick={handleTestConnection}
                         disabled={testingConnection || savingConnectionSettings || !prestashopRealReady}
                       >
@@ -5280,10 +5288,20 @@ function App() {
                         )}
                       </button>
                     )}
-                    <button type="submit" className="btn btn-primary" disabled={savingConnectionSettings || testingConnection}>
-                      {savingConnectionSettings ? "Salvataggio..." : "Salva Configurazione"}
-                    </button>
-                  </div>
+                  </aside>
+                </div>
+
+                <div className="prestashop-console-footer">
+                  <span>
+                    {prestashopMockMode
+                      ? 'Salva per mantenere la modalità simulazione.'
+                      : prestashopRealReady
+                        ? 'Configurazione pronta per verifica e salvataggio.'
+                        : 'Completa URL e chiave prima del test.'}
+                  </span>
+                  <button type="submit" className="btn btn-primary" disabled={savingConnectionSettings || testingConnection}>
+                    {savingConnectionSettings ? "Salvataggio..." : "Salva Configurazione"}
+                  </button>
                 </div>
               </form>
             </div>
@@ -5299,237 +5317,257 @@ function App() {
                     Scarica l’estensione, configura il collegamento e verifica che l’API risponda correttamente.
                   </p>
                 </div>
-                <div className="settings-card-header-actions">
-                  <span className={`settings-status-pill ${extensionTokenConfigured ? 'success' : 'warning'}`}>
-                    <span className="settings-status-dot" />
-                    {extensionTokenConfigured ? 'Token configurato' : 'Accesso non protetto'}
-                  </span>
-                  <span className={`settings-status-pill ${extensionApiStatusTone}`}>
-                    <span className="settings-status-dot" />
-                    {extensionApiStatusLabel}
-                  </span>
-                </div>
+                <span className={`settings-status-pill extension-overall-status ${extensionApiStatusTone === 'success' ? 'success' : 'warning'}`}>
+                  <span className="settings-status-dot" />
+                  {extensionApiStatusTone === 'success' ? 'Configurazione operativa' : 'Configurazione incompleta'}
+                </span>
               </div>
 
               <form onSubmit={handleSaveExtensionSettings} className="extension-guided-form">
-                <section className="extension-step-card" aria-labelledby="extension-step-browser">
-                  <div className="extension-step-header">
-                    <span className="extension-step-number">1</span>
-                    <div>
-                      <h3 id="extension-step-browser">Scegli il browser</h3>
-                      <p>Scarica il pacchetto e visualizza soltanto le istruzioni che ti servono.</p>
-                    </div>
-                  </div>
+                <ol className="extension-progress" aria-label="Avanzamento configurazione">
+                  <li className="complete">
+                    <span>1</span>
+                    <div><strong>Browser</strong><small>{extensionBrowserGuide === 'chrome' ? 'Chrome' : 'Firefox'}</small></div>
+                  </li>
+                  <li className={extensionApiToken.trim() ? 'complete' : 'current'}>
+                    <span>2</span>
+                    <div><strong>Collegamento</strong><small>{extensionApiToken.trim() ? 'Token presente' : 'Da configurare'}</small></div>
+                  </li>
+                  <li className={extensionApiStatusTone === 'success' ? 'complete' : 'current'}>
+                    <span>3</span>
+                    <div><strong>Verifica</strong><small>{extensionApiStatusLabel}</small></div>
+                  </li>
+                </ol>
 
-                  <div className="extension-browser-grid" role="group" aria-label="Browser disponibili">
-                    <article className={`extension-browser-card ${extensionBrowserGuide === 'chrome' ? 'active' : ''}`}>
-                      <button
-                        type="button"
-                        id="extension-browser-chrome"
-                        className="extension-browser-select"
-                        aria-pressed={extensionBrowserGuide === 'chrome'}
-                        aria-controls="extension-browser-guide"
-                        onClick={() => setExtensionBrowserGuide('chrome')}
-                      >
-                        <span className="extension-browser-mark chrome" aria-hidden="true">C</span>
-                        <span>
-                          <strong>Chrome</strong>
-                          <small>Manifest V3 · installazione locale</small>
-                        </span>
-                        <span className="extension-version-badge">v0.2.2</span>
-                      </button>
-                      <div className="extension-browser-actions">
-                        <a className="btn btn-primary extension-browser-download" href="/api/extension/download" download>
-                          ↓ Scarica ZIP Chrome
-                        </a>
-                      </div>
-                    </article>
-
-                    <article className={`extension-browser-card ${extensionBrowserGuide === 'firefox' ? 'active' : ''}`}>
-                      <button
-                        type="button"
-                        id="extension-browser-firefox"
-                        className="extension-browser-select"
-                        aria-pressed={extensionBrowserGuide === 'firefox'}
-                        aria-controls="extension-browser-guide"
-                        onClick={() => setExtensionBrowserGuide('firefox')}
-                      >
-                        <span className="extension-browser-mark firefox" aria-hidden="true">F</span>
-                        <span>
-                          <strong>Firefox</strong>
-                          <small>Firmata Mozilla · installazione permanente</small>
-                        </span>
-                        <span className="extension-version-badge">v0.1.1</span>
-                      </button>
-                      <div className="extension-browser-actions">
-                        <a className="btn btn-primary extension-browser-download" href="/api/extension/firefox/install">
-                          Installa versione firmata
-                        </a>
-                        <a className="btn btn-secondary extension-browser-download" href="/api/extension/firefox/download" download>
-                          ↓ ZIP beta
-                        </a>
-                      </div>
-                    </article>
-                  </div>
-
-                  <div
-                    id="extension-browser-guide"
-                    className="extension-browser-instructions"
-                    role="region"
-                    aria-labelledby={`extension-browser-${extensionBrowserGuide}`}
-                  >
-                    <div className="extension-guide-heading">
-                      <div>
-                        <strong>
-                          Installazione {extensionBrowserGuide === 'chrome' ? 'Chrome' : 'Firefox beta'}
-                        </strong>
-                        <span>
-                          {extensionBrowserGuide === 'chrome'
-                            ? 'Installazione locale permanente dalla cartella estratta.'
-                            : 'Installazione permanente tramite il pacchetto XPI firmato da Mozilla.'}
-                        </span>
-                      </div>
-                    </div>
-                    <ol className="extension-install-steps">
-                      {extensionBrowserGuide === 'chrome' ? (
-                        <>
-                          <li><span>1</span><div><strong>Estrai lo ZIP</strong><small>Conserva la cartella in una posizione stabile.</small></div></li>
-                          <li><span>2</span><div><strong>Apri <code>chrome://extensions</code></strong><small>Attiva la modalità sviluppatore.</small></div></li>
-                          <li><span>3</span><div><strong>Carica la cartella</strong><small>Premi “Carica estensione non pacchettizzata”.</small></div></li>
-                        </>
-                      ) : (
-                        <>
-                          <li><span>1</span><div><strong>Premi “Installa versione firmata”</strong><small>Firefox aprirà la richiesta di installazione.</small></div></li>
-                          <li><span>2</span><div><strong>Conferma i permessi</strong><small>Controlla i dati dichiarati e completa l’installazione.</small></div></li>
-                          <li><span>3</span><div><strong>Configura l’estensione</strong><small>Inserisci URL webapp, dominio PrestaShop e token.</small></div></li>
-                        </>
-                      )}
-                    </ol>
-                  </div>
-                </section>
-
-                <section className="extension-step-card" aria-labelledby="extension-step-config">
-                  <div className="extension-step-header">
-                    <span className="extension-step-number">2</span>
-                    <div>
-                      <h3 id="extension-step-config">Configura il collegamento</h3>
-                      <p>Copia URL webapp e token nelle opzioni dell’estensione installata.</p>
-                    </div>
-                  </div>
-
-                  <div className="extension-config-grid">
-                    <div className="settings-form-stack">
-                      <div className="form-group">
-                        <label className="settings-label">URL webapp Giac</label>
-                        <div className="extension-copy-field">
-                          <code>{window.location.origin}</code>
-                          <button type="button" className="btn btn-secondary" onClick={handleCopyExtensionUrl}>
-                            Copia URL
-                          </button>
+                <div className="extension-workbench-layout">
+                  <div className="extension-workbench-main">
+                    <section className="extension-workbench-section" aria-labelledby="extension-step-browser">
+                      <div className="extension-section-heading">
+                        <div>
+                          <h3 id="extension-step-browser">Scegli il browser</h3>
+                          <p>Seleziona il pacchetto da installare e consulta le istruzioni dedicate.</p>
                         </div>
-                        <small className="settings-help">
-                          Incolla questo indirizzo nel campo “URL webapp Giac” dell’estensione.
-                        </small>
                       </div>
 
-                      <div className="form-group">
-                        <label className="settings-label" htmlFor="extension-api-token">
-                          Token estensione
-                        </label>
-                        <div className="settings-secret-field">
-                          <input
-                            id="extension-api-token"
-                            type={showExtensionToken ? "text" : "password"}
-                            className="settings-input extension-token-input"
-                            placeholder="Genera un token sicuro oppure inseriscine uno esistente"
-                            value={extensionApiToken}
-                            onChange={(e) => {
-                              setExtensionApiToken(e.target.value);
-                              setExtensionTestResult(null);
-                            }}
-                            autoComplete="off"
-                            spellCheck="false"
-                          />
-                          <button
-                            type="button"
-                            className="settings-secret-toggle"
-                            onClick={() => setShowExtensionToken(!showExtensionToken)}
-                            title={showExtensionToken ? "Nascondi token" : "Mostra token"}
-                            aria-label={showExtensionToken ? "Nascondi token estensione" : "Mostra token estensione"}
-                          >
-                            <Icons.Eye />
-                          </button>
-                        </div>
-                        <small className="settings-help">
-                          Minimo 16 caratteri. Il generatore crea un token casuale da 64 caratteri.
-                        </small>
-                      </div>
-
-                      <div className="extension-token-actions">
-                        <button type="button" className="btn btn-secondary" onClick={handleGenerateExtensionToken}>
-                          Genera token sicuro
-                        </button>
+                      <div className="extension-browser-grid" role="group" aria-label="Browser disponibili">
                         <button
                           type="button"
-                          className="btn btn-secondary"
-                          onClick={handleCopyExtensionToken}
-                          disabled={!extensionApiToken.trim()}
+                          id="extension-browser-chrome"
+                          className={`extension-browser-select ${extensionBrowserGuide === 'chrome' ? 'active' : ''}`}
+                          aria-pressed={extensionBrowserGuide === 'chrome'}
+                          aria-controls="extension-browser-guide"
+                          onClick={() => setExtensionBrowserGuide('chrome')}
                         >
-                          Copia token
+                          <span className="extension-browser-mark chrome" aria-hidden="true">C</span>
+                          <span>
+                            <strong>Chrome</strong>
+                            <small>Manifest V3 · locale</small>
+                          </span>
+                          <span className="extension-version-badge">v0.2.2</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          id="extension-browser-firefox"
+                          className={`extension-browser-select ${extensionBrowserGuide === 'firefox' ? 'active' : ''}`}
+                          aria-pressed={extensionBrowserGuide === 'firefox'}
+                          aria-controls="extension-browser-guide"
+                          onClick={() => setExtensionBrowserGuide('firefox')}
+                        >
+                          <span className="extension-browser-mark firefox" aria-hidden="true">F</span>
+                          <span>
+                            <strong>Firefox</strong>
+                            <small>Firmata Mozilla · permanente</small>
+                          </span>
+                          <span className="extension-version-badge">v0.1.1</span>
                         </button>
                       </div>
+
+                      <div className="extension-browser-primary-action">
+                        <div>
+                          <strong>{extensionBrowserGuide === 'chrome' ? 'Pacchetto per Chrome' : 'Pacchetto per Firefox'}</strong>
+                          <span>
+                            {extensionBrowserGuide === 'chrome'
+                              ? 'Scarica lo ZIP ed estrai la cartella prima dell’installazione.'
+                              : 'Installa direttamente la versione firmata oppure conserva lo ZIP beta.'}
+                          </span>
+                        </div>
+                        <div className="extension-browser-actions">
+                          {extensionBrowserGuide === 'chrome' ? (
+                            <a className="btn btn-primary extension-browser-download" href="/api/extension/download" download>
+                              ↓ Scarica ZIP Chrome
+                            </a>
+                          ) : (
+                            <>
+                              <a className="btn btn-primary extension-browser-download" href="/api/extension/firefox/install">
+                                Installa versione firmata
+                              </a>
+                              <a className="btn btn-secondary extension-browser-download" href="/api/extension/firefox/download" download>
+                                ↓ ZIP beta
+                              </a>
+                            </>
+                          )}
+                        </div>
+                      </div>
+
+                      <div
+                        id="extension-browser-guide"
+                        className="extension-browser-instructions"
+                        role="region"
+                        aria-labelledby={`extension-browser-${extensionBrowserGuide}`}
+                      >
+                        <div className="extension-guide-heading">
+                          <strong>Installazione {extensionBrowserGuide === 'chrome' ? 'Chrome' : 'Firefox'}</strong>
+                          <span>
+                            {extensionBrowserGuide === 'chrome'
+                              ? 'Tre passaggi per caricare la cartella estratta.'
+                              : 'Tre passaggi per completare l’installazione firmata.'}
+                          </span>
+                        </div>
+                        <ol className="extension-install-steps">
+                          {extensionBrowserGuide === 'chrome' ? (
+                            <>
+                              <li><span>1</span><div><strong>Estrai lo ZIP</strong><small>Conserva la cartella in una posizione stabile.</small></div></li>
+                              <li><span>2</span><div><strong>Apri <code>chrome://extensions</code></strong><small>Attiva la modalità sviluppatore.</small></div></li>
+                              <li><span>3</span><div><strong>Carica la cartella</strong><small>Usa “Carica estensione non pacchettizzata”.</small></div></li>
+                            </>
+                          ) : (
+                            <>
+                              <li><span>1</span><div><strong>Avvia l’installazione</strong><small>Premi “Installa versione firmata”.</small></div></li>
+                              <li><span>2</span><div><strong>Conferma i permessi</strong><small>Controlla i dati dichiarati da Firefox.</small></div></li>
+                              <li><span>3</span><div><strong>Configura l’estensione</strong><small>Inserisci URL webapp, dominio e token.</small></div></li>
+                            </>
+                          )}
+                        </ol>
+                      </div>
+                    </section>
+
+                    <section className="extension-workbench-section" aria-labelledby="extension-step-config">
+                      <div className="extension-section-heading">
+                        <div>
+                          <h3 id="extension-step-config">Configura il collegamento</h3>
+                          <p>Copia URL webapp e token nelle opzioni dell’estensione installata.</p>
+                        </div>
+                      </div>
+
+                      <div className="settings-form-stack">
+                        <div className="form-group">
+                          <label className="settings-label">URL webapp Giac</label>
+                          <div className="extension-copy-field">
+                            <code>{window.location.origin}</code>
+                            <button type="button" className="btn btn-secondary" onClick={handleCopyExtensionUrl}>
+                              Copia URL
+                            </button>
+                          </div>
+                          <small className="settings-help">
+                            Incolla questo indirizzo nel campo “URL webapp Giac” dell’estensione.
+                          </small>
+                        </div>
+
+                        <div className="form-group">
+                          <label className="settings-label" htmlFor="extension-api-token">Token estensione</label>
+                          <div className="settings-secret-field">
+                            <input
+                              id="extension-api-token"
+                              type={showExtensionToken ? "text" : "password"}
+                              className="settings-input extension-token-input"
+                              placeholder="Genera un token sicuro oppure inseriscine uno esistente"
+                              value={extensionApiToken}
+                              onChange={(e) => {
+                                setExtensionApiToken(e.target.value);
+                                setExtensionTestResult(null);
+                              }}
+                              autoComplete="off"
+                              spellCheck="false"
+                            />
+                            <button
+                              type="button"
+                              className="settings-secret-toggle"
+                              onClick={() => setShowExtensionToken(!showExtensionToken)}
+                              title={showExtensionToken ? "Nascondi token" : "Mostra token"}
+                              aria-label={showExtensionToken ? "Nascondi token estensione" : "Mostra token estensione"}
+                            >
+                              <Icons.Eye />
+                            </button>
+                          </div>
+                          <small className="settings-help">Minimo 16 caratteri. Il generatore crea un token casuale da 64 caratteri.</small>
+                        </div>
+
+                        <div className="extension-token-actions">
+                          <button type="button" className="btn btn-secondary" onClick={handleGenerateExtensionToken}>
+                            Genera token sicuro
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-secondary"
+                            onClick={handleCopyExtensionToken}
+                            disabled={!extensionApiToken.trim()}
+                          >
+                            Copia token
+                          </button>
+                        </div>
+                      </div>
+                    </section>
+                  </div>
+
+                  <aside className="extension-status-rail" aria-labelledby="extension-status-title">
+                    <div className="extension-status-heading">
+                      <div>
+                        <h3 id="extension-status-title">Stato configurazione</h3>
+                        <p>Riepilogo del browser e del collegamento API.</p>
+                      </div>
                     </div>
 
-                    <aside className={`extension-security-panel ${extensionApiToken.trim() ? 'protected' : 'open'}`}>
-                      <span className="extension-security-icon" aria-hidden="true">
-                        {extensionApiToken.trim() ? '✓' : '!'}
-                      </span>
+                    <div className="extension-status-list">
+                      <div className="extension-status-row complete">
+                        <span className="extension-status-check">✓</span>
+                        <div><small>Browser</small><strong>{extensionBrowserGuide === 'chrome' ? 'Chrome' : 'Firefox'}</strong></div>
+                      </div>
+                      <div className={`extension-status-row ${extensionApiToken.trim() ? 'complete' : 'pending'}`}>
+                        <span className="extension-status-check">{extensionApiToken.trim() ? '✓' : '2'}</span>
+                        <div><small>Token</small><strong>{extensionApiToken.trim() ? 'Presente' : 'Da generare'}</strong></div>
+                      </div>
+                      <div className={`extension-status-row ${extensionApiStatusTone}`}>
+                        <span className="extension-status-check">{extensionApiStatusTone === 'success' ? '✓' : '3'}</span>
+                        <div><small>API</small><strong>{extensionApiStatusLabel}</strong></div>
+                      </div>
+                    </div>
+
+                    <div className={`extension-security-panel ${extensionApiToken.trim() ? 'protected' : 'open'}`}>
+                      <span className="extension-security-icon" aria-hidden="true">{extensionApiToken.trim() ? '✓' : '!'}</span>
                       <div>
-                        <strong>
-                          {extensionApiToken.trim()
-                            ? 'Collegamento autenticato'
-                            : 'API estensione senza protezione'}
-                        </strong>
+                        <strong>{extensionApiToken.trim() ? 'Accesso protetto' : 'Accesso non protetto'}</strong>
                         <p>
                           {extensionApiToken.trim()
-                            ? 'Dopo il salvataggio, incolla lo stesso token nelle opzioni del browser.'
-                            : 'Genera un token prima di usare l’estensione su una rete condivisa.'}
+                            ? 'Usa lo stesso token nelle opzioni dell’estensione.'
+                            : 'Genera un token prima di collegare il browser.'}
                         </p>
                       </div>
-                    </aside>
-                  </div>
-                </section>
-
-                <section className="extension-step-card extension-verification-card" aria-labelledby="extension-step-verify">
-                  <div className="extension-step-header">
-                    <span className="extension-step-number">3</span>
-                    <div>
-                      <h3 id="extension-step-verify">Verifica il collegamento</h3>
-                      <p>Controlla che endpoint e token siano accettati dal backend.</p>
                     </div>
-                  </div>
-                  <div className={`extension-verification-status ${extensionApiStatusTone}`}>
-                    <span className="settings-status-dot" />
-                    <div>
-                      <strong>{extensionApiStatusLabel}</strong>
-                      <span>
-                        {extensionTokenDirty
-                          ? 'Salva la configurazione prima di eseguire il test.'
-                          : extensionTestResult?.message || 'La connessione non è ancora stata controllata.'}
-                      </span>
+
+                    <div className={`extension-verification-status ${extensionApiStatusTone}`}>
+                      <span className="settings-status-dot" />
+                      <div>
+                        <strong>{extensionApiStatusLabel}</strong>
+                        <span>
+                          {extensionTokenDirty
+                            ? 'Salva le modifiche prima della verifica.'
+                            : extensionTestResult?.message || 'Il collegamento non è ancora stato controllato.'}
+                        </span>
+                      </div>
                     </div>
                     <button
                       type="button"
-                      className="btn btn-secondary"
+                      className="btn btn-primary extension-verify-button"
                       onClick={handleTestExtensionConnection}
                       disabled={testingExtensionConnection || savingExtensionSettings || extensionTokenDirty}
                     >
-                      {testingExtensionConnection ? 'Verifica...' : 'Verifica ora'}
+                      {testingExtensionConnection ? 'Verifica in corso...' : 'Verifica collegamento'}
                     </button>
-                  </div>
-                </section>
+                  </aside>
+                </div>
 
-                <footer className="extension-save-footer">
+                <footer className={`extension-save-footer ${extensionTokenDirty ? 'dirty' : ''}`}>
                   <span>
                     {extensionTokenDirty
                       ? 'Sono presenti modifiche non salvate.'
@@ -5562,240 +5600,275 @@ function App() {
             {/* Card 1b: Sincronizzazione Manuale Ordini PrestaShop */}
             {settingsSection === 'orders' && (
             <>
-            <div className="glass-panel widget-card">
-              <h2 style={{ fontSize: '1.2rem', marginBottom: '8px' }}>Sincronizzazione Ordini PrestaShop</h2>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '20px' }}>
-                Avvia una sincronizzazione manuale degli ordini dal Webservice PrestaShop. Gli ordini negli stati selezionati verranno scaricati e salvati nel database locale.
-              </p>
+            <div className="glass-panel widget-card orders-sync-card">
+              <div className="orders-sync-copy">
+                <h2>Sincronizzazione Ordini PrestaShop</h2>
+                <p>
+                  Scarica dal Webservice gli ordini negli stati inclusi e aggiorna il database locale.
+                </p>
+              </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
-                <button
-                  className="btn btn-primary"
-                  onClick={handleSyncOrders}
-                  disabled={syncingOrders || loading}
-                >
-                  {syncingOrders ? (
-                    <>
-                      <Icons.Sync style={{ animation: 'spin 1.5s infinite linear', marginRight: '8px' }} />
-                      {syncProgressText || 'Sincronizzazione in corso...'}
-                    </>
-                  ) : (
-                    'Sincronizza Ordini Ora'
-                  )}
-                </button>
-
+              <div className="orders-sync-meta" aria-label="Stato sincronizzazione ordini">
                 {status?.last_orders_sync && (
-                  <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                    Ultima sincronizzazione:{' '}
-                    <strong style={{ color: 'var(--text-primary)' }}>
-                      {new Date(status.last_orders_sync).toLocaleString('it-IT')}
-                    </strong>
-                    {' '}— {getRelativeTimeString(status.last_orders_sync)}
-                  </span>
+                  <div className="orders-sync-stat">
+                    <span>Ultima sincronizzazione</span>
+                    <strong>{new Date(status.last_orders_sync).toLocaleString('it-IT')}</strong>
+                    <small>{getRelativeTimeString(status.last_orders_sync)}</small>
+                  </div>
+                )}
+                {status?.prestashop_orders_count !== undefined && (
+                  <div className="orders-sync-stat orders-cache-stat">
+                    <span>Ordini in cache</span>
+                    <strong>{status.prestashop_orders_count}</strong>
+                  </div>
                 )}
               </div>
 
-              {status?.prestashop_orders_count !== undefined && (
-                <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '12px' }}>
-                  Ordini in cache: <strong style={{ color: 'var(--color-primary)' }}>{status.prestashop_orders_count}</strong>
-                </p>
-              )}
+              <button
+                className="btn btn-primary orders-sync-button"
+                onClick={handleSyncOrders}
+                disabled={syncingOrders || loading}
+              >
+                {syncingOrders ? (
+                  <>
+                    <Icons.Sync className="orders-sync-icon" />
+                    {syncProgressText || 'Sincronizzazione in corso...'}
+                  </>
+                ) : (
+                  'Sincronizza Ordini Ora'
+                )}
+              </button>
             </div>
 
             {/* Card 2: Sorgente Giacenze (SKU) e Sincronizzazione */}
             </>
             )}
             {settingsSection === 'stock' && (
-            <div className="glass-panel widget-card">
-              <h2 style={{ fontSize: '1.2rem', marginBottom: '8px' }}>Sorgente Giacenze (SKU) e Sincronizzazione</h2>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '20px' }}>
-                Scegli se caricare le giacenze fisiche manualmente tramite file Excel o attivare la sincronizzazione automatica da un foglio Google Sheets.
-              </p>
-              
-              <form onSubmit={handleSaveGoogleSheetsSettings} style={{ display: 'flex', flexDirection: 'column', gap: '20px', maxWidth: '600px' }}>
-                <div className="form-group">
-                  <label style={{ fontWeight: '600', fontSize: '0.9rem', color: 'var(--text-primary)', marginBottom: '8px' }}>
-                    Sorgente Giacenze
-                  </label>
-                  <div style={{ display: 'flex', gap: '20px', marginTop: '4px' }}>
-                    <label className="checkbox-label" style={{ flex: 1, padding: '10px 14px', border: stockSource === 'local_upload' ? '1px solid var(--color-primary)' : '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                      <input 
-                        type="radio" 
-                        name="stockSource" 
-                        value="local_upload" 
-                        checked={stockSource === 'local_upload'} 
-                        onChange={() => setStockSource('local_upload')}
-                        style={{ accentColor: 'var(--color-primary)' }}
-                      />
-                      <div>
-                        <div style={{ fontWeight: '600', fontSize: '0.85rem' }}>Caricamento Manuale Excel</div>
-                        <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Carica il file giacenza.xlsx dal computer.</div>
-                      </div>
-                    </label>
-                    <label className="checkbox-label" style={{ flex: 1, padding: '10px 14px', border: stockSource === 'google_sheets' ? '1px solid var(--color-primary)' : '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                      <input 
-                        type="radio" 
-                        name="stockSource" 
-                        value="google_sheets" 
-                        checked={stockSource === 'google_sheets'} 
-                        onChange={() => setStockSource('google_sheets')}
-                        style={{ accentColor: 'var(--color-primary)' }}
-                      />
-                      <div>
-                        <div style={{ fontWeight: '600', fontSize: '0.85rem' }}>Sincronizzazione Google Sheets</div>
-                        <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Download e ricalcolo in background.</div>
-                      </div>
-                    </label>
-                  </div>
+            <div className="glass-panel widget-card settings-workbench stock-settings-workbench">
+              <div className="settings-card-header">
+                <div>
+                  <h2>Sorgente Giacenze (SKU) e Sincronizzazione</h2>
+                  <p>
+                    Scegli se caricare le giacenze fisiche manualmente tramite file Excel o attivare la sincronizzazione automatica da un foglio Google Sheets.
+                  </p>
                 </div>
+                <span className={`settings-status-pill ${googleSheetLastError ? 'danger' : stockSource === 'google_sheets' ? 'success' : 'warning'}`}>
+                  <span className="settings-status-dot" />
+                  {stockSource === 'google_sheets' ? `Google Sheets · ogni ${googleSheetSyncInterval} min` : 'Excel manuale'}
+                </span>
+              </div>
 
-                {stockSource === 'google_sheets' && (
-                  <>
-                    <div className="form-group">
-                      <label style={{ fontWeight: '600', fontSize: '0.9rem', color: 'var(--text-primary)', marginBottom: '6px' }}>
-                        URL Google Sheet
-                      </label>
-                      <input 
-                        type="text" 
-                        className="settings-input" 
-                        placeholder="https://docs.google.com/spreadsheets/d/..." 
-                        value={googleSheetUrl} 
-                        onChange={(e) => setGoogleSheetUrl(e.target.value)}
-                        required
-                      />
-                      <small style={{ color: 'var(--text-secondary)', fontSize: '0.75rem', marginTop: '4px' }}>
-                        Assicurati che il foglio sia condiviso con "Chiunque abbia il link può visualizzare".
-                      </small>
-                    </div>
+              <form onSubmit={handleSaveGoogleSheetsSettings} className="stock-settings-form">
+                <div className="stock-workbench-layout">
+                  <div className="stock-workbench-main">
+                    <section className="stock-config-section" aria-labelledby="stock-source-title">
+                      <div className="stock-section-heading">
+                        <h3 id="stock-source-title">Sorgente giacenze</h3>
+                        <p>Seleziona il sistema utilizzato per aggiornare le quantità fisiche.</p>
+                      </div>
 
-                    <div style={{ display: 'flex', gap: '16px' }}>
-                      <div className="form-group" style={{ flex: 1 }}>
-                        <label style={{ fontWeight: '600', fontSize: '0.9rem', color: 'var(--text-primary)', marginBottom: '6px' }}>
-                          Nome Foglio (Tab)
+                      <div className="stock-source-switch" role="radiogroup" aria-label="Sorgente giacenze">
+                        <label className={`stock-source-option ${stockSource === 'local_upload' ? 'active' : ''}`}>
+                          <input
+                            type="radio"
+                            name="stockSource"
+                            value="local_upload"
+                            checked={stockSource === 'local_upload'}
+                            onChange={() => setStockSource('local_upload')}
+                          />
+                          <span className="stock-source-radio" aria-hidden="true" />
+                          <span>
+                            <strong>Caricamento manuale Excel</strong>
+                            <small>Carica il file giacenza.xlsx dal computer.</small>
+                          </span>
                         </label>
-                        <input 
-                          type="text" 
-                          className="settings-input" 
-                          placeholder="ROSATE" 
-                          value={googleSheetName} 
-                          onChange={(e) => setGoogleSheetName(e.target.value)}
-                          required
-                        />
-                      </div>
-                      <div className="form-group" style={{ flex: 1 }}>
-                        <label style={{ fontWeight: '600', fontSize: '0.9rem', color: 'var(--text-primary)', marginBottom: '6px' }}>
-                          Intervallo Verifica (Minuti)
+                        <label className={`stock-source-option ${stockSource === 'google_sheets' ? 'active' : ''}`}>
+                          <input
+                            type="radio"
+                            name="stockSource"
+                            value="google_sheets"
+                            checked={stockSource === 'google_sheets'}
+                            onChange={() => setStockSource('google_sheets')}
+                          />
+                          <span className="stock-source-radio" aria-hidden="true" />
+                          <span>
+                            <strong>Sincronizzazione Google Sheets</strong>
+                            <small>Download e ricalcolo automatico in background.</small>
+                          </span>
                         </label>
-                        <input 
-                          type="number" 
-                          className="settings-input" 
-                          min="1" 
-                          value={googleSheetSyncInterval} 
-                          onChange={(e) => setGoogleSheetSyncInterval(parseInt(e.target.value) || 10)}
-                          required
-                        />
                       </div>
-                    </div>
 
-                    <div style={{ marginTop: '4px', padding: '12px', borderRadius: '8px', background: 'rgba(255, 255, 255, 0.02)', border: '1px solid var(--border-color)', fontSize: '0.8rem' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-                        <span style={{ color: 'var(--text-secondary)' }}>Ultima Sincronizzazione:</span>
-                        <span style={{ fontWeight: '600' }}>
-                          {googleSheetLastSync ? new Date(googleSheetLastSync).toLocaleString('it-IT') : 'Mai sincronizzato'}
-                        </span>
-                      </div>
-                      {googleSheetLastError && (
-                        <div style={{ color: '#fca5a5', marginTop: '6px', whiteSpace: 'pre-wrap' }}>
-                          <strong>Ultimo Errore:</strong> {googleSheetLastError}
+                      {stockSource === 'google_sheets' && (
+                        <div className="stock-source-fields">
+                          <div className="form-group stock-field-wide">
+                            <label className="settings-label" htmlFor="google-sheet-url">URL Google Sheet</label>
+                            <input
+                              id="google-sheet-url"
+                              type="text"
+                              className="settings-input"
+                              placeholder="https://docs.google.com/spreadsheets/d/..."
+                              value={googleSheetUrl}
+                              onChange={(e) => setGoogleSheetUrl(e.target.value)}
+                              required
+                            />
+                            <small className="settings-help">
+                              Il foglio deve essere condiviso con “Chiunque abbia il link può visualizzare”.
+                            </small>
+                          </div>
+
+                          <div className="form-group">
+                            <label className="settings-label" htmlFor="google-sheet-name">Nome foglio (tab)</label>
+                            <input
+                              id="google-sheet-name"
+                              type="text"
+                              className="settings-input"
+                              placeholder="ROSATE"
+                              value={googleSheetName}
+                              onChange={(e) => setGoogleSheetName(e.target.value)}
+                              required
+                            />
+                          </div>
+                          <div className="form-group">
+                            <label className="settings-label" htmlFor="google-sheet-interval">Intervallo verifica (minuti)</label>
+                            <input
+                              id="google-sheet-interval"
+                              type="number"
+                              className="settings-input"
+                              min="1"
+                              value={googleSheetSyncInterval}
+                              onChange={(e) => setGoogleSheetSyncInterval(parseInt(e.target.value) || 10)}
+                              required
+                            />
+                          </div>
                         </div>
                       )}
-                    </div>
-                  </>
-                )}
+                    </section>
 
-                <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '20px', marginTop: '10px' }}>
-                  <h3 style={{ fontSize: '0.95rem', marginBottom: '12px', color: 'var(--text-primary)' }}>Mappatura Colonne Excel / Google Sheets</h3>
-                  
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
-                    <div className="form-group">
-                      <label style={{ fontWeight: '600', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>
-                        Nome Colonna SKU
-                      </label>
-                      <input 
-                        type="text" 
-                        className="settings-input" 
-                        placeholder="Es: Sku" 
-                        value={mappingSku} 
-                        onChange={(e) => setMappingSku(e.target.value)}
-                        required
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label style={{ fontWeight: '600', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>
-                        Nome Colonna Quantità
-                      </label>
-                      <input 
-                        type="text" 
-                        className="settings-input" 
-                        placeholder="Es: Qta Tot." 
-                        value={mappingQty} 
-                        onChange={(e) => setMappingQty(e.target.value)}
-                        required
-                      />
-                    </div>
+                    <section className="stock-config-section" aria-labelledby="stock-mapping-title">
+                      <div className="stock-section-heading">
+                        <h3 id="stock-mapping-title">Mappatura colonne</h3>
+                        <p>Indica le intestazioni utilizzate nel file Excel o nel foglio Google Sheets.</p>
+                      </div>
+
+                      <div className="stock-mapping-grid">
+                        <div className="form-group">
+                          <label className="settings-label" htmlFor="mapping-sku">Nome colonna SKU</label>
+                          <input
+                            id="mapping-sku"
+                            type="text"
+                            className="settings-input"
+                            placeholder="Es: Sku"
+                            value={mappingSku}
+                            onChange={(e) => setMappingSku(e.target.value)}
+                            required
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label className="settings-label" htmlFor="mapping-qty">Nome colonna quantità</label>
+                          <input
+                            id="mapping-qty"
+                            type="text"
+                            className="settings-input"
+                            placeholder="Es: Qta Tot."
+                            value={mappingQty}
+                            onChange={(e) => setMappingQty(e.target.value)}
+                            required
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label className="settings-label" htmlFor="mapping-description">Colonna descrizione <span>(opzionale)</span></label>
+                          <input
+                            id="mapping-description"
+                            type="text"
+                            className="settings-input"
+                            placeholder="Es: Descrizione Sku"
+                            value={mappingDesc}
+                            onChange={(e) => setMappingDesc(e.target.value)}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label className="settings-label" htmlFor="mapping-lotto">Colonna lotto <span>(opzionale)</span></label>
+                          <input
+                            id="mapping-lotto"
+                            type="text"
+                            className="settings-input"
+                            placeholder="Es: Lotto"
+                            value={mappingLotto}
+                            onChange={(e) => setMappingLotto(e.target.value)}
+                          />
+                        </div>
+                      </div>
+                    </section>
                   </div>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginTop: '12px' }}>
-                    <div className="form-group">
-                      <label style={{ fontWeight: '600', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>
-                        Colonna Descrizione (Opzionale)
-                      </label>
-                      <input 
-                        type="text" 
-                        className="settings-input" 
-                        placeholder="Es: Descrizione Sku" 
-                        value={mappingDesc} 
-                        onChange={(e) => setMappingDesc(e.target.value)}
-                      />
+                  <aside className="stock-sync-rail" aria-labelledby="stock-status-title">
+                    <div className="stock-section-heading">
+                      <h3 id="stock-status-title">Stato sincronizzazione</h3>
+                      <p>Riepilogo della sorgente attualmente configurata.</p>
                     </div>
-                    <div className="form-group">
-                      <label style={{ fontWeight: '600', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>
-                        Colonna Lotto (Opzionale)
-                      </label>
-                      <input 
-                        type="text" 
-                        className="settings-input" 
-                        placeholder="Es: Lotto" 
-                        value={mappingLotto} 
-                        onChange={(e) => setMappingLotto(e.target.value)}
-                      />
+
+                    <dl className="stock-status-list">
+                      <div>
+                        <dt>Sorgente</dt>
+                        <dd>{stockSource === 'google_sheets' ? 'Google Sheets' : 'Excel manuale'}</dd>
+                      </div>
+                      <div>
+                        <dt>{stockSource === 'google_sheets' ? 'Foglio' : 'Modalità'}</dt>
+                        <dd>{stockSource === 'google_sheets' ? (googleSheetName || 'Non indicato') : 'Caricamento locale'}</dd>
+                      </div>
+                      <div>
+                        <dt>{stockSource === 'google_sheets' ? 'Intervallo' : 'Aggiornamento'}</dt>
+                        <dd>{stockSource === 'google_sheets' ? `${googleSheetSyncInterval} minuti` : 'Su richiesta'}</dd>
+                      </div>
+                      <div>
+                        <dt>Ultima sincronizzazione</dt>
+                        <dd>
+                          {stockSource === 'google_sheets'
+                            ? (googleSheetLastSync ? new Date(googleSheetLastSync).toLocaleString('it-IT') : 'Mai sincronizzato')
+                            : 'Non applicabile'}
+                        </dd>
+                      </div>
+                    </dl>
+
+                    <div className="stock-mapping-summary">
+                      <span>Mappatura attuale</span>
+                      <div><strong>SKU</strong><code>{mappingSku || '—'}</code></div>
+                      <div><strong>Quantità</strong><code>{mappingQty || '—'}</code></div>
                     </div>
-                  </div>
+
+                    {googleSheetLastError && (
+                      <div className="stock-sync-error" role="alert">
+                        <strong>Ultimo errore</strong>
+                        <span>{googleSheetLastError}</span>
+                      </div>
+                    )}
+
+                    {stockSource === 'google_sheets' && (
+                      <button
+                        type="button"
+                        className="btn btn-secondary stock-sync-button"
+                        disabled={syncingGoogleSheets}
+                        onClick={handleSyncGoogleSheetsNow}
+                      >
+                        {syncingGoogleSheets ? "Sincronizzazione..." : "Sincronizza ora"}
+                      </button>
+                    )}
+                  </aside>
                 </div>
 
-                <div style={{ display: 'flex', gap: '12px', marginTop: '20px' }}>
+                <footer className="stock-settings-footer">
+                  <span>Le modifiche diventano attive dopo il salvataggio.</span>
                   <button type="submit" className="btn btn-primary" disabled={savingStockSettings}>
-                    {savingStockSettings ? "Salvataggio..." : "Salva Impostazioni Giacenze"}
+                    {savingStockSettings ? "Salvataggio..." : "Salva impostazioni giacenze"}
                   </button>
-                  
-                  {stockSource === 'google_sheets' && (
-                    <button 
-                      type="button" 
-                      className="btn btn-warning" 
-                      disabled={syncingGoogleSheets}
-                      onClick={handleSyncGoogleSheetsNow}
-                    >
-                      {syncingGoogleSheets ? "Sincronizzazione..." : "Sincronizza Ora"}
-                    </button>
-                  )}
-                </div>
+                </footer>
               </form>
             </div>
             )}
 
             {/* Card 3: Stati Ordini da Includere nell'Impegnato */}
             {settingsSection === 'orders' && (
-            <div className="glass-panel widget-card order-states-card">
+            <div className="glass-panel widget-card order-states-card order-states-selection-workbench">
               <div className="settings-card-header">
                 <div>
                   <h2>Stati Ordine che Scalano la Disponibilita</h2>
@@ -5803,29 +5876,17 @@ function App() {
                     Scegli quali ordini devono essere conteggiati come impegnati e sottratti dalla disponibilita dei prodotti.
                   </p>
                 </div>
-                <span className={`settings-status-pill ${orderStatesDirty ? 'warning' : 'success'}`}>
-                  <span className="settings-status-dot" />
-                  {orderStatesDirty ? 'Modifiche non salvate' : 'Salvato'}
-                </span>
+                <div className="order-states-header-status">
+                  <span className="order-states-count-pill"><strong>{selectedStates.length}</strong> inclusi</span>
+                  <span className={`settings-status-pill ${orderStatesDirty ? 'warning' : 'success'}`}>
+                    <span className="settings-status-dot" />
+                    {orderStatesDirty ? 'Modifiche non salvate' : 'Salvato'}
+                  </span>
+                </div>
               </div>
               
               {orderStates.length > 0 ? (
                 <div className="settings-grid order-states-workbench">
-                  <div className="states-impact-box">
-                    <div>
-                      <strong>Impatto configurazione</strong>
-                      <span>Influenza ordini sincronizzati, quantita impegnata e disponibilita residua.</span>
-                    </div>
-                    <button
-                      type="button"
-                      className="btn btn-secondary"
-                      onClick={handleSelectRecommendedStates}
-                      disabled={recommendedOrderStateIds.length === 0}
-                    >
-                      Aggiungi consigliati
-                    </button>
-                  </div>
-
                   <div className="states-filter-bar order-states-toolbar">
                     <div className="states-search-wrapper">
                       <svg className="states-search-icon" width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path d="M12.9 14.32a8 8 0 1 1 1.41-1.41l5.35 5.33-1.42 1.42-5.33-5.34zM8 14A6 6 0 1 0 8 2a6 6 0 0 0 0 12z"/></svg>
@@ -5840,6 +5901,14 @@ function App() {
                     <div className="states-actions-wrapper">
                       <button
                         type="button"
+                        className="btn-small-link order-states-recommended-action"
+                        onClick={handleSelectRecommendedStates}
+                        disabled={recommendedOrderStateIds.length === 0}
+                      >
+                        Aggiungi consigliati
+                      </button>
+                      <button
+                        type="button"
                         className={`btn-small-link ${showOnlySelectedStates ? 'active' : ''}`}
                         onClick={() => setShowOnlySelectedStates(!showOnlySelectedStates)}
                       >
@@ -5852,21 +5921,6 @@ function App() {
                         Deseleziona tutti
                       </button>
                     </div>
-                  </div>
-
-                  <div className="states-save-bar">
-                    <div>
-                      <strong>{selectedStates.length}</strong> stati inclusi nell'impegnato
-                      {orderStatesDirty && <span className="settings-unsaved-badge">Modifiche non salvate</span>}
-                    </div>
-                    <button
-                      type="button"
-                      className="btn btn-primary"
-                      onClick={handleSaveOrderStates}
-                      disabled={!orderStatesDirty || savingStateSettings}
-                    >
-                      {savingStateSettings ? "Salvataggio..." : "Salva Stati Ordine"}
-                    </button>
                   </div>
 
                   <div className="states-scrollbox">
@@ -5888,7 +5942,6 @@ function App() {
                                 {isRecommended && <span>Consigliato</span>}
                               </div>
                             </div>
-                            <span className="order-state-checkmark" aria-hidden="true" />
                           </label>
                           );
                         })}
@@ -5898,12 +5951,26 @@ function App() {
                     )}
                   </div>
                   
-                  <div className="settings-alert settings-alert-info order-states-note">
-                    <svg className="w-5 h-5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                    <span>
-                      Le modifiche diventano attive dopo il salvataggio e il prossimo ricalcolo. Evita stati come annullato o rimborsato se non devono scalare la disponibilita.
-                    </span>
-                  </div>
+                  <footer className="order-states-footer">
+                    <div className="order-states-footer-copy">
+                      <svg aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                      <div>
+                        <strong>{selectedStates.length} stati selezionati</strong>
+                        <span>Le modifiche diventano attive dopo il salvataggio e il prossimo ricalcolo.</span>
+                      </div>
+                    </div>
+                    <div className="order-states-footer-actions">
+                      {orderStatesDirty && <span className="settings-unsaved-badge">Modifiche non salvate</span>}
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        onClick={handleSaveOrderStates}
+                        disabled={!orderStatesDirty || savingStateSettings}
+                      >
+                        {savingStateSettings ? "Salvataggio..." : "Salva Stati Ordine"}
+                      </button>
+                    </div>
+                  </footer>
                 </div>
               ) : (
                 <p style={{ color: 'var(--text-secondary)' }}>Caricamento degli stati ordine da PrestaShop...</p>
