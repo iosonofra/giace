@@ -2222,7 +2222,7 @@ function App() {
   const orderStatesDirty = selectedStatesKey !== savedSelectedStatesKey;
   const settingsSections = [
     { id: 'connection', label: 'Connessione' },
-    { id: 'extension', label: 'Estensione beta' },
+    { id: 'extension', label: 'Integrazioni' },
     { id: 'stock', label: 'Giacenze' },
     { id: 'orders', label: 'Ordini' },
     { id: 'backup', label: 'Backup' }
@@ -2243,6 +2243,11 @@ function App() {
       : extensionTestResult?.status === 'error'
         ? 'Verifica fallita'
         : 'API non verificata';
+  const extensionDistribution = {
+    chrome: { label: 'Chrome', version: 'v0.2.5' },
+    firefox: { label: 'Firefox', version: 'v0.1.1' },
+    userscript: { label: 'Userscript', version: 'v0.1.0' }
+  }[extensionBrowserGuide];
   const prestashopUrlValid = prestashopUrl.trim().endsWith('/api/');
   const prestashopApiKeyPresent = prestashopApiKey.trim().length > 0;
   const prestashopRealReady = !prestashopMockMode && prestashopUrlValid && prestashopApiKeyPresent;
@@ -5312,9 +5317,9 @@ function App() {
             <div className="glass-panel widget-card settings-workbench settings-extension-workbench">
               <div className="settings-card-header">
                 <div>
-                  <h2>Estensioni browser · Feedback ordini</h2>
+                  <h2>Integrazioni browser · Feedback ordini</h2>
                   <p>
-                    Scarica l’estensione, configura il collegamento e verifica che l’API risponda correttamente.
+                    Scegli estensione o userscript, configura il collegamento e verifica che l’API risponda correttamente.
                   </p>
                 </div>
                 <span className={`settings-status-pill extension-overall-status ${extensionApiStatusTone === 'success' ? 'success' : 'warning'}`}>
@@ -5327,7 +5332,7 @@ function App() {
                 <ol className="extension-progress" aria-label="Avanzamento configurazione">
                   <li className="complete">
                     <span>1</span>
-                    <div><strong>Browser</strong><small>{extensionBrowserGuide === 'chrome' ? 'Chrome' : 'Firefox'}</small></div>
+                    <div><strong>Formato</strong><small>{extensionDistribution.label}</small></div>
                   </li>
                   <li className={extensionApiToken.trim() ? 'complete' : 'current'}>
                     <span>2</span>
@@ -5344,8 +5349,8 @@ function App() {
                     <section className="extension-workbench-section" aria-labelledby="extension-step-browser">
                       <div className="extension-section-heading">
                         <div>
-                          <h3 id="extension-step-browser">Scegli il browser</h3>
-                          <p>Seleziona il pacchetto da installare e consulta le istruzioni dedicate.</p>
+                          <h3 id="extension-step-browser">Scegli il formato</h3>
+                          <p>Seleziona una delle tre distribuzioni e consulta le istruzioni dedicate.</p>
                         </div>
                       </div>
 
@@ -5363,7 +5368,7 @@ function App() {
                             <strong>Chrome</strong>
                             <small>Manifest V3 · locale</small>
                           </span>
-                          <span className="extension-version-badge">v0.2.2</span>
+                          <span className="extension-version-badge">v0.2.5</span>
                         </button>
 
                         <button
@@ -5381,15 +5386,37 @@ function App() {
                           </span>
                           <span className="extension-version-badge">v0.1.1</span>
                         </button>
+
+                        <button
+                          type="button"
+                          id="extension-browser-userscript"
+                          className={`extension-browser-select ${extensionBrowserGuide === 'userscript' ? 'active' : ''}`}
+                          aria-pressed={extensionBrowserGuide === 'userscript'}
+                          aria-controls="extension-browser-guide"
+                          onClick={() => setExtensionBrowserGuide('userscript')}
+                        >
+                          <span className="extension-browser-mark userscript" aria-hidden="true">U</span>
+                          <span>
+                            <strong>Userscript</strong>
+                            <small>Tampermonkey · Violentmonkey</small>
+                          </span>
+                          <span className="extension-version-badge">v0.1.0</span>
+                        </button>
                       </div>
 
                       <div className="extension-browser-primary-action">
                         <div>
-                          <strong>{extensionBrowserGuide === 'chrome' ? 'Pacchetto per Chrome' : 'Pacchetto per Firefox'}</strong>
+                          <strong>
+                            {extensionBrowserGuide === 'userscript'
+                              ? 'Userscript universale'
+                              : `Pacchetto per ${extensionDistribution.label}`}
+                          </strong>
                           <span>
                             {extensionBrowserGuide === 'chrome'
                               ? 'Scarica lo ZIP ed estrai la cartella prima dell’installazione.'
-                              : 'Installa direttamente la versione firmata oppure conserva lo ZIP beta.'}
+                              : extensionBrowserGuide === 'firefox'
+                                ? 'Installa direttamente la versione firmata oppure conserva lo ZIP beta.'
+                                : 'Installa il file nel gestore userscript già presente nel browser.'}
                           </span>
                         </div>
                         <div className="extension-browser-actions">
@@ -5397,7 +5424,7 @@ function App() {
                             <a className="btn btn-primary extension-browser-download" href="/api/extension/download" download>
                               ↓ Scarica ZIP Chrome
                             </a>
-                          ) : (
+                          ) : extensionBrowserGuide === 'firefox' ? (
                             <>
                               <a className="btn btn-primary extension-browser-download" href="/api/extension/firefox/install">
                                 Installa versione firmata
@@ -5406,6 +5433,15 @@ function App() {
                                 ↓ ZIP beta
                               </a>
                             </>
+                          ) : (
+                            <a
+                              className="btn btn-primary extension-browser-download"
+                              href="/api/extension/userscript/giac-feedback-ordini.user.js"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              Installa userscript
+                            </a>
                           )}
                         </div>
                       </div>
@@ -5417,11 +5453,13 @@ function App() {
                         aria-labelledby={`extension-browser-${extensionBrowserGuide}`}
                       >
                         <div className="extension-guide-heading">
-                          <strong>Installazione {extensionBrowserGuide === 'chrome' ? 'Chrome' : 'Firefox'}</strong>
+                          <strong>Installazione {extensionDistribution.label}</strong>
                           <span>
                             {extensionBrowserGuide === 'chrome'
                               ? 'Tre passaggi per caricare la cartella estratta.'
-                              : 'Tre passaggi per completare l’installazione firmata.'}
+                              : extensionBrowserGuide === 'firefox'
+                                ? 'Tre passaggi per completare l’installazione firmata.'
+                                : 'Tre passaggi per attivarlo nel gestore userscript.'}
                           </span>
                         </div>
                         <ol className="extension-install-steps">
@@ -5431,11 +5469,17 @@ function App() {
                               <li><span>2</span><div><strong>Apri <code>chrome://extensions</code></strong><small>Attiva la modalità sviluppatore.</small></div></li>
                               <li><span>3</span><div><strong>Carica la cartella</strong><small>Usa “Carica estensione non pacchettizzata”.</small></div></li>
                             </>
-                          ) : (
+                          ) : extensionBrowserGuide === 'firefox' ? (
                             <>
                               <li><span>1</span><div><strong>Avvia l’installazione</strong><small>Premi “Installa versione firmata”.</small></div></li>
                               <li><span>2</span><div><strong>Conferma i permessi</strong><small>Controlla i dati dichiarati da Firefox.</small></div></li>
                               <li><span>3</span><div><strong>Configura l’estensione</strong><small>Inserisci URL webapp, dominio e token.</small></div></li>
+                            </>
+                          ) : (
+                            <>
+                              <li><span>1</span><div><strong>Installa un gestore</strong><small>Usa Tampermonkey o Violentmonkey.</small></div></li>
+                              <li><span>2</span><div><strong>Installa lo userscript</strong><small>Premi il pulsante e conferma il codice mostrato.</small></div></li>
+                              <li><span>3</span><div><strong>Configura il token</strong><small>Nel menu del gestore scegli “Giac · Configura token”.</small></div></li>
                             </>
                           )}
                         </ol>
@@ -5446,7 +5490,7 @@ function App() {
                       <div className="extension-section-heading">
                         <div>
                           <h3 id="extension-step-config">Configura il collegamento</h3>
-                          <p>Copia URL webapp e token nelle opzioni dell’estensione installata.</p>
+                          <p>Usa URL webapp e token per autorizzare la distribuzione installata.</p>
                         </div>
                       </div>
 
@@ -5460,7 +5504,7 @@ function App() {
                             </button>
                           </div>
                           <small className="settings-help">
-                            Incolla questo indirizzo nel campo “URL webapp Giac” dell’estensione.
+                            L’indirizzo viene incluso automaticamente nello userscript; per le estensioni va copiato nelle opzioni.
                           </small>
                         </div>
 
@@ -5514,14 +5558,14 @@ function App() {
                     <div className="extension-status-heading">
                       <div>
                         <h3 id="extension-status-title">Stato configurazione</h3>
-                        <p>Riepilogo del browser e del collegamento API.</p>
+                        <p>Riepilogo della distribuzione e del collegamento API.</p>
                       </div>
                     </div>
 
                     <div className="extension-status-list">
                       <div className="extension-status-row complete">
                         <span className="extension-status-check">✓</span>
-                        <div><small>Browser</small><strong>{extensionBrowserGuide === 'chrome' ? 'Chrome' : 'Firefox'}</strong></div>
+                        <div><small>Formato</small><strong>{extensionDistribution.label}</strong></div>
                       </div>
                       <div className={`extension-status-row ${extensionApiToken.trim() ? 'complete' : 'pending'}`}>
                         <span className="extension-status-check">{extensionApiToken.trim() ? '✓' : '2'}</span>
@@ -5539,7 +5583,7 @@ function App() {
                         <strong>{extensionApiToken.trim() ? 'Accesso protetto' : 'Accesso non protetto'}</strong>
                         <p>
                           {extensionApiToken.trim()
-                            ? 'Usa lo stesso token nelle opzioni dell’estensione.'
+                            ? 'Usa lo stesso token nell’estensione o nel menu dello userscript.'
                             : 'Genera un token prima di collegare il browser.'}
                         </p>
                       </div>

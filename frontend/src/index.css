@@ -2851,7 +2851,7 @@ body.light-theme .extension-step-card {
 .extension-browser-grid {
   display: grid;
   gap: 12px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .extension-browser-card {
@@ -2908,6 +2908,10 @@ body.light-theme .extension-step-card {
 
 .extension-browser-mark.firefox {
   background: #7c3aed;
+}
+
+.extension-browser-mark.userscript {
+  background: #0891b2;
 }
 
 .extension-browser-select strong,

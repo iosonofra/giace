@@ -8,9 +8,10 @@ import requests
 import threading
 import time
 import re
+from urllib.parse import urlparse
 from typing import List, Optional
 from datetime import datetime, timezone, timedelta
-from fastapi import FastAPI, Depends, UploadFile, File, Form, HTTPException, BackgroundTasks, Header
+from fastapi import FastAPI, Depends, UploadFile, File, Form, HTTPException, BackgroundTasks, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
@@ -3028,6 +3029,93 @@ def install_signed_firefox_extension():
         media_type="application/x-xpinstall",
         headers={
             "Content-Disposition": 'inline; filename="giac-feedback-ordini-firefox.xpi"',
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff"
+        }
+    )
+
+
+def _safe_userscript_origin(value: str) -> str:
+    try:
+        parsed = urlparse((value or "").strip())
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            return ""
+        if parsed.username or parsed.password:
+            return ""
+        return f"{parsed.scheme}://{parsed.netloc}"
+    except (TypeError, ValueError):
+        return ""
+
+
+@app.get("/api/extension/userscript/download")
+@app.get("/api/extension/userscript/giac-feedback-ordini.user.js")
+def download_userscript(request: Request, db: Session = Depends(get_db)):
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    adapter_path = os.path.join(project_root, "userscript", "adapter.js")
+    content_script_path = os.path.join(project_root, "chrome-extension", "content-script.js")
+    content_style_path = os.path.join(project_root, "chrome-extension", "content-style.css")
+    source_paths = (adapter_path, content_script_path, content_style_path)
+    if not all(os.path.isfile(path) for path in source_paths):
+        raise HTTPException(status_code=404, detail="Pacchetto userscript non disponibile.")
+
+    webapp_url = str(request.base_url).rstrip("/")
+    admin_setting = db.query(AppSetting).filter(AppSetting.key == "prestashop_admin_url").first()
+    api_setting = db.query(AppSetting).filter(AppSetting.key == "prestashop_url").first()
+    prestashop_origin = _safe_userscript_origin(
+        (admin_setting.value if admin_setting and admin_setting.value else "")
+        or (api_setting.value if api_setting and api_setting.value else "")
+        or os.getenv("PRESTASHOP_URL", "")
+    )
+
+    try:
+        with open(adapter_path, "r", encoding="utf-8") as source_file:
+            adapter = source_file.read()
+        with open(content_script_path, "r", encoding="utf-8") as source_file:
+            content_script = source_file.read()
+        with open(content_style_path, "r", encoding="utf-8") as source_file:
+            content_style = source_file.read()
+    except OSError as error:
+        logger.error("Impossibile generare lo userscript: %s", error)
+        raise HTTPException(status_code=500, detail="Generazione userscript non riuscita.") from error
+
+    adapter = adapter.replace("__GIAC_WEBAPP_URL__", json.dumps(webapp_url))
+    adapter = adapter.replace("__GIAC_PRESTASHOP_ORIGIN__", json.dumps(prestashop_origin))
+    webapp_host = urlparse(webapp_url).hostname or "localhost"
+    match_lines = (
+        [f"// @match        {prestashop_origin}/*"]
+        if prestashop_origin
+        else ["// @match        http://*/*", "// @match        https://*/*"]
+    )
+    metadata = "\n".join([
+        "// ==UserScript==",
+        "// @name         Giac Feedback Ordini",
+        "// @namespace    giac.feedback.ordini",
+        "// @version      0.1.0",
+        "// @description  Disponibilità e priorità cronologica negli ordini PrestaShop.",
+        *match_lines,
+        f"// @connect      {webapp_host}",
+        "// @run-at       document-idle",
+        "// @grant        GM_getValue",
+        "// @grant        GM_setValue",
+        "// @grant        GM_registerMenuCommand",
+        "// @grant        GM_xmlhttpRequest",
+        "// @grant        GM_addStyle",
+        "// ==/UserScript==",
+        ""
+    ])
+    generated_script = "\n".join([
+        metadata,
+        adapter,
+        f"  GM_addStyle({json.dumps(content_style)});",
+        content_script,
+        "})();",
+        ""
+    ])
+    return StreamingResponse(
+        io.BytesIO(generated_script.encode("utf-8")),
+        media_type="application/javascript; charset=utf-8",
+        headers={
+            "Content-Disposition": 'inline; filename="giac-feedback-ordini.user.js"',
             "Cache-Control": "no-store",
             "X-Content-Type-Options": "nosniff"
         }

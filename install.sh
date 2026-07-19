@@ -75,6 +75,13 @@ if [ -f "$SCRIPT_DIR/backend/main.py" ]; then
                 fi
             done
         fi
+
+        # Copiamo le sorgenti delle integrazioni browser usate dagli endpoint di download
+        for dir in chrome-extension firefox-extension userscript; do
+            if [ -d "$SCRIPT_DIR/$dir" ]; then
+                cp -pr "$SCRIPT_DIR/$dir" "$APP_DIR/"
+            fi
+        done
     fi
 else
     # Fallback al clone da git se non ci sono sorgenti locali
