@@ -206,7 +206,20 @@
     const currentToken = String(await readSetting("extensionToken") || "");
     const token = window.prompt("Incolla il token API configurato nella webapp Giac:", currentToken);
     if (token === null) return;
-    await writeSetting("extensionToken", token.trim());
+    const cleanToken = token.trim();
+    if (!cleanToken) {
+      window.alert("Il token è obbligatorio.");
+      return;
+    }
+    if (cleanToken.length < 16) {
+      window.alert("Il token deve contenere almeno 16 caratteri.");
+      return;
+    }
+    if (cleanToken.length > 256 || !/^[A-Za-z0-9._~-]+$/.test(cleanToken)) {
+      window.alert("Il token contiene caratteri non validi.");
+      return;
+    }
+    await writeSetting("extensionToken", cleanToken);
     responseCache.clear();
     window.alert("Token userscript aggiornato.");
   });
@@ -240,4 +253,3 @@
       window.alert(`Collegamento non riuscito: ${error.message}`);
     }
   });
-

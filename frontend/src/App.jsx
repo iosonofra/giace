@@ -1298,11 +1298,15 @@ function App() {
   const handleSaveExtensionSettings = async (e) => {
     e.preventDefault();
     const cleanToken = extensionApiToken.trim();
-    if (cleanToken && cleanToken.length < 16) {
+    if (!cleanToken) {
+      setSettingsError("Il token estensione è obbligatorio. Genera un token sicuro prima di salvare.");
+      return;
+    }
+    if (cleanToken.length < 16) {
       setSettingsError("Il token estensione deve contenere almeno 16 caratteri.");
       return;
     }
-    if (cleanToken.length > 256 || (cleanToken && !/^[A-Za-z0-9._~-]+$/.test(cleanToken))) {
+    if (cleanToken.length > 256 || !/^[A-Za-z0-9._~-]+$/.test(cleanToken)) {
       setSettingsError("Il token può contenere solo lettere, numeri, punto, trattino e underscore (massimo 256 caratteri).");
       return;
     }
@@ -1321,12 +1325,7 @@ function App() {
         const savedToken = data.extension_api_token || '';
         setExtensionApiToken(savedToken);
         setSavedExtensionApiToken(savedToken);
-        showActionMsg(
-          savedToken
-            ? "Token estensione salvato. Copialo ora nelle opzioni dell'estensione Chrome."
-            : "Token rimosso. L'API estensione ora non richiede autenticazione.",
-          savedToken ? 'success' : 'warning'
-        );
+        showActionMsg("Token obbligatorio salvato. Copialo nell'integrazione browser scelta.", 'success');
       } else {
         setSettingsError(data.detail || "Errore nel salvataggio del token estensione.");
       }
@@ -5632,7 +5631,11 @@ function App() {
                     >
                       Annulla modifiche
                     </button>
-                    <button type="submit" className="btn btn-primary" disabled={savingExtensionSettings || !extensionTokenDirty}>
+                    <button
+                      type="submit"
+                      className="btn btn-primary"
+                      disabled={savingExtensionSettings || !extensionTokenDirty || extensionApiToken.trim().length < 16}
+                    >
                       {savingExtensionSettings ? 'Salvataggio...' : 'Salva configurazione'}
                     </button>
                   </div>

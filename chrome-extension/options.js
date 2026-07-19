@@ -37,6 +37,14 @@ function readForm() {
   };
 }
 
+function validateToken(value) {
+  if (!value) throw new Error("Il token è obbligatorio.");
+  if (value.length < 16) throw new Error("Il token deve contenere almeno 16 caratteri.");
+  if (value.length > 256 || !/^[A-Za-z0-9._~-]+$/.test(value)) {
+    throw new Error("Il token contiene caratteri non validi.");
+  }
+}
+
 async function loadSettings() {
   const settings = await chrome.storage.local.get(DEFAULT_SETTINGS);
   enabledInput.checked = settings.enabled !== false;
@@ -66,6 +74,12 @@ form.addEventListener("submit", async event => {
     showStatus("Inserisci l'URL della webapp.", "error");
     return;
   }
+  try {
+    validateToken(settings.extensionToken);
+  } catch (error) {
+    showStatus(error.message, "error");
+    return;
+  }
   await chrome.storage.local.set(settings);
   await sendMessage({ type: "CLEAR_CACHE" });
   showStatus("Configurazione salvata. Ricarica la pagina ordini PrestaShop.", "success");
@@ -73,6 +87,12 @@ form.addEventListener("submit", async event => {
 
 testButton.addEventListener("click", async () => {
   const settings = readForm();
+  try {
+    validateToken(settings.extensionToken);
+  } catch (error) {
+    showStatus(error.message, "error");
+    return;
+  }
   testButton.disabled = true;
   showStatus("Verifica della connessione in corso…", "neutral");
   const response = await sendMessage({ type: "TEST_CONNECTION", settings });

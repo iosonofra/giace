@@ -3,6 +3,7 @@ import io
 import json
 import logging
 import hashlib
+import hmac
 import zipfile
 import requests
 import threading
@@ -787,7 +788,12 @@ def update_settings(payload: dict, db: Session = Depends(get_db)):
         if not isinstance(extension_api_token, str):
             raise HTTPException(status_code=400, detail="Il token estensione deve essere una stringa.")
         clean_extension_token = extension_api_token.strip()
-        if clean_extension_token and len(clean_extension_token) < 16:
+        if not clean_extension_token:
+            raise HTTPException(
+                status_code=400,
+                detail="Il token estensione è obbligatorio. Genera un token sicuro prima di salvare."
+            )
+        if len(clean_extension_token) < 16:
             raise HTTPException(
                 status_code=400,
                 detail="Il token estensione deve contenere almeno 16 caratteri."
@@ -2936,9 +2942,17 @@ def auto_picking_orders(payload: dict, db: Session = Depends(get_db)):
 def _verify_extension_api_token(provided_token: Optional[str], db: Session) -> bool:
     token_setting = db.query(AppSetting).filter(AppSetting.key == "extension_api_token").first()
     expected_token = (token_setting.value if token_setting else os.getenv("GIAC_EXTENSION_TOKEN", "")).strip()
-    if expected_token and provided_token != expected_token:
+    if not expected_token:
+        raise HTTPException(
+            status_code=503,
+            detail="API estensione non disponibile: configura prima un token obbligatorio nelle impostazioni."
+        )
+    clean_provided_token = (provided_token or "").strip()
+    if not clean_provided_token:
+        raise HTTPException(status_code=401, detail="Token estensione obbligatorio.")
+    if not hmac.compare_digest(clean_provided_token, expected_token):
         raise HTTPException(status_code=401, detail="Token estensione non valido.")
-    return bool(expected_token)
+    return True
 
 
 @app.get("/api/extension/health")

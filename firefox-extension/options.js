@@ -49,11 +49,17 @@ function showStatus(message, tone = "neutral") {
 function readForm() {
   const webappUrl = validateSecureUrl(webappUrlInput.value, "URL webapp");
   const prestashopUrl = validateSecureUrl(prestashopOriginInput.value, "Dominio PrestaShop");
+  const extensionToken = tokenInput.value.trim();
+  if (!extensionToken) throw new Error("Il token è obbligatorio.");
+  if (extensionToken.length < 16) throw new Error("Il token deve contenere almeno 16 caratteri.");
+  if (extensionToken.length > 256 || !/^[A-Za-z0-9._~-]+$/.test(extensionToken)) {
+    throw new Error("Il token contiene caratteri non validi.");
+  }
   return {
     enabled: enabledInput.checked,
     webappUrl,
     prestashopOrigin: new URL(prestashopUrl).origin,
-    extensionToken: tokenInput.value.trim(),
+    extensionToken,
     minSkuResidual: Math.max(0, Math.floor(Number(minResidualInput.value || 0))),
     chronologicalMode: chronologicalModeInput.checked
   };
