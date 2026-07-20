@@ -436,6 +436,7 @@ function App() {
   const [syncingOrders, setSyncingOrders] = useState(false);
   const [syncProgressText, setSyncProgressText] = useState('');
   const [copiedOrderId, setCopiedOrderId] = useState(null);
+  const [copiedAssociatedProductId, setCopiedAssociatedProductId] = useState(null);
   const [pickingCopyState, setPickingCopyState] = useState('idle');
   const pickingCopyTimeoutRef = useRef(null);
 
@@ -494,6 +495,8 @@ function App() {
   const [autoPickingSkuQuery, setAutoPickingSkuQuery] = useState('');
   const [autoPickingSkuMaxQuery, setAutoPickingSkuMaxQuery] = useState('');
   const [autoPickingSkuLimits, setAutoPickingSkuLimits] = useState({});
+  const [autoPickingExcludedSkus, setAutoPickingExcludedSkus] = useState([]);
+  const [autoPickingExcludedSkuQuery, setAutoPickingExcludedSkuQuery] = useState('');
   const [dragOver, setDragOver] = useState(false);
   const [syncingSpecificOrders, setSyncingSpecificOrders] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
@@ -529,6 +532,9 @@ function App() {
   const [selectedSkuForOrders, setSelectedSkuForOrders] = useState(null);
   const [skuOrdersData, setSkuOrdersData] = useState([]);
   const [loadingSkuOrders, setLoadingSkuOrders] = useState(false);
+  const [selectedSkuForProducts, setSelectedSkuForProducts] = useState(null);
+  const [skuProductsData, setSkuProductsData] = useState([]);
+  const [loadingSkuProducts, setLoadingSkuProducts] = useState(false);
   const [skuOrdersSortDirection, setSkuOrdersSortDirection] = useState('asc');
   const [smartSkuCounterEnabled, setSmartSkuCounterEnabled] = useState(false);
   const [smartSkuCounterData, setSmartSkuCounterData] = useState(null);
@@ -564,12 +570,12 @@ function App() {
     setIsMobileSidebarOpen(false);
   }, [activeTab]);
 
-  // Lock page scroll while the right-side orders drawer is open.
+  // Lock page scroll while either independent right-side detail drawer is open.
   useEffect(() => {
     const root = document.documentElement;
     const body = document.body;
 
-    if (selectedSkuForOrders) {
+    if (selectedSkuForOrders || selectedSkuForProducts) {
       root.classList.add('drawer-open');
       body.classList.add('drawer-open');
     } else {
@@ -581,7 +587,7 @@ function App() {
       root.classList.remove('drawer-open');
       body.classList.remove('drawer-open');
     };
-  }, [selectedSkuForOrders]);
+  }, [selectedSkuForOrders, selectedSkuForProducts]);
 
   useEffect(() => {
     return () => {
@@ -603,6 +609,7 @@ function App() {
       if (e.key === 'Escape') {
         setIsAssociationModalOpen(false);
         setSelectedSkuForOrders(null);
+        setSelectedSkuForProducts(null);
         setShowRestoreConfirm(false);
         setShowClearAnomaliesConfirm(false);
         setShowDeleteAssociationConfirm(false);
@@ -1073,6 +1080,27 @@ function App() {
       setSkuOrdersData([]);
     } finally {
       setLoadingSkuOrders(false);
+    }
+  };
+
+  const fetchSkuProducts = async (sku) => {
+    if (!sku) return;
+    setLoadingSkuProducts(true);
+    setSelectedSkuForProducts(sku);
+    setSkuProductsData([]);
+    try {
+      const res = await fetch(`/api/stock/${encodeURIComponent(sku)}/products`);
+      if (res.ok) {
+        const data = await res.json();
+        setSkuProductsData(Array.isArray(data) ? data : []);
+      } else {
+        setSkuProductsData([]);
+      }
+    } catch (err) {
+      console.error("Errore nel recupero dei prodotti associati:", err);
+      setSkuProductsData([]);
+    } finally {
+      setLoadingSkuProducts(false);
     }
   };
 
@@ -1626,6 +1654,10 @@ function App() {
       item.sku && item.sku.trim().toUpperCase() === rawSku.toUpperCase()
     );
     const sku = stockMatch ? stockMatch.sku.trim() : rawSku;
+    if (autoPickingExcludedSkus.some(existing => existing.toUpperCase() === sku.toUpperCase())) {
+      setPickingError(`La SKU ${sku} è già presente tra le SKU da escludere.`);
+      return;
+    }
 
     setAutoPickingSkuFilter(prev => (
       prev.some(existing => existing.toUpperCase() === sku.toUpperCase())
@@ -1662,6 +1694,30 @@ function App() {
     });
   };
 
+  const addAutoPickingExcludedSku = (skuValue = autoPickingExcludedSkuQuery) => {
+    const rawSku = String(skuValue || '').trim();
+    if (!rawSku) return;
+    const stockMatch = stockData.find(item =>
+      item.sku && item.sku.trim().toUpperCase() === rawSku.toUpperCase()
+    );
+    const sku = stockMatch ? stockMatch.sku.trim() : rawSku;
+    if (autoPickingSkuFilter.some(existing => existing.toUpperCase() === sku.toUpperCase())) {
+      setPickingError(`La SKU ${sku} è già presente tra i filtri di inclusione.`);
+      return;
+    }
+    setAutoPickingExcludedSkus(prev => (
+      prev.some(existing => existing.toUpperCase() === sku.toUpperCase())
+        ? prev
+        : [...prev, sku]
+    ));
+    setAutoPickingExcludedSkuQuery('');
+    setPickingError(null);
+  };
+
+  const removeAutoPickingExcludedSku = (sku) => {
+    setAutoPickingExcludedSkus(prev => prev.filter(existing => existing !== sku));
+  };
+
   const resetAutomaticPickingConfiguration = () => {
     setAutoPickingLimit(20);
     setAutoPickingStrategy('chronological');
@@ -1671,6 +1727,8 @@ function App() {
     setAutoPickingSkuQuery('');
     setAutoPickingSkuMaxQuery('');
     setAutoPickingSkuLimits({});
+    setAutoPickingExcludedSkus([]);
+    setAutoPickingExcludedSkuQuery('');
     setPickingResults(null);
     setPickingError(null);
     setAutoPickingResultView('selected');
@@ -1718,7 +1776,8 @@ function App() {
           selection_strategy: autoPickingStrategy,
           min_sku_residual: minResidual,
           sku_filter: autoPickingSkuFilter,
-          sku_limits: skuLimitsPayload
+          sku_limits: skuLimitsPayload,
+          excluded_skus: autoPickingExcludedSkus
         })
       });
       const data = await res.json();
@@ -1793,8 +1852,10 @@ function App() {
           `Modalità automatica: ${pickingResults.auto_picking?.selection_strategy === 'maximize_orders' ? 'massimizza ordini' : (pickingResults.auto_picking?.strict_chronology ? 'coda rigida' : 'salta non preparabili')}`,
           `Scorta minima SKU: ${pickingResults.auto_picking?.min_sku_residual || 0}`,
           `Massimi per ordine: ${Object.entries(pickingResults.auto_picking?.sku_limits || {}).map(([sku, max]) => `${sku}<=${formatPickingQty(max)}`).join(', ') || 'nessuno'}`,
+          `SKU escluse: ${pickingResults.auto_picking?.excluded_skus?.join(', ') || 'nessuna'}`,
           `Ordini saltati: ${pickingResults.skipped_orders?.length || 0}`,
           `Ordini rimasti fuori proposta: ${automaticRemainingCount}`,
+          `Ordini esclusi per SKU: ${pickingResults.auto_picking?.sku_excluded_count || 0}`,
           `Ordini esclusi dai massimi SKU: ${pickingResults.auto_picking?.sku_limit_excluded_count || 0}`,
           `Unità da prelevare: ${formatPickingQty(automaticSimulationSummary.selected_units)}`,
           `SKU coinvolte: ${automaticSimulationSummary.selected_distinct_skus || 0}`
@@ -1822,8 +1883,10 @@ function App() {
         textLines.push(`Modalità automatica: ${pickingResults.auto_picking?.selection_strategy === 'maximize_orders' ? 'massimizza ordini' : (pickingResults.auto_picking?.strict_chronology ? 'coda rigida' : 'salta non preparabili')}`);
         textLines.push(`Scorta minima SKU: ${pickingResults.auto_picking?.min_sku_residual || 0}`);
         textLines.push(`Massimi per ordine: ${Object.entries(pickingResults.auto_picking?.sku_limits || {}).map(([sku, max]) => `${sku}<=${formatPickingQty(max)}`).join(', ') || 'nessuno'}`);
+        textLines.push(`SKU escluse: ${pickingResults.auto_picking?.excluded_skus?.join(', ') || 'nessuna'}`);
         textLines.push(`Ordini saltati: ${pickingResults.skipped_orders?.length || 0}`);
         textLines.push(`Ordini rimasti fuori proposta: ${automaticRemainingCount}`);
+        textLines.push(`Ordini esclusi per SKU: ${pickingResults.auto_picking?.sku_excluded_count || 0}`);
         textLines.push(`Ordini esclusi dai massimi SKU: ${pickingResults.auto_picking?.sku_limit_excluded_count || 0}`);
         textLines.push("");
       }
@@ -2099,6 +2162,21 @@ function App() {
       });
   };
 
+  const handleCopyAssociatedProductId = (productId) => {
+    navigator.clipboard.writeText(String(productId))
+      .then(() => {
+        setCopiedAssociatedProductId(productId);
+        setTimeout(() => {
+          setCopiedAssociatedProductId(current => current === productId ? null : current);
+        }, 1500);
+        showActionMsg(`ID prodotto ${productId} copiato.`);
+      })
+      .catch((err) => {
+        console.error("Errore nella copia dell'ID prodotto:", err);
+        showActionMsg("Errore durante la copia dell'ID prodotto.", "danger");
+      });
+  };
+
   // Text search highlighter
   const highlightText = (text, search) => {
     if (!search || !text) return text;
@@ -2300,7 +2378,22 @@ function App() {
   )
     .filter(sku =>
       !autoPickingSkuFilter.some(selected => selected.toUpperCase() === sku.toUpperCase()) &&
+      !autoPickingExcludedSkus.some(selected => selected.toUpperCase() === sku.toUpperCase()) &&
       (!autoPickingSkuQuery.trim() || sku.toLowerCase().includes(autoPickingSkuQuery.trim().toLowerCase()))
+    )
+    .slice(0, 12);
+
+  const autoPickingExcludedSkuSuggestions = Array.from(
+    new Map(
+      stockData
+        .filter(item => item.sku && !String(item.sku).startsWith('__spacer_'))
+        .map(item => [String(item.sku).trim().toUpperCase(), String(item.sku).trim()])
+    ).values()
+  )
+    .filter(sku =>
+      !autoPickingSkuFilter.some(selected => selected.toUpperCase() === sku.toUpperCase()) &&
+      !autoPickingExcludedSkus.some(selected => selected.toUpperCase() === sku.toUpperCase()) &&
+      (!autoPickingExcludedSkuQuery.trim() || sku.toLowerCase().includes(autoPickingExcludedSkuQuery.trim().toLowerCase()))
     )
     .slice(0, 12);
 
@@ -2308,6 +2401,7 @@ function App() {
   const pickingOrders = pickingResults?.order_requirements || [];
   const automaticRemainingOrders = pickingResults?.remaining_orders || [];
   const automaticSkuLimitExcludedOrders = pickingResults?.sku_limit_excluded_orders || [];
+  const automaticSkuExcludedOrders = pickingResults?.sku_excluded_orders || [];
   const hasAutomaticRemainingDetails = Array.isArray(pickingResults?.remaining_orders);
   const automaticUnclassifiedCount = Math.max(
     0,
@@ -2380,6 +2474,8 @@ function App() {
       if (metaA.rank !== metaB.rank) return metaA.rank - metaB.rank;
       return String(a.order_id || '').localeCompare(String(b.order_id || ''));
     });
+  const detectedPickingOrderCount = new Set(rawPickingText.match(/\b\d{4,8}\b/g) || []).size;
+
   return (
     <div className="app-container">
       {/* Sidebar Navigation */}
@@ -3106,8 +3202,21 @@ function App() {
                             )}
                           </td>
                           <td style={{ textAlign: 'center' }}>
-                            {isSpacer ? "" : (
-                              <span className="badge badge-neutral">{item.connected_products}</span>
+                            {isSpacer ? "" : item.connected_products > 0 ? (
+                              <button
+                                type="button"
+                                className="badge badge-neutral stock-associated-products-button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  fetchSkuProducts(item.sku);
+                                }}
+                                aria-label={`Mostra ${item.connected_products} prodotti associati alla SKU ${item.sku}`}
+                                title="Mostra prodotti associati"
+                              >
+                                {item.connected_products}
+                              </button>
+                            ) : (
+                              <span className="badge badge-neutral stock-associated-products-zero">0</span>
                             )}
                           </td>
                         </tr>
@@ -3736,8 +3845,20 @@ function App() {
               
               {pickingInputMode === 'text' ? (
                 <form onSubmit={handleCalculatePicking} className="picking-workflow-form">
-                  <div className="form-group">
+                  <div className="picking-text-editor">
+                    <div className="picking-text-editor-head">
+                      <div>
+                        <label htmlFor="picking-order-text">Elenco ordini</label>
+                        <small id="picking-order-text-help">Incolla il testo ricevuto: gli ID vengono riconosciuti automaticamente.</small>
+                      </div>
+                      <span className={detectedPickingOrderCount > 0 ? 'has-orders' : ''}>
+                        {detectedPickingOrderCount > 0
+                          ? `${detectedPickingOrderCount} ${detectedPickingOrderCount === 1 ? 'ordine rilevato' : 'ordini rilevati'}`
+                          : 'Nessun ordine rilevato'}
+                      </span>
+                    </div>
                     <textarea
+                      id="picking-order-text"
                       className="settings-input picking-textarea"
                       placeholder={`Esempio di testo incollato:
 206542 > Meesseman 
@@ -3746,6 +3867,7 @@ function App() {
 209465 > Herting`}
                       value={rawPickingText}
                       onChange={(e) => setRawPickingText(e.target.value)}
+                      aria-describedby="picking-order-text-help"
                     />
                   </div>
                   
@@ -3756,35 +3878,40 @@ function App() {
                     </div>
                   )}
                   
-                  <div className="picking-form-actions">
-                    <button 
-                      type="submit" 
-                      className="btn btn-primary" 
-                      disabled={pickingLoading}
-                    >
-                      {pickingLoading ? (
-                        <>
-                          <div className="spinner" style={{ width: '16px', height: '16px', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff' }}></div>
-                          Elaborazione in corso...
-                        </>
-                      ) : (
-                        "Calcola Fabbisogno"
+                  <div className="picking-text-footer">
+                    <div className="picking-format-hint">
+                      <strong>Formato riconosciuto</strong>
+                      <span>ID numerici da 4 a 8 cifre, anche accompagnati dal nome cliente.</span>
+                    </div>
+                    <div className="picking-form-actions">
+                      {pickingResults && (
+                        <button 
+                          type="button" 
+                          className="btn btn-neutral" 
+                          onClick={() => {
+                            setRawPickingText('');
+                            setPickingResults(null);
+                            setPickingError(null);
+                          }}
+                        >
+                          Nuovo calcolo
+                        </button>
                       )}
-                    </button>
-                    
-                    {pickingResults && (
                       <button 
-                        type="button" 
-                        className="btn btn-neutral" 
-                        onClick={() => {
-                          setRawPickingText('');
-                          setPickingResults(null);
-                          setPickingError(null);
-                        }}
+                        type="submit" 
+                        className="btn btn-primary picking-calculate-btn" 
+                        disabled={pickingLoading}
                       >
-                        Nuovo Calcolo
+                        {pickingLoading ? (
+                          <>
+                            <div className="spinner" style={{ width: '16px', height: '16px', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff' }}></div>
+                            Elaborazione in corso...
+                          </>
+                        ) : (
+                          "Calcola fabbisogno"
+                        )}
                       </button>
-                    )}
+                    </div>
                   </div>
                 </form>
               ) : pickingInputMode === 'file' ? (
@@ -4062,11 +4189,25 @@ function App() {
                             <small>Limita facoltativamente gli ordini candidati.</small>
                           </span>
                           <span className="picking-advanced-status">
-                            {autoPickingSkuFilter.length > 0 ? `${autoPickingSkuFilter.length} configurati` : 'Nessuno'}
+                            {(autoPickingSkuFilter.length + autoPickingExcludedSkus.length) > 0
+                              ? `${autoPickingSkuFilter.length + autoPickingExcludedSkus.length} regole`
+                              : 'Nessuno'}
                           </span>
                         </summary>
                         <div className="picking-advanced-content">
-                          <div className="picking-sku-rule-builder">
+                          <section className="picking-sku-filter-section">
+                            <div className="picking-sku-filter-heading">
+                              <div>
+                                <strong>SKU da includere</strong>
+                                <small>Considera soltanto gli ordini che contengono una delle SKU configurate.</small>
+                              </div>
+                              <span>
+                                {autoPickingSkuFilter.length > 0
+                                  ? `${autoPickingSkuFilter.length} ${autoPickingSkuFilter.length === 1 ? 'regola' : 'regole'}`
+                                  : 'Nessuna'}
+                              </span>
+                            </div>
+                          <div className="picking-sku-rule-builder picking-sku-filter-builder">
                             <div>
                               <label className="picking-field-label" htmlFor="auto-picking-sku-filter">
                                 SKU componente
@@ -4170,8 +4311,89 @@ function App() {
                               </button>
                             </div>
                           ) : (
-                            <div className="picking-filter-empty">Nessun filtro: saranno valutati tutti gli ordini negli stati configurati.</div>
+                            <div className="picking-filter-empty">
+                              {autoPickingExcludedSkus.length > 0
+                                ? 'Nessun filtro di inclusione: saranno valutati gli ordini che non contengono le SKU escluse.'
+                                : 'Nessun filtro: saranno valutati tutti gli ordini negli stati configurati.'}
+                            </div>
                           )}
+                          </section>
+
+                          <section className="picking-sku-filter-section picking-excluded-sku-section">
+                            <div className="picking-sku-filter-heading">
+                              <div>
+                                <strong>SKU da escludere</strong>
+                                <small>Gli ordini che contengono una di queste SKU non entreranno nella simulazione.</small>
+                              </div>
+                              <span>
+                                {autoPickingExcludedSkus.length > 0
+                                  ? `${autoPickingExcludedSkus.length} ${autoPickingExcludedSkus.length === 1 ? 'regola' : 'regole'}`
+                                  : 'Nessuna'}
+                              </span>
+                            </div>
+                            <div className="picking-sku-exclusion-builder picking-sku-filter-builder">
+                              <div>
+                                <label className="picking-field-label" htmlFor="auto-picking-excluded-sku">
+                                  SKU componente da escludere
+                                </label>
+                                <input
+                                  id="auto-picking-excluded-sku"
+                                  className="settings-input"
+                                  type="text"
+                                  list="auto-picking-excluded-sku-options"
+                                  placeholder="Esempio: ATXC35D"
+                                  value={autoPickingExcludedSkuQuery}
+                                  onChange={(e) => setAutoPickingExcludedSkuQuery(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      e.preventDefault();
+                                      addAutoPickingExcludedSku(autoPickingExcludedSkuQuery);
+                                    }
+                                  }}
+                                />
+                                <datalist id="auto-picking-excluded-sku-options">
+                                  {autoPickingExcludedSkuSuggestions.map(sku => (
+                                    <option key={sku} value={sku} />
+                                  ))}
+                                </datalist>
+                              </div>
+                              <button
+                                type="button"
+                                className="btn btn-neutral"
+                                onClick={() => addAutoPickingExcludedSku(autoPickingExcludedSkuQuery)}
+                                disabled={!autoPickingExcludedSkuQuery.trim()}
+                              >
+                                Escludi SKU
+                              </button>
+                            </div>
+                            {autoPickingExcludedSkus.length > 0 ? (
+                              <div className="picking-excluded-sku-list" aria-label="SKU escluse dalla simulazione">
+                                {autoPickingExcludedSkus.map(sku => (
+                                  <span key={sku} className="picking-excluded-sku-chip">
+                                    <strong>{sku}</strong>
+                                    <button
+                                      type="button"
+                                      onClick={() => removeAutoPickingExcludedSku(sku)}
+                                      aria-label={`Rimuovi ${sku} dalle SKU escluse`}
+                                    >
+                                      ×
+                                    </button>
+                                  </span>
+                                ))}
+                                <button
+                                  type="button"
+                                  className="picking-sku-filter-clear"
+                                  onClick={() => setAutoPickingExcludedSkus([])}
+                                >
+                                  Rimuovi tutte le esclusioni
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="picking-filter-empty">
+                                Nessuna esclusione: gli ordini non saranno filtrati in base a SKU escluse.
+                              </div>
+                            )}
+                          </section>
                         </div>
                       </details>
                     </div>
@@ -4203,6 +4425,10 @@ function App() {
                         <div>
                           <dt>Filtro SKU</dt>
                           <dd>{autoPickingSkuFilter.length > 0 ? `${autoPickingSkuFilter.length} configurati` : 'Tutte le SKU'}</dd>
+                        </div>
+                        <div>
+                          <dt>SKU escluse</dt>
+                          <dd>{autoPickingExcludedSkus.length > 0 ? autoPickingExcludedSkus.length : 'Nessuna'}</dd>
                         </div>
                       </dl>
                       <p className="picking-plan-note">
@@ -4366,6 +4592,12 @@ function App() {
                               .map(([sku, max]) => `${sku}≤${formatPickingQty(max)}`)
                               .join(', ')}`
                             : ''}
+                          {pickingResults.auto_picking?.excluded_skus?.length > 0
+                            ? ` | SKU escluse: ${pickingResults.auto_picking.excluded_skus.join(', ')}`
+                            : ''}
+                          {pickingResults.auto_picking?.sku_excluded_count > 0
+                            ? ` | Ordini esclusi per SKU: ${pickingResults.auto_picking.sku_excluded_count}`
+                            : ''}
                           {pickingResults.auto_picking?.sku_limit_excluded_count > 0
                             ? ` | Esclusi per massimo: ${pickingResults.auto_picking.sku_limit_excluded_count}`
                             : ''}
@@ -4423,6 +4655,39 @@ function App() {
                     </>
                   )}
                 </div>
+
+                {pickingResults.mode === 'automatic' && automaticSkuExcludedOrders.length > 0 && (
+                  <section className="picking-sku-limit-exclusions picking-explicit-sku-exclusions" aria-label="Ordini contenenti SKU escluse">
+                    <div className="picking-sku-limit-exclusions-head">
+                      <div>
+                        <span>Esclusi per SKU configurata</span>
+                        <strong>{automaticSkuExcludedOrders.length} ordini</strong>
+                      </div>
+                      <p>Questi ordini non entrano nella simulazione e non consumano giacenza.</p>
+                    </div>
+                    <div className="picking-sku-limit-exclusion-list">
+                      {automaticSkuExcludedOrders.slice(0, 20).map(order => (
+                        <div key={order.order_id} className="picking-sku-limit-exclusion-row">
+                          <div>
+                            <strong>Ordine {order.order_id}</strong>
+                            <span>{order.customer_name}</span>
+                          </div>
+                          <div>
+                            {order.excluded_items?.map(item => (
+                              <span key={item.sku}>
+                                <strong>{item.sku}</strong>
+                                richieste {formatPickingQty(item.qty_required)}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    {automaticSkuExcludedOrders.length > 20 && (
+                      <small>Visualizzati i primi 20 ordini esclusi.</small>
+                    )}
+                  </section>
+                )}
 
                 {pickingResults.mode === 'automatic' && automaticSkuLimitExcludedOrders.length > 0 && (
                   <section className="picking-sku-limit-exclusions" aria-label="Ordini esclusi dai massimi per SKU">
@@ -6144,6 +6409,103 @@ function App() {
           </div>
         )}
       </main>
+
+      {/* Independent right-side drawer for products associated with a stock SKU */}
+      {selectedSkuForProducts && (
+        <>
+          <div className="order-drawer-overlay" onClick={() => setSelectedSkuForProducts(null)} />
+          <aside
+            className="order-drawer stock-products-drawer"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="stock-products-drawer-title"
+          >
+            <div className="order-drawer-header">
+              <div className="order-drawer-title-row">
+                <div>
+                  <span className="stock-products-drawer-eyebrow">Prodotti associati</span>
+                  <h3 id="stock-products-drawer-title">
+                    SKU <span>{selectedSkuForProducts}</span>
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  className="order-drawer-close"
+                  onClick={() => setSelectedSkuForProducts(null)}
+                  aria-label="Chiudi prodotti associati"
+                >
+                  ×
+                </button>
+              </div>
+              <div className="order-drawer-stats">
+                <div className="drawer-stat-chip">
+                  <span className="stat-value">{skuProductsData.length}</span>
+                  <span className="stat-label">Prodotti collegati</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="order-drawer-body stock-products-drawer-body">
+              {loadingSkuProducts ? (
+                <div className="stock-products-drawer-loading" aria-live="polite">
+                  <div className="spinner" />
+                  <span>Caricamento prodotti associati…</span>
+                </div>
+              ) : skuProductsData.length === 0 ? (
+                <div className="stock-products-drawer-empty">
+                  <strong>Nessun prodotto associato</strong>
+                  <span>La SKU non risulta collegata a prodotti nel batch attivo.</span>
+                </div>
+              ) : (
+                <div className="stock-associated-product-list">
+                  {skuProductsData.map(product => (
+                    <article key={product.product_id} className="stock-associated-product-card">
+                      <div className="stock-associated-product-head">
+                        <div>
+                          <span>Prodotto PrestaShop</span>
+                          <button
+                            type="button"
+                            className={`stock-associated-product-id ${copiedAssociatedProductId === product.product_id ? 'copied' : ''}`}
+                            onClick={() => handleCopyAssociatedProductId(product.product_id)}
+                            title="Copia ID prodotto"
+                            aria-label={`Copia ID prodotto ${product.product_id}`}
+                          >
+                            <strong>{product.product_id}</strong>
+                            <small>{copiedAssociatedProductId === product.product_id ? 'Copiato' : 'Copia'}</small>
+                          </button>
+                        </div>
+                        <span className="stock-associated-product-quantity">
+                          ×{formatPickingQty(product.qty_required)} per prodotto
+                        </span>
+                      </div>
+                      <div className="stock-associated-product-copy">
+                        <strong>{product.product_name || `Prodotto ${product.product_id}`}</strong>
+                        <span>{product.product_reference || 'Riferimento non disponibile'}</span>
+                      </div>
+                      <dl className="stock-associated-product-facts">
+                        <div>
+                          <dt>Disponibilità</dt>
+                          <dd>{product.qty_available === null ? 'Non calcolata' : formatPickingQty(product.qty_available)}</dd>
+                        </div>
+                        <div>
+                          <dt>SKU limitante</dt>
+                          <dd>{product.limiting_sku || '—'}</dd>
+                        </div>
+                      </dl>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="order-drawer-footer">
+              <button type="button" className="btn btn-primary" onClick={() => setSelectedSkuForProducts(null)}>
+                Chiudi
+              </button>
+            </div>
+          </aside>
+        </>
+      )}
 
       {/* Right-side Drawer for SKU Committed Orders Detail */}
       {selectedSkuForOrders && (() => {

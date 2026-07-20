@@ -1,6 +1,25 @@
 import openpyxl
+import math
+import numbers
 from io import BytesIO
 from typing import List, Dict, Tuple, Any
+
+
+def normalize_sku_cell(value: Any) -> str:
+    """Convert an Excel SKU cell to text without inventing a trailing .0.
+
+    Text cells are preserved exactly (apart from surrounding whitespace), so a
+    real textual SKU such as ``ABC.0`` or ``00123`` is never rewritten.
+    """
+    if isinstance(value, bool):
+        return str(value).strip()
+    if isinstance(value, numbers.Integral):
+        return str(int(value))
+    if isinstance(value, numbers.Real):
+        numeric_value = float(value)
+        if math.isfinite(numeric_value) and numeric_value.is_integer():
+            return str(int(numeric_value))
+    return str(value).strip()
 
 def get_excel_sheets(file_content: bytes) -> List[str]:
     """
@@ -95,7 +114,7 @@ def parse_warehouse_excel(
                 })
                 continue
                 
-            sku = str(sku_val).strip()
+            sku = normalize_sku_cell(sku_val)
             
             # Parse quantity
             try:
@@ -216,7 +235,7 @@ def parse_associations_excel(file_content: bytes) -> Tuple[List[Dict[str, Any]],
                 })
                 continue
                 
-            sku_str = str(sku_list_val)
+            sku_str = normalize_sku_cell(sku_list_val)
             # Split by comma and clean
             skus_split = [s.strip() for s in sku_str.split(',') if s.strip() != '']
             

@@ -63,6 +63,16 @@ class PrestashopOrderLine(Base):
     product_name = Column(String(255), nullable=True)
     product_quantity = Column(Integer, default=1)
 
+
+class PrestashopProductCache(Base):
+    __tablename__ = "prestashop_product_cache"
+
+    product_id = Column(Integer, primary_key=True)
+    product_name = Column(String(255), nullable=True)
+    product_reference = Column(String(100), nullable=True)
+    fetch_status = Column(String(20), nullable=False, default="success")
+    fetched_at = Column(DateTime, default=func.now(), nullable=False)
+
 class CalcRun(Base):
     __tablename__ = "calc_runs"
     

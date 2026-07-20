@@ -119,7 +119,7 @@ class PrestaShopClient:
                             return str(item.get("value") or "").strip()
                     if isinstance(lang_val[0], dict):
                         return str(lang_val[0].get("value") or "").strip()
-                return str(lang_val).strip()
+                return self._clean_name_field(lang_val)
             for k in ["1", 1]:
                 if k in val:
                     return str(val[k] or "").strip()
@@ -565,3 +565,49 @@ class PrestaShopClient:
         except Exception as e:
             logger.error(f"Errore nel recupero della reference per il prodotto {product_id} da PrestaShop: {str(e)}")
             return None
+
+    def get_products_details(self, product_ids: List[int]) -> Dict[int, Dict[str, str]]:
+        """Recupera nome e riferimento di più prodotti con richieste batch."""
+        normalized_ids = sorted({int(product_id) for product_id in product_ids if int(product_id) > 0})
+        if not normalized_ids:
+            return {}
+
+        if self.mock_mode:
+            return {
+                product_id: {
+                    "product_name": f"Prodotto demo {product_id}",
+                    "product_reference": f"REF-{product_id}"
+                }
+                for product_id in normalized_ids
+            }
+
+        products: Dict[int, Dict[str, str]] = {}
+        for offset in range(0, len(normalized_ids), 50):
+            chunk = normalized_ids[offset:offset + 50]
+            ids_filter = "|".join(str(product_id) for product_id in chunk)
+            product_url = f"{self.url}products"
+            params = {
+                "display": "[id,name,reference]",
+                "filter[id]": f"[{ids_filter}]",
+                "output_format": "JSON",
+                "ws_key": self.api_key
+            }
+            response = self._make_request(product_url, params=params, timeout=15)
+            response.raise_for_status()
+            data = response.json()
+            raw_products = data.get("products", []) if isinstance(data, dict) else data
+            if isinstance(raw_products, dict):
+                raw_products = [raw_products]
+            if not isinstance(raw_products, list):
+                raw_products = []
+
+            for product in raw_products:
+                if not isinstance(product, dict) or not product.get("id"):
+                    continue
+                product_id = int(product["id"])
+                products[product_id] = {
+                    "product_name": self._clean_name_field(product.get("name")),
+                    "product_reference": str(product.get("reference") or "").strip()
+                }
+
+        return products

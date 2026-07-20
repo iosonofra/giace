@@ -23,7 +23,7 @@ from sqlalchemy import func, desc, asc, inspect, text
 from backend.database import engine, Base, get_db
 from backend.models import (
     ImportBatch, WarehouseStock, ProductComponent,
-    PrestashopOrder, PrestashopOrderLine, CalcRun,
+    PrestashopOrder, PrestashopOrderLine, PrestashopProductCache, CalcRun,
     SkuCommitment, ProductAvailability, ImportAnomaly,
     AppSetting
 )
@@ -1858,6 +1858,148 @@ def get_stock(db: Session = Depends(get_db)):
 
     return result
 
+@app.get("/api/stock/{sku:path}/products")
+def get_stock_associated_products(sku: str, db: Session = Depends(get_db)):
+    normalized_sku = str(sku or "").strip()
+    if not normalized_sku:
+        raise HTTPException(status_code=400, detail="SKU mancante o non valida.")
+
+    active_a = db.query(ImportBatch).filter(
+        ImportBatch.file_type == "associations",
+        ImportBatch.is_active == True
+    ).first()
+    if not active_a:
+        return []
+
+    components = db.query(ProductComponent).filter(
+        ProductComponent.import_batch_id == active_a.id,
+        ProductComponent.sku == normalized_sku
+    ).order_by(ProductComponent.product_id.asc()).all()
+    if not components:
+        return []
+
+    product_ids = sorted({component.product_id for component in components})
+    cache_rows = db.query(PrestashopProductCache).filter(
+        PrestashopProductCache.product_id.in_(product_ids)
+    ).all()
+    cache_by_product = {row.product_id: row for row in cache_rows}
+
+    recent_lines = db.query(PrestashopOrderLine).filter(
+        PrestashopOrderLine.product_id.in_(product_ids)
+    ).order_by(PrestashopOrderLine.id.desc()).all()
+    product_metadata = {}
+    metadata_source = {}
+    for product_id, cache_row in cache_by_product.items():
+        if cache_row.product_name or cache_row.product_reference:
+            product_metadata[product_id] = {
+                "product_name": cache_row.product_name or "",
+                "product_reference": cache_row.product_reference or ""
+            }
+            metadata_source[product_id] = "cache"
+
+    for line in recent_lines:
+        current = product_metadata.get(line.product_id, {})
+        if not current.get("product_name") and line.product_name:
+            product_metadata[line.product_id] = {
+                "product_name": line.product_name or "",
+                "product_reference": line.product_reference or current.get("product_reference", "")
+            }
+            metadata_source[line.product_id] = "orders"
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    negative_cache_ttl = timedelta(minutes=15)
+    ids_to_fetch = []
+    for product_id in product_ids:
+        if product_metadata.get(product_id, {}).get("product_name"):
+            continue
+        cache_row = cache_by_product.get(product_id)
+        cache_is_recent = (
+            cache_row is not None
+            and cache_row.fetched_at is not None
+            and now - cache_row.fetched_at < negative_cache_ttl
+        )
+        if not cache_is_recent:
+            ids_to_fetch.append(product_id)
+
+    cache_changed = False
+    if ids_to_fetch:
+        try:
+            ps_client = get_ps_client(db)
+            if not ps_client.url or not ps_client.api_key:
+                raise RuntimeError("Webservice PrestaShop non configurato")
+            fetched_products = ps_client.get_products_details(ids_to_fetch)
+            for product_id in ids_to_fetch:
+                details = fetched_products.get(product_id, {})
+                cache_row = cache_by_product.get(product_id)
+                if cache_row is None:
+                    cache_row = PrestashopProductCache(product_id=product_id)
+                    db.add(cache_row)
+                    cache_by_product[product_id] = cache_row
+                cache_row.product_name = details.get("product_name", "")
+                cache_row.product_reference = details.get("product_reference", "")
+                cache_row.fetch_status = "success" if details else "not_found"
+                cache_row.fetched_at = now
+                cache_changed = True
+                if details:
+                    product_metadata[product_id] = details
+                    metadata_source[product_id] = "prestashop"
+        except Exception as exc:
+            logger.warning("Impossibile aggiornare la cache dei prodotti %s: %s", ids_to_fetch, exc)
+            for product_id in ids_to_fetch:
+                cache_row = cache_by_product.get(product_id)
+                if cache_row is None:
+                    cache_row = PrestashopProductCache(product_id=product_id)
+                    db.add(cache_row)
+                    cache_by_product[product_id] = cache_row
+                cache_row.fetch_status = "error"
+                cache_row.fetched_at = now
+                cache_changed = True
+
+    # Anche i metadati già presenti negli ordini diventano riutilizzabili senza
+    # dover riesaminare tutte le righe ordine alle aperture successive.
+    for product_id, details in product_metadata.items():
+        if metadata_source.get(product_id) != "orders":
+            continue
+        cache_row = cache_by_product.get(product_id)
+        if cache_row is None:
+            cache_row = PrestashopProductCache(product_id=product_id)
+            db.add(cache_row)
+            cache_by_product[product_id] = cache_row
+        cache_row.product_name = details.get("product_name", "")
+        cache_row.product_reference = details.get("product_reference", "")
+        cache_row.fetch_status = "success"
+        cache_row.fetched_at = now
+        cache_changed = True
+
+    if cache_changed:
+        db.commit()
+
+    latest_run = db.query(CalcRun).filter(
+        CalcRun.status == "completed"
+    ).order_by(CalcRun.completed_at.desc()).first()
+    availability_map = {}
+    if latest_run:
+        availabilities = db.query(ProductAvailability).filter(
+            ProductAvailability.calc_run_id == latest_run.id,
+            ProductAvailability.product_id.in_(product_ids)
+        ).all()
+        availability_map = {item.product_id: item for item in availabilities}
+
+    result = []
+    for component in components:
+        metadata = product_metadata.get(component.product_id, {})
+        availability = availability_map.get(component.product_id)
+        result.append({
+            "product_id": component.product_id,
+            "product_name": metadata.get("product_name", ""),
+            "product_reference": metadata.get("product_reference", ""),
+            "metadata_source": metadata_source.get(component.product_id, "fallback"),
+            "qty_required": component.qty_required,
+            "qty_available": availability.qty_available if availability else None,
+            "limiting_sku": availability.limiting_sku if availability else ""
+        })
+    return result
+
 @app.get("/api/stock/{sku:path}/orders")
 def get_stock_orders(sku: str, db: Session = Depends(get_db)):
     active_a = db.query(ImportBatch).filter(
@@ -2510,6 +2652,19 @@ def auto_picking_orders(payload: dict, db: Session = Depends(get_db)):
         if str(sku).strip()
     }
 
+    excluded_skus_raw = payload.get("excluded_skus", [])
+    if isinstance(excluded_skus_raw, str):
+        excluded_skus_raw = [s.strip() for s in excluded_skus_raw.split(",")]
+    if not isinstance(excluded_skus_raw, list):
+        raise HTTPException(status_code=400, detail="Le SKU da escludere devono essere una lista valida.")
+    excluded_skus = {
+        str(sku).strip().upper()
+        for sku in excluded_skus_raw
+        if str(sku).strip()
+    }
+    if len(excluded_skus) > 500:
+        raise HTTPException(status_code=400, detail="Puoi configurare al massimo 500 SKU da escludere.")
+
     sku_limits_raw = payload.get("sku_limits", {})
     if not isinstance(sku_limits_raw, dict):
         raise HTTPException(status_code=400, detail="I limiti quantità per SKU devono essere una mappa valida.")
@@ -2591,6 +2746,7 @@ def auto_picking_orders(payload: dict, db: Session = Depends(get_db)):
     evaluated_count = 0
     candidate_orders = []
     sku_limit_excluded_orders = []
+    sku_excluded_orders = []
 
     for order in orders:
         sku_reqs = {}
@@ -2616,6 +2772,26 @@ def auto_picking_orders(payload: dict, db: Session = Depends(get_db)):
                         "product_id": prod_id,
                         "qty_ordered": qty_ordered
                     })
+
+        matched_excluded_skus = [
+            {
+                "sku": sku,
+                "qty_required": required_qty
+            }
+            for sku, required_qty in sorted(sku_reqs.items())
+            if sku.upper() in excluded_skus
+        ]
+        if matched_excluded_skus:
+            sku_excluded_orders.append({
+                "order_id": str(order.order_id),
+                "customer_name": order.customer_name or "Cliente sconosciuto",
+                "date_add": order.date_add.isoformat() if order.date_add else None,
+                "current_state": order.current_state,
+                "current_state_label": order.current_state_label or f"Stato {order.current_state}",
+                "reason": "Ordine contenente una SKU esclusa",
+                "excluded_items": matched_excluded_skus
+            })
+            continue
 
         if sku_filter and not any(sku.upper() in sku_filter for sku in sku_reqs):
             continue
@@ -2910,6 +3086,7 @@ def auto_picking_orders(payload: dict, db: Session = Depends(get_db)):
         "skipped_orders": skipped_orders,
         "remaining_orders": remaining_orders,
         "sku_limit_excluded_orders": sku_limit_excluded_orders,
+        "sku_excluded_orders": sku_excluded_orders,
         "stock_simulation": stock_simulation,
         "simulation_summary": {
             "selected_units": simulated_units,
@@ -2934,6 +3111,8 @@ def auto_picking_orders(payload: dict, db: Session = Depends(get_db)):
             "candidate_count": len(candidate_orders),
             "sku_filter": sorted(sku_filter),
             "sku_limits": sku_limits,
+            "excluded_skus": sorted(excluded_skus),
+            "sku_excluded_count": len(sku_excluded_orders),
             "sku_limit_excluded_count": len(sku_limit_excluded_orders),
             "remaining_count": len(remaining_orders)
         }
