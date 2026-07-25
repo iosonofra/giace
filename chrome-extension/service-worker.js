@@ -54,11 +54,14 @@ async function fetchJson(url, options = {}) {
 }
 
 function buildHeaders(settings) {
-  const headers = { "Content-Type": "application/json" };
-  if (settings.extensionToken) {
-    headers["X-Giac-Extension-Token"] = settings.extensionToken;
+  const token = String(settings.extensionToken || "").trim();
+  if (!token) {
+    throw new Error("Configura il token obbligatorio nelle opzioni dell'estensione.");
   }
-  return headers;
+  return {
+    "Content-Type": "application/json",
+    "X-Giac-Extension-Token": token
+  };
 }
 
 function senderMatchesPrestashop(settings, sender) {

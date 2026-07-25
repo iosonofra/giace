@@ -17,7 +17,7 @@ Estensione Chrome Manifest V3 che mostra disponibilità e criticità nella lista
 - **Dominio amministrazione PrestaShop**: per esempio `https://admin.esempio.it`.
 - **Token**: nella webapp apri **Impostazioni → Estensione beta**, genera e salva il token, quindi copialo nelle opzioni dell'estensione.
 
-Il token salvato dalla webapp è attivo immediatamente, senza riavviare il servizio. Lasciandolo vuoto, gli endpoint dell'estensione restano accessibili senza autenticazione.
+Il token salvato dalla webapp è attivo immediatamente, senza riavviare il servizio. Il token è obbligatorio: senza una configurazione valida gli endpoint dell'estensione non sono accessibili.
 
 ## Funzionamento
 

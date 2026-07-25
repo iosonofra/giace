@@ -5611,6 +5611,23 @@ body {
   justify-content: center;
 }
 
+.picking-inline-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #fff;
+}
+
+.picking-loading-title {
+  margin: 0;
+}
+
+.picking-file-remove {
+  color: var(--color-danger);
+  border-color: rgba(239, 68, 68, 0.15);
+  background-color: rgba(239, 68, 68, 0.05);
+}
+
 .picking-form-actions {
   display: flex;
   align-items: center;

@@ -98,12 +98,7 @@ testButton.addEventListener("click", async () => {
   const response = await sendMessage({ type: "TEST_CONNECTION", settings });
   testButton.disabled = false;
   if (response?.ok) {
-    showStatus(
-      response.data?.token_required
-        ? "Connessione riuscita. Token verificato."
-        : "Connessione riuscita. Il backend non richiede ancora un token.",
-      "success"
-    );
+    showStatus("Connessione riuscita. Token verificato.", "success");
   } else {
     showStatus(response?.error || "Connessione non riuscita.", "error");
   }

@@ -57,11 +57,14 @@
   }
 
   function buildHeaders(settings) {
-    const headers = { "Content-Type": "application/json" };
-    if (settings.extensionToken) {
-      headers["X-Giac-Extension-Token"] = settings.extensionToken;
+    const token = String(settings.extensionToken || "").trim();
+    if (!token) {
+      throw new Error("Configura il token obbligatorio dal menu Giac.");
     }
-    return headers;
+    return {
+      "Content-Type": "application/json",
+      "X-Giac-Extension-Token": token
+    };
   }
 
   function requestJson(url, options = {}) {

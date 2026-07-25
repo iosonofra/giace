@@ -130,12 +130,7 @@ testButton.addEventListener("click", async () => {
     if (!response?.ok) {
       throw new Error(response?.error || "Connessione non riuscita.");
     }
-    showStatus(
-      response.data?.token_required
-        ? "Connessione riuscita. Token verificato."
-        : "Connessione riuscita. Il backend non richiede un token.",
-      "success"
-    );
+    showStatus("Connessione riuscita. Token verificato.", "success");
   } catch (error) {
     showStatus(error.message, "error");
   } finally {
