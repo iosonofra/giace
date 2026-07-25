@@ -36,6 +36,8 @@ export function createAppPageModels({
       syncingOrders: runtime.syncingOrders,
     },
     associationsUi: {
+      associationSummary: associations.associationSummary,
+      availabilityFilter: associations.availabilityFilter,
       handleDeleteAssociation: (
         associations.handleDeleteAssociation
       ),
@@ -43,6 +45,7 @@ export function createAppPageModels({
         associationEditor.handleOpenEditAssociation
       ),
       handleSortProduct: associations.handleSortProduct,
+      handleFileUpload: syncActions.handleFileUpload,
       highlightText: shared.highlightText,
       Icons: shared.Icons,
       paginatedProducts: associations.paginatedProducts,
@@ -52,10 +55,12 @@ export function createAppPageModels({
       productSort: associations.productSort,
       searchProduct: associations.searchProduct,
       setProductsPage: associations.setProductsPage,
+      setAvailabilityFilter: associations.setAvailabilityFilter,
       setSearchProduct: associations.setSearchProduct,
       sortedProducts: associations.sortedProducts,
       TableSkeleton: shared.TableSkeleton,
       tabLoading: runtime.tabLoading,
+      loading: appData.loading,
       totalProductsPages: associations.totalProductsPages,
     },
     anomaliesUi: {
@@ -136,6 +141,7 @@ export function createAppPageModels({
       ),
       highlightText: shared.highlightText,
       Icons: shared.Icons,
+      Pagination: shared.Pagination,
       status: appData.status,
       stockSource: settings.stockSource,
       syncingGoogleSheets: settings.syncingGoogleSheets,

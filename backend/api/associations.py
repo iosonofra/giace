@@ -1,7 +1,13 @@
+from io import BytesIO
+
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from backend.database import get_db
+from backend.services.association_export import (
+    export_associations_excel,
+)
 from backend.services.association_management import (
     delete_product_association,
     read_association,
@@ -10,6 +16,23 @@ from backend.services.association_management import (
 
 
 router = APIRouter(tags=["associations"])
+
+
+@router.get("/api/associations/export")
+def export_associations(db: Session = Depends(get_db)):
+    return StreamingResponse(
+        BytesIO(export_associations_excel(db)),
+        media_type=(
+            "application/vnd.openxmlformats-officedocument."
+            "spreadsheetml.sheet"
+        ),
+        headers={
+            "Content-Disposition": (
+                'attachment; filename="associazioni.xlsx"'
+            ),
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 @router.get("/api/associations/{product_id}")

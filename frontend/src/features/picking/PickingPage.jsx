@@ -74,40 +74,42 @@ export function PickingPage({
           </button>
         </div>
 
-        {inputMode === 'text' ? (
-          <PickingTextInput
-            value={rawText}
-            onChange={setRawText}
-            onSubmit={onCalculateText}
-            error={error}
-            loading={loading}
-            hasResults={Boolean(results)}
-            detectedOrderCount={detectedOrderCount}
-            onReset={() => {
-              setRawText('');
-              setResults(null);
-              setError(null);
-            }}
-          />
-        ) : inputMode === 'file' ? (
-          <PickingFileInput
-            files={selectedFiles}
-            onFilesChange={setSelectedFiles}
-            onSubmit={onUploadFiles}
-            onReset={() => {
-              setSelectedFiles([]);
-              setResults(null);
-              setError(null);
-              setFileAnomalies([]);
-              setFileSummary([]);
-            }}
-            error={error}
-            loading={loading}
-            hasResults={Boolean(results)}
-          />
-        ) : (
-          <PickingAutomaticPlanner {...automaticPlannerProps} />
-        )}
+        <div key={inputMode} className="picking-mode-content">
+          {inputMode === 'text' ? (
+            <PickingTextInput
+              value={rawText}
+              onChange={setRawText}
+              onSubmit={onCalculateText}
+              error={error}
+              loading={loading}
+              hasResults={Boolean(results)}
+              detectedOrderCount={detectedOrderCount}
+              onReset={() => {
+                setRawText('');
+                setResults(null);
+                setError(null);
+              }}
+            />
+          ) : inputMode === 'file' ? (
+            <PickingFileInput
+              files={selectedFiles}
+              onFilesChange={setSelectedFiles}
+              onSubmit={onUploadFiles}
+              onReset={() => {
+                setSelectedFiles([]);
+                setResults(null);
+                setError(null);
+                setFileAnomalies([]);
+                setFileSummary([]);
+              }}
+              error={error}
+              loading={loading}
+              hasResults={Boolean(results)}
+            />
+          ) : (
+            <PickingAutomaticPlanner {...automaticPlannerProps} />
+          )}
+        </div>
       </div>
 
       {loading && !results && (

@@ -23,6 +23,12 @@ def parse_associations_excel(file_content):
                 continue
             product_value = row[0] if row else None
             sku_list_value = row[1] if len(row) > 1 else None
+            if (
+                row_number == 1
+                and str(product_value or "").strip().lower()
+                in {"product id", "product_id", "id prodotto"}
+            ):
+                continue
             if product_value is None or not str(product_value).strip():
                 anomalies.append(_association_anomaly(
                     row_number,

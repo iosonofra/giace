@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 
 import { apiFetch } from '../../api/client';
+import { paginateStockRows } from './stockPresentation';
 
 
 export function useStockListing({ active, ensureLoaded, refreshKey, setTabLoading }) {
@@ -9,6 +10,8 @@ export function useStockListing({ active, ensureLoaded, refreshKey, setTabLoadin
   const [stockData, setStockData] = useState([]);
   const [stockViewMode, setStockViewMode] = useState('standard');
   const [missingStockData, setMissingStockData] = useState([]);
+  const [stockLimit, setStockLimit] = useState(50);
+  const [stockPage, setStockPage] = useState(1);
 
   useEffect(() => {
     if (!active) return undefined;
@@ -59,7 +62,7 @@ export function useStockListing({ active, ensureLoaded, refreshKey, setTabLoadin
   const currentStockSourceData = stockViewMode === 'standard'
     ? stockData
     : missingStockData;
-  const sortedStock = useMemo(() => currentStockSourceData
+  const sortedStock = useMemo(() => [...currentStockSourceData]
     .filter(item => (
       item.sku.toLowerCase().includes(searchStock.toLowerCase())
       || (
@@ -81,17 +84,43 @@ export function useStockListing({ active, ensureLoaded, refreshKey, setTabLoadin
         ? leftValue.localeCompare(rightValue)
         : rightValue.localeCompare(leftValue);
     }), [currentStockSourceData, searchStock, stockSort]);
+  const stockPagination = useMemo(
+    () => paginateStockRows(sortedStock, stockPage, stockLimit),
+    [sortedStock, stockLimit, stockPage],
+  );
+
+  useEffect(() => {
+    setStockPage(1);
+  }, [
+    searchStock,
+    stockLimit,
+    stockSort.direction,
+    stockSort.field,
+    stockViewMode,
+  ]);
+
+  useEffect(() => {
+    if (stockPage !== stockPagination.page) {
+      setStockPage(stockPagination.page);
+    }
+  }, [stockPage, stockPagination.page]);
 
   return {
     currentStockSourceData,
     handleSortStock,
     missingStockData,
+    paginatedStock: stockPagination.rows,
     searchStock,
     setSearchStock,
+    setStockLimit,
+    setStockPage,
     setStockViewMode,
     sortedStock,
     stockData,
+    stockLimit,
+    stockPage,
     stockSort,
     stockViewMode,
+    totalStockPages: stockPagination.totalPages,
   };
 }

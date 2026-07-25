@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { apiFetch } from '../../api/client';
+import {
+  matchesAssociationFilter,
+  summarizeAssociations,
+} from './associationPresentation';
 
 export function useAssociationsData({
   active,
@@ -11,6 +15,7 @@ export function useAssociationsData({
   const [productsPage, setProductsPage] = useState(1);
   const [productsLimit] = useState(50);
   const [searchProduct, setSearchProduct] = useState('');
+  const [availabilityFilter, setAvailabilityFilter] = useState('all');
   const [productSort, setProductSort] = useState({
     field: 'product_id',
     direction: 'asc',
@@ -43,17 +48,25 @@ export function useAssociationsData({
 
   useEffect(() => {
     setProductsPage(1);
-  }, [productSort, searchProduct]);
+  }, [availabilityFilter, productSort, searchProduct]);
 
   const sortedProducts = useMemo(() => productData
-    .filter(product =>
-      String(product.product_id).includes(searchProduct) ||
-      product.components_str.toLowerCase().includes(searchProduct.toLowerCase()) ||
-      (
-        product.limiting_sku &&
-        product.limiting_sku.toLowerCase().includes(searchProduct.toLowerCase())
-      )
-    )
+    .filter(product => {
+      const normalizedSearch = searchProduct.trim().toLowerCase();
+      const matchesSearch = (
+        !normalizedSearch
+        || String(product.product_id).includes(normalizedSearch)
+        || product.components_str.toLowerCase().includes(normalizedSearch)
+        || (
+          product.limiting_sku
+          && product.limiting_sku.toLowerCase().includes(normalizedSearch)
+        )
+      );
+      return (
+        matchesSearch
+        && matchesAssociationFilter(product, availabilityFilter)
+      );
+    })
     .sort((a, b) => {
       let valueA = a[productSort.field];
       let valueB = b[productSort.field];
@@ -70,7 +83,17 @@ export function useAssociationsData({
       return productSort.direction === 'asc'
         ? valueA.localeCompare(valueB)
         : valueB.localeCompare(valueA);
-    }), [productData, productSort, searchProduct]);
+    }), [
+      availabilityFilter,
+      productData,
+      productSort,
+      searchProduct,
+    ]);
+
+  const associationSummary = useMemo(
+    () => summarizeAssociations(productData),
+    [productData],
+  );
 
   const totalProductsPages = Math.ceil(sortedProducts.length / productsLimit) || 1;
   const paginatedProducts = sortedProducts.slice(
@@ -124,6 +147,8 @@ export function useAssociationsData({
 
   return {
     associationToDelete,
+    associationSummary,
+    availabilityFilter,
     cancelDeleteAssociation,
     executeDeleteAssociation,
     handleDeleteAssociation,
@@ -134,6 +159,7 @@ export function useAssociationsData({
     productSort,
     searchProduct,
     setAssociationToDelete,
+    setAvailabilityFilter,
     setProductsPage,
     setSearchProduct,
     setShowDeleteAssociationConfirm,

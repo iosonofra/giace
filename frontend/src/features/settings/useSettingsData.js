@@ -1,4 +1,9 @@
-import { useEffect, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 
 import { apiFetch } from '../../api/client';
 import { SETTINGS_SECTIONS } from './settingsConstants';
@@ -11,6 +16,7 @@ import { useStockSettings } from './useStockSettings';
 export function useSettingsData({
   active,
   initialStockSource,
+  preload,
   refresh,
   refreshKey,
   setSyncingStock,
@@ -21,22 +27,79 @@ export function useSettingsData({
   const [settingsError, setSettingsError] = useState(null);
   const [currentSettings, setCurrentSettings] = useState(null);
   const [loadedOrderStates, setLoadedOrderStates] = useState([]);
+  const [loadedSettingsKey, setLoadedSettingsKey] = useState(null);
+  const [orderStatesReady, setOrderStatesReady] = useState(false);
+  const orderStatesRequestRef = useRef(null);
+  const requestRef = useRef(null);
+
+  const loadOrderStates = useCallback((requestKey) => {
+    if (orderStatesRequestRef.current?.key === requestKey) {
+      return orderStatesRequestRef.current.promise;
+    }
+    setOrderStatesReady(false);
+    const request = apiFetch('/api/order-states')
+      .then(response => response.json())
+      .then(states => {
+        setLoadedOrderStates(states);
+        setOrderStatesReady(true);
+      })
+      .catch(error => {
+        console.error(error);
+        setSettingsError(
+          'Configurazione caricata, ma gli stati ordine non sono disponibili.',
+        );
+      });
+    orderStatesRequestRef.current = {
+      key: requestKey,
+      promise: request,
+    };
+    const clearRequest = () => {
+      if (orderStatesRequestRef.current?.promise === request) {
+        orderStatesRequestRef.current = null;
+      }
+    };
+    request.then(clearRequest, clearRequest);
+    return request;
+  }, []);
+
+  const loadSettings = useCallback((requestKey) => {
+    if (requestRef.current?.key === requestKey) {
+      return requestRef.current.promise;
+    }
+
+    loadOrderStates(requestKey);
+    const request = apiFetch('/api/settings')
+      .then(response => response.json())
+      .then(settings => {
+        setCurrentSettings(settings);
+        setLoadedSettingsKey(requestKey);
+      });
+    requestRef.current = {
+      key: requestKey,
+      promise: request,
+    };
+    const clearRequest = () => {
+      if (requestRef.current?.promise === request) {
+        requestRef.current = null;
+      }
+    };
+    request.then(clearRequest, clearRequest);
+    return request;
+  }, [loadOrderStates]);
 
   useEffect(() => {
-    if (!active) return undefined;
+    if (!active && !preload) return undefined;
+    if (loadedSettingsKey === refreshKey) {
+      if (active) setTabLoading(false);
+      return undefined;
+    }
 
     let cancelled = false;
     setSettingsError(null);
-    setTabLoading(true);
-    Promise.all([
-      apiFetch('/api/order-states').then(response => response.json()),
-      apiFetch('/api/settings').then(response => response.json()),
-    ])
-      .then(([states, settings]) => {
-        if (cancelled) return;
-        setLoadedOrderStates(states);
-        setCurrentSettings(settings);
-      })
+    if (active && loadedSettingsKey !== refreshKey) {
+      setTabLoading(true);
+    }
+    loadSettings(refreshKey)
       .catch(error => {
         if (cancelled) return;
         console.error(error);
@@ -49,7 +112,14 @@ export function useSettingsData({
     return () => {
       cancelled = true;
     };
-  }, [active, refreshKey, setTabLoading]);
+  }, [
+    active,
+    loadSettings,
+    loadedSettingsKey,
+    preload,
+    refreshKey,
+    setTabLoading,
+  ]);
 
   const connection = useConnectionSettings({
     currentSettings,
@@ -84,9 +154,14 @@ export function useSettingsData({
     ...extension,
     ...orders,
     ...stock,
+    orderStatesReady,
     setSettingsError,
     setSettingsSection,
     settingsError,
+    settingsReady: (
+      currentSettings !== null
+      && loadedSettingsKey === refreshKey
+    ),
     settingsSection,
     settingsSections: SETTINGS_SECTIONS,
   };

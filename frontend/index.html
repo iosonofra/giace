@@ -6,7 +6,23 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Giacenza e Disponibilità Prodotti Composti</title>
   </head>
-  <body>
+  <body class="light-theme">
+    <script>
+      (() => {
+        try {
+          const theme = localStorage.getItem('theme') === 'dark'
+            ? 'dark'
+            : 'light';
+          document.body.classList.toggle(
+            'light-theme',
+            theme === 'light',
+          );
+          document.documentElement.style.colorScheme = theme;
+        } catch {
+          document.documentElement.style.colorScheme = 'light';
+        }
+      })();
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>

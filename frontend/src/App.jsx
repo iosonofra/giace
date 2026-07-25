@@ -1,4 +1,10 @@
-import React, { useState } from 'react';
+import React, {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useState,
+} from 'react';
 import { Icons } from './components/ui/Icons';
 import { Pagination } from './components/ui/Pagination';
 import { TableSkeleton } from './components/ui/TableSkeleton';
@@ -13,16 +19,13 @@ import {
 import { createAppPageModels } from './features/app/appPageModels';
 import { useAppData } from './features/app/useAppData';
 import { useAppShellEffects } from './features/app/useAppShellEffects';
-import { AnomaliesPage } from './features/anomalies/AnomaliesPage';
+import { readStoredTheme } from './features/app/theme';
 import { useAnomaliesData } from './features/anomalies/useAnomaliesData';
-import { AssociationsPage } from './features/associations/AssociationsPage';
 import { useAssociationsData } from './features/associations/useAssociationsData';
-import { DashboardPage } from './features/dashboard/DashboardPage';
 import {
   deriveDashboardPresentation,
 } from './features/dashboard/dashboardPresentation';
 import { useAssociationEditor } from './features/associations/useAssociationEditor';
-import { OrdersPage } from './features/orders/OrdersPage';
 import { useOrdersData } from './features/orders/useOrdersData';
 import { PickingPage } from './features/picking/PickingPage';
 import {
@@ -38,21 +41,47 @@ import { derivePickingPresentation } from './features/picking/pickingPresentatio
 import { createPickingPageModel } from './features/picking/pickingPageModel';
 import { usePickingClipboard } from './features/picking/usePickingClipboard';
 import { useAutomaticPicking } from './features/picking/useAutomaticPicking';
-import { SettingsPage } from './features/settings/SettingsPage';
 import { useBackupRestore } from './features/settings/useBackupRestore';
+import { SettingsPage } from './features/settings/SettingsPage';
 import { useSettingsData } from './features/settings/useSettingsData';
 import { StockPage } from './features/stock/StockPage';
 import { useStockData } from './features/stock/useStockData';
 import { useSyncActions } from './features/sync/useSyncActions';
 
+const deferredPageLoaders = {
+  anomalies: () => import('./features/anomalies/AnomaliesPage'),
+  associations: () => import('./features/associations/AssociationsPage'),
+  dashboard: () => import('./features/dashboard/DashboardPage'),
+  orders: () => import('./features/orders/OrdersPage'),
+};
+
+const AnomaliesPage = lazy(() => deferredPageLoaders.anomalies()
+  .then(module => ({ default: module.AnomaliesPage })));
+const AssociationsPage = lazy(() => deferredPageLoaders.associations()
+  .then(module => ({ default: module.AssociationsPage })));
+const DashboardPage = lazy(() => deferredPageLoaders.dashboard()
+  .then(module => ({ default: module.DashboardPage })));
+const OrdersPage = lazy(() => deferredPageLoaders.orders()
+  .then(module => ({ default: module.OrdersPage })));
+
+
+function DeferredPageFallback() {
+  return (
+    <div className="glass-panel widget-card deferred-page-fallback">
+      <TableSkeleton rows={8} cols={6} />
+    </div>
+  );
+}
+
+
 function App() {
   const [activeTab, setActiveTab] = useState('stock');
   const [, setTimeTick] = useState(Date.now());
-  const [tabLoading, setTabLoading] = useState(false);
+  const [tabLoading, setTabLoading] = useState(true);
   const [actionMessage, setActionMessage] = useState(null);
 
   // Theme settings
-  const [theme, setTheme] = useState(localStorage.getItem('theme') || 'light');
+  const [theme, setTheme] = useState(readStoredTheme);
 
   const [syncingStock, setSyncingStock] = useState(false);
   const [syncingOrders, setSyncingOrders] = useState(false);
@@ -79,12 +108,22 @@ function App() {
   const {
     configuredStockSource,
     dashboardData,
+    initialized,
     loading,
     refreshAppData,
     selectedSheet,
     setLoading,
     status,
   } = appData;
+
+  useEffect(() => {
+    if (!initialized) return;
+    Object.values(deferredPageLoaders).forEach(loadPage => {
+      loadPage().catch(() => {
+        // React.lazy will retry and surface a loading error on navigation.
+      });
+    });
+  }, [initialized]);
 
   const backupState = useBackupRestore({ showActionMsg });
   const {
@@ -99,6 +138,7 @@ function App() {
   const settingsData = useSettingsData({
     active: activeTab === 'settings',
     initialStockSource: configuredStockSource,
+    preload: Boolean(status),
     refresh: refreshAppData,
     refreshKey: [
       status?.latest_calculation?.id,
@@ -110,10 +150,28 @@ function App() {
     showActionMsg,
   });
   const {
+    settingsReady,
     setSyncingGoogleSheets,
     stockSource,
     syncingGoogleSheets,
   } = settingsData;
+
+  const handleNavigate = useCallback((nextTab) => {
+    if (nextTab === activeTab) return;
+    const needsForegroundData = [
+      'anomalies',
+      'associations',
+      'orders',
+      'settings',
+      'stock',
+    ].includes(nextTab);
+    setTabLoading(
+      needsForegroundData
+      && !(nextTab === 'settings' && settingsReady),
+    );
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    setActiveTab(nextTab);
+  }, [activeTab, settingsReady]);
 
   const syncActions = useSyncActions({
     refresh: refreshAppData,
@@ -133,7 +191,7 @@ function App() {
   } = syncActions;
 
   const stockState = useStockData({
-    active: activeTab === 'stock',
+    active: activeTab === 'stock' && initialized,
     ensureLoaded: activeTab === 'picking' && pickingInputMode === 'automatic',
     refreshKey: [
       status?.latest_calculation?.id,
@@ -220,7 +278,7 @@ function App() {
     activeTab,
     selectedSkuForOrders,
     selectedSkuForProducts,
-    setActiveTab,
+    setActiveTab: handleNavigate,
     setIsAssociationModalOpen,
     setIsMobileSidebarOpen,
     setSelectedSkuForOrders,
@@ -241,7 +299,7 @@ function App() {
   }
 
   const handleResolveMissingAssociation = (productId) => {
-    setActiveTab('associations');
+    handleNavigate('associations');
     setEditingProductId(productId);
     setIsNewAssociation(true);
     setAssociationModalMode('guided');
@@ -260,7 +318,7 @@ function App() {
     dashboardNextAction,
   } = deriveDashboardPresentation({
     dashboardData,
-    onNavigate: setActiveTab,
+    onNavigate: handleNavigate,
     onRunCalculation: handleRunCalculation,
     onSyncAll: handleSyncAll,
     status,
@@ -319,7 +377,7 @@ function App() {
     orders: ordersState,
     runtime: {
       handleResolveMissingAssociation,
-      setActiveTab,
+      setActiveTab: handleNavigate,
       syncingOrders,
       syncingStock,
       syncProgressText,
@@ -349,7 +407,7 @@ function App() {
         icons={Icons}
         isMobileOpen={isMobileSidebarOpen}
         onCloseMobile={() => setIsMobileSidebarOpen(false)}
-        onNavigate={setActiveTab}
+        onNavigate={handleNavigate}
         onToggleTheme={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
         status={status}
         theme={theme}
@@ -382,45 +440,54 @@ function App() {
 
 
 
-        {/* --- DASHBOARD TAB --- */}
-        {activeTab === 'dashboard' && dashboardData && <DashboardPage dashboard={dashboardUi} />}
+        <div key={activeTab} className="app-page-stage">
+          <Suspense fallback={<DeferredPageFallback />}>
+            {/* --- DASHBOARD TAB --- */}
+            {activeTab === 'dashboard' && dashboardData && <DashboardPage dashboard={dashboardUi} />}
 
-        {/* --- STOCK TAB --- */}
-        {activeTab === 'stock' && <StockPage stock={stockUi} />}
+            {/* --- STOCK TAB --- */}
+            {activeTab === 'stock' && <StockPage stock={stockUi} />}
 
+            {/* --- ORDERS TAB --- */}
+            {activeTab === 'orders' && <OrdersPage orders={ordersUi} />}
 
-        {/* --- ORDERS TAB --- */}
-        {activeTab === 'orders' && <OrdersPage orders={ordersUi} />}
+            {/* --- ANOMALIES TAB --- */}
+            {activeTab === 'anomalies' && <AnomaliesPage anomalies={anomaliesUi} />}
 
-        {/* --- ANOMALIES TAB --- */}
-        {activeTab === 'anomalies' && <AnomaliesPage anomalies={anomaliesUi} />}
+            {/* --- ASSOCIATIONS EDITOR TAB --- */}
+            {activeTab === 'associations' && <AssociationsPage associations={associationsUi} />}
 
-        {/* --- ASSOCIATIONS EDITOR TAB --- */}
-        {activeTab === 'associations' && <AssociationsPage associations={associationsUi} />}
+            {/* --- PICKING LIST TAB --- */}
+            {activeTab === 'picking' && (
+              <PickingPage {...pickingPageModel} />
+            )}
 
-        {/* --- PICKING LIST TAB --- */}
-        {activeTab === 'picking' && (
-          <PickingPage {...pickingPageModel} />
-        )}
-
-        {/* --- SETTINGS TAB --- */}
-        {activeTab === 'settings' && <SettingsPage
-          settings={{
-            ...settingsData,
-            backupLoading,
-            getRelativeTimeString,
-            handleDownloadBackup,
-            handleRestoreDatabase,
-            handleSyncOrders,
-            Icons,
-            loading,
-            restoreCountdown,
-            restoreLoading,
-            status,
-            syncingOrders,
-            syncProgressText,
-          }}
-        />}
+            {/* --- SETTINGS TAB --- */}
+            {activeTab === 'settings' && (
+              tabLoading ? (
+                <DeferredPageFallback />
+              ) : (
+                <SettingsPage
+                  settings={{
+                    ...settingsData,
+                    backupLoading,
+                    getRelativeTimeString,
+                    handleDownloadBackup,
+                    handleRestoreDatabase,
+                    handleSyncOrders,
+                    Icons,
+                    loading,
+                    restoreCountdown,
+                    restoreLoading,
+                    status,
+                    syncingOrders,
+                    syncProgressText,
+                  }}
+                />
+              )
+            )}
+          </Suspense>
+        </div>
 
       </main>
 

@@ -23,3 +23,16 @@ export function getStockRowPresentation(item) {
         : {},
   };
 }
+
+
+export function paginateStockRows(rows, page, limit) {
+  const safeLimit = Math.max(1, Number(limit) || 50);
+  const totalPages = Math.max(1, Math.ceil(rows.length / safeLimit));
+  const safePage = Math.min(Math.max(1, Number(page) || 1), totalPages);
+  const start = (safePage - 1) * safeLimit;
+  return {
+    page: safePage,
+    rows: rows.slice(start, start + safeLimit),
+    totalPages,
+  };
+}

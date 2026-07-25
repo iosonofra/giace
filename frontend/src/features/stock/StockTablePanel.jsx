@@ -19,16 +19,23 @@ export function StockTablePanel({ stock }) {
     highlightText,
     Icons,
     missingStockData,
+    paginatedStock,
+    Pagination,
     searchStock,
     setSearchStock,
+    setStockLimit,
+    setStockPage,
     setStockViewMode,
     sortedStock,
     stockSort,
+    stockLimit,
+    stockPage,
     stockSource,
     stockViewMode,
     syncingGoogleSheets,
     tabLoading,
     TableSkeleton,
+    totalStockPages,
   } = stock;
 
   return (
@@ -147,7 +154,7 @@ export function StockTablePanel({ stock }) {
               </tr>
             </thead>
             <tbody>
-              {sortedStock.map(item => {
+              {paginatedStock.map(item => {
                 const meta = getStockRowPresentation(item);
                 const empty = meta.isSpacer ? '' : null;
                 return (
@@ -231,6 +238,17 @@ export function StockTablePanel({ stock }) {
           </p>
         )}
       </div>
+      {!tabLoading && sortedStock.length > 0 && (
+        <Pagination
+          currentPage={stockPage}
+          totalPages={totalStockPages}
+          onPageChange={setStockPage}
+          limit={stockLimit}
+          onLimitChange={setStockLimit}
+          limitOptions={[25, 50, 100]}
+          disabled={tabLoading}
+        />
+      )}
     </div>
   );
 }

@@ -4,12 +4,14 @@ import { apiFetch } from '../../api/client';
 export function useAppData({ notify }) {
   const [status, setStatus] = useState(null);
   const [dashboardData, setDashboardData] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [initialized, setInitialized] = useState(false);
   const [availableSheets, setAvailableSheets] = useState(['ROSATE']);
   const [selectedSheet, setSelectedSheet] = useState('ROSATE');
   const [configuredStockSource, setConfiguredStockSource] =
     useState('local_upload');
   const notifyRef = useRef(notify);
+  const initialLoadStartedRef = useRef(false);
 
   useEffect(() => {
     notifyRef.current = notify;
@@ -63,10 +65,13 @@ export function useAppData({ notify }) {
       notifyRef.current?.('Errore nel recupero dei dati del server.', 'danger');
     } finally {
       setLoading(false);
+      setInitialized(true);
     }
   }, []);
 
   useEffect(() => {
+    if (initialLoadStartedRef.current) return;
+    initialLoadStartedRef.current = true;
     refreshAppData();
   }, [refreshAppData]);
 
@@ -74,6 +79,7 @@ export function useAppData({ notify }) {
     availableSheets,
     configuredStockSource,
     dashboardData,
+    initialized,
     loading,
     refreshAppData,
     selectedSheet,

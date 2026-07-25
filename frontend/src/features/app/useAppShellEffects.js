@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useLayoutEffect } from 'react';
 
 export function useAppShellEffects({
   activeTab,
@@ -15,12 +15,17 @@ export function useAppShellEffects({
   setTimeTick,
   theme,
 }) {
-  useEffect(() => {
+  useLayoutEffect(() => {
     document.body.classList.toggle(
       'light-theme',
       theme === 'light',
     );
-    localStorage.setItem('theme', theme);
+    document.documentElement.style.colorScheme = theme;
+    try {
+      localStorage.setItem('theme', theme);
+    } catch {
+      // The selected theme still applies when storage is unavailable.
+    }
   }, [theme]);
 
   useEffect(() => {
