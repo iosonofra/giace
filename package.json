@@ -1,0 +1,11 @@
+{
+  "name": "giac",
+  "version": "1.0.0",
+  "description": "Applicazione per la gestione delle giacenze PrestaShop",
+  "scripts": {
+    "dev": "python start.py --dev",
+    "start": "python start.py",
+    "build": "python start.py --rebuild",
+    "test": "python -m unittest discover -s tests -v"
+  }
+}
