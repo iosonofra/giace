@@ -3,7 +3,7 @@
 #  update.sh — Aggiornamento Gestore Giacenze
 # =============================================================================
 # Utilizzo (da /opt/giac, come root):
-#   ./update.sh
+#   sh update.sh
 #
 # Cosa fa:
 #   1. Backup automatico del database (non verrà mai toccato dal git pull,
@@ -27,6 +27,10 @@ BACKUP_DIR="$APP_DIR/backups"
 TIMESTAMP=$(date +%Y-%m-%d_%H-%M-%S)
 
 cd "$APP_DIR"
+
+# Ripristina i permessi nel caso il codice sia stato estratto da uno ZIP
+# creato su un filesystem che non conserva i bit eseguibili Unix.
+chmod +x "$APP_DIR/update.sh" "$APP_DIR/install.sh" 2>/dev/null || true
 
 echo ""
 echo "============================================================"

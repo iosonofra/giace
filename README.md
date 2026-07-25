@@ -27,6 +27,7 @@ le credenziali vengono salvate nel database **e scritte automaticamente in `back
 
 ```bash
 cd /opt/giac
+chmod +x install.sh update.sh
 ./update.sh
 ```
 
