@@ -102,7 +102,15 @@ echo "  OK"
 # ---------- 4. Build frontend ----------
 echo "[4/4] npm ci + build frontend..."
 cd frontend
-npm ci
+if ! npm ci; then
+    echo "  ATTENZIONE — lockfile incompatibile con questa piattaforma/npm."
+    echo "  Eseguo il recupero controllato con npm install..."
+    npm install --no-audit --no-fund
+    cd ..
+    git restore -- frontend/package-lock.json 2>/dev/null || true
+    cd frontend
+    echo "  Lockfile tracciato ripristinato dopo il recupero."
+fi
 npm run build
 cd ..
 echo "  OK — frontend ricompilato"
