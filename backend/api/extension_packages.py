@@ -18,6 +18,7 @@ router = APIRouter(tags=["extensions"])
 PROJECT_ROOT = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "..")
 )
+USERSCRIPT_VERSION = "0.1.2"
 
 
 def _build_extension_archive_response(
@@ -191,6 +192,14 @@ def download_userscript(
 
     webapp_url = str(request.base_url).rstrip("/")
     prestashop_origin = _load_prestashop_origin(db)
+    if not prestashop_origin:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Configura prima il dominio amministrazione "
+                "PrestaShop nelle impostazioni della webapp."
+            ),
+        )
 
     try:
         adapter = _read_text(adapter_path)
@@ -272,26 +281,24 @@ def _read_text(path):
 
 def _userscript_metadata(webapp_url, prestashop_origin):
     webapp_host = urlparse(webapp_url).hostname or "localhost"
-    match_lines = (
-        [f"// @match        {prestashop_origin}/*"]
-        if prestashop_origin
-        else [
-            "// @match        http://*/*",
-            "// @match        https://*/*",
-        ]
+    download_url = (
+        f"{webapp_url}/api/extension/userscript/"
+        "giac-feedback-ordini.user.js"
     )
     return "\n".join(
         [
             "// ==UserScript==",
             "// @name         Giac Feedback Ordini",
             "// @namespace    giac.feedback.ordini",
-            "// @version      0.1.1",
+            f"// @version      {USERSCRIPT_VERSION}",
             (
                 "// @description  Disponibilità e priorità "
                 "cronologica negli ordini PrestaShop."
             ),
-            *match_lines,
+            f"// @match        {prestashop_origin}/*",
             f"// @connect      {webapp_host}",
+            f"// @downloadURL  {download_url}",
+            f"// @updateURL    {download_url}",
             "// @run-at       document-idle",
             "// @grant        GM_getValue",
             "// @grant        GM_setValue",

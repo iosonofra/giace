@@ -118,6 +118,31 @@
   margin-left: auto;
 }
 
+.giac-toolbar-refresh {
+  min-height: 24px;
+  margin: 0;
+  padding: 3px 7px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #475569;
+  cursor: pointer;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.giac-toolbar-refresh:hover:not(:disabled) {
+  border-color: #93c5fd;
+  color: #1d4ed8;
+}
+
+.giac-toolbar-refresh:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
 .giac-toolbar-mode {
   position: relative;
   display: inline-grid !important;
@@ -535,13 +560,21 @@
 }
 
 .giac-popover-order-id {
+  appearance: none;
+  border: 0;
   border-radius: 999px;
   background: #f1f5f9;
   color: #475569;
   font-size: 11px;
   font-weight: 800;
   padding: 4px 7px;
+  cursor: pointer;
+  font: inherit;
   white-space: nowrap;
+}
+
+.giac-popover-order-id:hover {
+  background: #e2e8f0;
 }
 
 .giac-popover-close {
@@ -568,6 +601,8 @@
 
 .giac-popover-close:focus-visible,
 .giac-popover-refresh:focus-visible,
+.giac-popover-options:focus-visible,
+.giac-toolbar-refresh:focus-visible,
 .giac-popover-open-app:focus-visible {
   outline: 2px solid #2563eb;
   outline-offset: 2px;
@@ -812,6 +847,7 @@
 }
 
 .giac-popover-refresh,
+.giac-popover-options,
 .giac-popover-open-app {
   appearance: none;
   align-items: center;
@@ -831,6 +867,7 @@
 }
 
 .giac-popover-refresh:hover:not(:disabled),
+.giac-popover-options:hover,
 .giac-popover-open-app:hover {
   border-color: #94a3b8;
   background: #f8fafc;
@@ -881,6 +918,7 @@
   }
 
   .giac-popover-refresh,
+  .giac-popover-options,
   .giac-popover-open-app {
     flex: 1;
     justify-content: center;
@@ -890,6 +928,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .giac-feedback-badge,
+  .giac-toolbar-refresh,
   .giac-feedback-popover {
     animation: none;
     transition: none;

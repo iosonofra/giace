@@ -13,7 +13,8 @@ Estensione Chrome Manifest V3 che mostra disponibilità e criticità nella lista
 
 ## Configurazione
 
-- **URL webapp Giac**: per esempio `http://192.168.1.50:8000`.
+- **URL webapp Giac**: per esempio `https://giac.esempio.it` oppure
+  `http://127.0.0.1:8000` durante lo sviluppo locale.
 - **Dominio amministrazione PrestaShop**: per esempio `https://admin.esempio.it`.
 - **Token**: nella webapp apri **Impostazioni → Estensione beta**, genera e salva il token, quindi copialo nelle opzioni dell'estensione.
 
@@ -36,6 +37,10 @@ Il token salvato dalla webapp è attivo immediatamente, senza riavviare il servi
 - Passa sul badge per un controllo rapido oppure cliccalo per mantenere il dettaglio aperto.
 - Il pulsante **Aggiorna verifica** svuota la cache e ricalcola i badge visibili.
 - Il pulsante **Apri webapp** apre in una nuova scheda l'indirizzo Giac configurato nell'estensione.
+- Il popup dell'icona consente di attivare o sospendere rapidamente il rilevamento,
+  cambiare modalità, controllare il collegamento e aprire le impostazioni.
+- Il pulsante **Aggiorna** nella barra Ordini++ forza un nuovo controllo senza ricaricare la pagina.
+- L'ID ordine nel dettaglio è copiabile con un clic.
 
 ## Stati
 
@@ -49,5 +54,16 @@ Il token salvato dalla webapp è attivo immediatamente, senza riavviare il servi
 ## Limiti della beta
 
 - I selettori DOM sono volutamente flessibili, ma un aggiornamento importante del modulo Ordini++ potrebbe richiedere un adattamento.
-- Il manifest usa permessi host HTTP/HTTPS ampi perché gli indirizzi di PrestaShop e Giac sono configurabili.
+- Chrome chiede accesso solo ai due host configurati. Nessun content script viene
+  eseguito sugli altri siti.
+- Per proteggere token e dati operativi, gli host remoti devono usare HTTPS.
+  HTTP è consentito soltanto su `localhost` e `127.0.0.1`.
 - La cache dell'estensione dura 30 secondi, è limitata a 50 voci e può essere svuotata dal popover.
+
+## Privacy e sicurezza
+
+- Il token resta nello storage locale del browser e non viene mai mostrato nel popup
+  né restituito al content script.
+- Alla webapp configurata vengono inviati soltanto gli ID degli ordini visibili,
+  la soglia minima e la modalità di valutazione.
+- Non sono presenti analytics, pubblicità, codice remoto o dipendenze esterne.

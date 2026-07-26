@@ -53,6 +53,9 @@ async function fetchJson(url, options = {}) {
     const response = await fetch(url, { ...options, signal: controller.signal });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
+      if ([401, 403].includes(response.status)) {
+        throw new Error("Token non valido o non autorizzato.");
+      }
       throw new Error(data.detail || `Errore HTTP ${response.status}`);
     }
     return data;
@@ -115,7 +118,24 @@ async function handleMessage(message, sender) {
 
   if (message?.type === "GET_SETTINGS") {
     const { extensionToken, ...publicSettings } = settings;
-    return { ok: true, settings: publicSettings };
+    let hostsAuthorized = false;
+    try {
+      const origins = [
+        originPattern(settings.webappUrl),
+        originPattern(settings.prestashopOrigin)
+      ];
+      hostsAuthorized = await browser.permissions.contains({ origins });
+    } catch {
+      hostsAuthorized = false;
+    }
+    return {
+      ok: true,
+      settings: {
+        ...publicSettings,
+        tokenConfigured: Boolean(String(extensionToken || "").trim()),
+        hostsAuthorized
+      }
+    };
   }
 
   if (message?.type === "UPDATE_EVALUATION_MODE") {
@@ -131,6 +151,11 @@ async function handleMessage(message, sender) {
   if (message?.type === "APPLY_CONFIGURATION") {
     responseCache.clear();
     await applyContentScriptRegistration(settings);
+    return { ok: true };
+  }
+
+  if (message?.type === "OPEN_OPTIONS") {
+    await browser.runtime.openOptionsPage();
     return { ok: true };
   }
 
@@ -210,10 +235,6 @@ browser.runtime.onInstalled.addListener(async details => {
 
 browser.runtime.onStartup.addListener(() => {
   applyContentScriptRegistration().catch(console.error);
-});
-
-browser.action.onClicked.addListener(() => {
-  browser.runtime.openOptionsPage();
 });
 
 browser.permissions.onRemoved.addListener(() => {

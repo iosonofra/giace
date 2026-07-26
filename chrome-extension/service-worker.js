@@ -1,12 +1,14 @@
 const DEFAULT_SETTINGS = {
   enabled: true,
-  webappUrl: "http://127.0.0.1:8000",
+  webappUrl: "",
   prestashopOrigin: "",
   extensionToken: "",
   minSkuResidual: 0,
-  chronologicalMode: true
+  chronologicalMode: true,
+  grantedOrigins: []
 };
 
+const CONTENT_SCRIPT_ID = "giac-prestashop-orders";
 const responseCache = new Map();
 const CACHE_TTL_MS = 30_000;
 const MAX_CACHE_ENTRIES = 50;
@@ -16,8 +18,11 @@ function normalizeBaseUrl(value) {
   if (!normalized) return "";
   try {
     const url = new URL(normalized);
+    const isLoopback = ["localhost", "127.0.0.1"].includes(url.hostname);
     if (url.username || url.password) return "";
-    if (!["http:", "https:"].includes(url.protocol)) return "";
+    if (url.protocol !== "https:" && !(url.protocol === "http:" && isLoopback)) {
+      return "";
+    }
     return normalized;
   } catch {
     return "";
@@ -33,6 +38,11 @@ function pruneResponseCache(now = Date.now()) {
   }
 }
 
+function originPattern(value) {
+  const url = new URL(value);
+  return `${url.protocol}//${url.hostname}/*`;
+}
+
 async function getSettings() {
   const stored = await chrome.storage.local.get(DEFAULT_SETTINGS);
   return { ...DEFAULT_SETTINGS, ...stored };
@@ -45,6 +55,9 @@ async function fetchJson(url, options = {}) {
     const response = await fetch(url, { ...options, signal: controller.signal });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
+      if ([401, 403].includes(response.status)) {
+        throw new Error("Token non valido o non autorizzato.");
+      }
       throw new Error(data.detail || `Errore HTTP ${response.status}`);
     }
     return data;
@@ -65,7 +78,7 @@ function buildHeaders(settings) {
 }
 
 function senderMatchesPrestashop(settings, sender) {
-  if (!settings.prestashopOrigin || !sender?.url) return true;
+  if (!settings.prestashopOrigin || !sender?.url) return false;
   try {
     return new URL(sender.url).origin === new URL(settings.prestashopOrigin).origin;
   } catch {
@@ -73,12 +86,58 @@ function senderMatchesPrestashop(settings, sender) {
   }
 }
 
+async function unregisterContentScript() {
+  const registered = await chrome.scripting.getRegisteredContentScripts({
+    ids: [CONTENT_SCRIPT_ID]
+  });
+  if (registered.length > 0) {
+    await chrome.scripting.unregisterContentScripts({ ids: [CONTENT_SCRIPT_ID] });
+  }
+}
+
+async function applyContentScriptRegistration(settings = null) {
+  const currentSettings = settings || await getSettings();
+  await unregisterContentScript();
+  if (!currentSettings.enabled || !currentSettings.prestashopOrigin) return;
+
+  const matchPattern = originPattern(currentSettings.prestashopOrigin);
+  const granted = await chrome.permissions.contains({ origins: [matchPattern] });
+  if (!granted) return;
+
+  await chrome.scripting.registerContentScripts([{
+    id: CONTENT_SCRIPT_ID,
+    matches: [matchPattern],
+    js: ["content-script.js"],
+    css: ["content-style.css"],
+    runAt: "document_idle",
+    allFrames: false,
+    persistAcrossSessions: true
+  }]);
+}
+
 async function handleMessage(message, sender) {
   const settings = await getSettings();
 
   if (message?.type === "GET_SETTINGS") {
     const { extensionToken, ...publicSettings } = settings;
-    return { ok: true, settings: publicSettings };
+    let hostsAuthorized = false;
+    try {
+      const origins = [
+        originPattern(settings.webappUrl),
+        originPattern(settings.prestashopOrigin)
+      ];
+      hostsAuthorized = await chrome.permissions.contains({ origins });
+    } catch {
+      hostsAuthorized = false;
+    }
+    return {
+      ok: true,
+      settings: {
+        ...publicSettings,
+        tokenConfigured: Boolean(String(extensionToken || "").trim()),
+        hostsAuthorized
+      }
+    };
   }
 
   if (message?.type === "UPDATE_EVALUATION_MODE") {
@@ -91,10 +150,21 @@ async function handleMessage(message, sender) {
     return { ok: true, chronologicalMode };
   }
 
+  if (message?.type === "APPLY_CONFIGURATION") {
+    responseCache.clear();
+    await applyContentScriptRegistration(settings);
+    return { ok: true };
+  }
+
+  if (message?.type === "OPEN_OPTIONS") {
+    await chrome.runtime.openOptionsPage();
+    return { ok: true };
+  }
+
   if (message?.type === "TEST_CONNECTION") {
     const candidateSettings = { ...settings, ...(message.settings || {}) };
     const baseUrl = normalizeBaseUrl(candidateSettings.webappUrl);
-    if (!baseUrl) throw new Error("Inserisci l'URL della webapp.");
+    if (!baseUrl) throw new Error("Inserisci un URL webapp HTTPS valido.");
     const data = await fetchJson(`${baseUrl}/api/extension/health`, {
       headers: buildHeaders(candidateSettings)
     });
@@ -118,7 +188,9 @@ async function handleMessage(message, sender) {
     }
 
     const baseUrl = normalizeBaseUrl(settings.webappUrl);
-    if (!baseUrl) throw new Error("Configura l'URL della webapp nelle opzioni dell'estensione.");
+    if (!baseUrl) {
+      throw new Error("Configura l'URL della webapp nelle opzioni dell'estensione.");
+    }
 
     const cacheKey = JSON.stringify([
       baseUrl,
@@ -154,18 +226,23 @@ async function handleMessage(message, sender) {
   return { ok: false, error: "Messaggio non supportato." };
 }
 
-chrome.runtime.onInstalled.addListener(async ({ reason }) => {
+chrome.runtime.onInstalled.addListener(async details => {
   const stored = await chrome.storage.local.get(null);
   if (Object.keys(stored).length === 0) {
     await chrome.storage.local.set(DEFAULT_SETTINGS);
   }
-  if (reason === "install") {
-    chrome.runtime.openOptionsPage();
+  await applyContentScriptRegistration();
+  if (details.reason === "install") {
+    await chrome.runtime.openOptionsPage();
   }
 });
 
-chrome.action.onClicked.addListener(() => {
-  chrome.runtime.openOptionsPage();
+chrome.runtime.onStartup.addListener(() => {
+  applyContentScriptRegistration().catch(console.error);
+});
+
+chrome.permissions.onRemoved.addListener(() => {
+  applyContentScriptRegistration().catch(console.error);
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {

@@ -3,80 +3,138 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Giac Feedback - Configurazione</title>
+    <title>Giac Feedback Ordini - Configurazione</title>
     <link rel="stylesheet" href="options.css">
   </head>
-  <body>
+  <body data-browser="chrome">
     <main>
-      <header>
-        <span class="eyebrow">Estensione beta</span>
-        <h1>Giac Feedback Ordini</h1>
-        <p>Collega lista e dettaglio ordine PrestaShop alla webapp Giac e mostra la disponibilità degli ordini.</p>
+      <header class="options-header">
+        <div>
+          <span class="eyebrow">Integrazione browser</span>
+          <h1>Giac Feedback Ordini</h1>
+          <p>Collega PrestaShop alla webapp Giac usando esclusivamente i domini autorizzati.</p>
+        </div>
+        <span id="configuration-status" class="status-pill">Da configurare</span>
       </header>
 
       <form id="settings-form">
-        <label class="toggle-row">
+        <label class="activation-row">
           <span>
-            <strong>Estensione attiva</strong>
-            <small>Mostra badge, riepilogo e filtri nelle pagine ordine configurate.</small>
+            <strong>Integrazione attiva</strong>
+            <small>Mostra riepilogo, filtri e badge nelle pagine ordine autorizzate.</small>
           </span>
-          <input id="enabled" type="checkbox">
+          <input id="enabled" type="checkbox" role="switch">
         </label>
 
-        <section>
-          <h2>Connessione</h2>
-          <label for="webapp-url">URL webapp Giac</label>
-          <input id="webapp-url" type="url" placeholder="http://192.168.1.50:8000" required>
-          <small>Indirizzo raggiungibile dal computer su cui è installata l’estensione.</small>
+        <div class="options-layout">
+          <div class="options-main">
+            <section>
+              <div class="section-heading">
+                <span class="step-number">1</span>
+                <div>
+                  <h2>Connessione alla webapp</h2>
+                  <p>Indica la destinazione e autentica le richieste.</p>
+                </div>
+              </div>
 
-          <label for="extension-token">Token estensione</label>
-          <input id="extension-token" type="password" autocomplete="off" placeholder="Token obbligatorio configurato nella webapp">
-          <small>Deve corrispondere al token configurato nella sezione Estensione beta della webapp.</small>
-        </section>
+              <label for="webapp-url">URL webapp Giac</label>
+              <input id="webapp-url" type="url" placeholder="https://pick.esempio.it" required>
+              <small>Usa HTTPS. HTTP è consentito solo su localhost o 127.0.0.1.</small>
 
-        <section>
-          <h2>Pagina PrestaShop</h2>
-          <label for="prestashop-origin">Dominio amministrazione PrestaShop</label>
-          <input id="prestashop-origin" type="url" placeholder="https://admin.esempio.it">
-          <small>Solo l’origine, senza il percorso della pagina. Lascia vuoto per il rilevamento automatico.</small>
+              <div class="field-label-row">
+                <label for="extension-token">Token estensione</label>
+                <span id="token-state" class="field-state">Non configurato</span>
+              </div>
+              <div class="token-field">
+                <input
+                  id="extension-token"
+                  type="password"
+                  autocomplete="new-password"
+                  placeholder="Incolla il token obbligatorio"
+                >
+                <button id="clear-token" type="button" class="text-button">Rimuovi</button>
+              </div>
+              <small id="token-help">Il token resta nella memoria locale del browser e non viene mostrato nuovamente.</small>
+            </section>
 
-          <label for="min-residual">Scorta minima simulata</label>
-          <input id="min-residual" type="number" min="0" step="1" value="0">
-          <small>Un ordine viene segnalato come protetto se porta una SKU sotto questa quantità.</small>
+            <section>
+              <div class="section-heading">
+                <span class="step-number">2</span>
+                <div>
+                  <h2>Pagina PrestaShop</h2>
+                  <p>Limita l’esecuzione al solo dominio amministrativo.</p>
+                </div>
+              </div>
 
-          <label class="setting-toggle" for="chronological-mode">
-            <span>
-              <strong>Valutazione cronologica</strong>
-              <small>Se disattivata, ogni ordine viene confrontato con la giacenza corrente senza consumare virtualmente lo stock degli ordini precedenti.</small>
-            </span>
-            <input id="chronological-mode" type="checkbox" role="switch" checked>
-          </label>
-        </section>
+              <label for="prestashop-origin">Dominio amministrazione PrestaShop</label>
+              <input id="prestashop-origin" type="url" placeholder="https://admin.esempio.it" required>
+              <small>Viene salvata soltanto l’origine, senza il percorso della pagina.</small>
 
-        <section class="privacy-note" aria-labelledby="privacy-title">
-          <h2 id="privacy-title">Dati trasmessi</h2>
-          <p>
-            Quando apri o aggiorni lista e dettaglio ordine, l’estensione invia automaticamente
-            alla webapp configurata soltanto gli ID degli ordini visibili o dell’ordine aperto,
-            la modalità di calcolo selezionata e, se presente, il token. La modalità serve solo
-            a eseguire il calcolo richiesto. Non usa analytics, pubblicità o server dello sviluppatore.
-          </p>
-        </section>
+              <label for="min-residual">Scorta minima simulata</label>
+              <div class="number-field">
+                <input id="min-residual" type="number" min="0" step="1" value="0">
+                <span>unità</span>
+              </div>
+
+              <label class="setting-toggle" for="chronological-mode">
+                <span>
+                  <strong>Valutazione cronologica</strong>
+                  <small>Consuma virtualmente lo stock seguendo la sequenza degli ordini.</small>
+                </span>
+                <input id="chronological-mode" type="checkbox" role="switch" checked>
+              </label>
+            </section>
+
+            <details class="privacy-note">
+              <summary>Dati trasmessi e privacy</summary>
+              <p>
+                L’integrazione invia alla sola webapp configurata gli ID numerici degli ordini
+                visibili, la modalità di calcolo, la soglia e il token. Non usa analytics,
+                pubblicità o server dello sviluppatore.
+              </p>
+            </details>
+          </div>
+
+          <aside class="configuration-rail" aria-labelledby="rail-title">
+            <h2 id="rail-title">Stato configurazione</h2>
+            <p>Completa i tre controlli prima di usare i badge.</p>
+            <div class="rail-list">
+              <div id="rail-webapp" class="rail-item pending">
+                <span>1</span><div><small>Webapp</small><strong>Da configurare</strong></div>
+              </div>
+              <div id="rail-domain" class="rail-item pending">
+                <span>2</span><div><small>PrestaShop</small><strong>Da autorizzare</strong></div>
+              </div>
+              <div id="rail-token" class="rail-item pending">
+                <span>3</span><div><small>Token</small><strong>Non configurato</strong></div>
+              </div>
+            </div>
+            <div class="current-settings">
+              <span>Modalità corrente</span>
+              <strong id="mode-summary">Cronologica</strong>
+              <span>Soglia protetta</span>
+              <strong id="threshold-summary">0 unità</strong>
+            </div>
+          </aside>
+        </div>
 
         <div id="status" role="status" aria-live="polite"></div>
 
         <footer>
-          <button id="test-button" type="button" class="secondary">Verifica connessione</button>
-          <button type="submit" class="primary">Salva configurazione</button>
+          <span id="dirty-state">Configurazione caricata</span>
+          <div>
+            <button id="test-button" type="button" class="secondary">Verifica connessione</button>
+            <button type="submit" class="primary">Autorizza e salva</button>
+          </div>
         </footer>
       </form>
 
-      <aside>
-        <strong>Come provarla</strong>
+      <aside class="help-card">
+        <strong>Utilizzo rapido</strong>
         <ol>
-          <li>Salva e verifica la connessione.</li>
-          <li>Apri o ricarica la pagina Ordini++.</li>
-          <li>Passa il mouse sui badge per vedere SKU e residui.</li>
+          <li>Salva e autorizza i due domini.</li>
+          <li>Verifica che webapp e token rispondano.</li>
+          <li>Ricarica Ordini++ e controlla i badge Giac.</li>
         </ol>
       </aside>
     </main>

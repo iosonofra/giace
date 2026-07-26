@@ -1,24 +1,26 @@
+import { EXTENSION_DISTRIBUTIONS } from './settingsConstants';
+
 const BROWSERS = [
   {
     id: 'chrome',
     label: 'Chrome',
     mark: 'C',
     subtitle: 'Manifest V3 · locale',
-    version: 'v0.2.6',
+    version: EXTENSION_DISTRIBUTIONS.chrome.version,
   },
   {
     id: 'firefox',
     label: 'Firefox',
     mark: 'F',
     subtitle: 'Firmata Mozilla · permanente',
-    version: 'v0.1.5',
+    version: EXTENSION_DISTRIBUTIONS.firefox.version,
   },
   {
     id: 'userscript',
     label: 'Userscript',
     mark: 'U',
     subtitle: 'Tampermonkey · Violentmonkey',
-    version: 'v0.1.1',
+    version: EXTENSION_DISTRIBUTIONS.userscript.version,
   },
 ];
 
@@ -37,7 +39,7 @@ function BrowserActions({ browser }) {
           Installa versione firmata
         </a>
         <a className="btn btn-secondary extension-browser-download" href="/api/extension/firefox/download" download>
-          ↓ ZIP beta v0.1.5
+          ↓ ZIP beta v0.1.6
         </a>
       </>
     );
@@ -77,7 +79,7 @@ function InstallationSteps({ browser }) {
     <>
       <li><span>1</span><div><strong>Installa un gestore</strong><small>Usa Tampermonkey o Violentmonkey.</small></div></li>
       <li><span>2</span><div><strong>Installa lo userscript</strong><small>Premi il pulsante e conferma il codice mostrato.</small></div></li>
-      <li><span>3</span><div><strong>Configura il token</strong><small>Nel menu del gestore scegli “Giac · Configura token”.</small></div></li>
+      <li><span>3</span><div><strong>Completa la configurazione</strong><small>Nel menu del gestore scegli “Giac · Apri configurazione” e inserisci il token.</small></div></li>
     </>
   );
 }

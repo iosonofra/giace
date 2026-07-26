@@ -393,6 +393,23 @@
       const toolbarActions = document.createElement("div");
       toolbarActions.className = "giac-toolbar-actions";
       appendTextElement(toolbarActions, "span", "giac-toolbar-freshness", "");
+      const refreshButton = appendTextElement(
+        toolbarActions,
+        "button",
+        "giac-toolbar-refresh",
+        "↻ Aggiorna"
+      );
+      refreshButton.type = "button";
+      refreshButton.setAttribute("aria-label", "Aggiorna la verifica degli ordini visibili");
+      refreshButton.addEventListener("click", async () => {
+        refreshButton.disabled = true;
+        refreshButton.textContent = "Aggiornamento…";
+        await sendMessage({ type: "CLEAR_CACHE" });
+        lastSignature = "";
+        await refreshFeedback(true);
+        refreshButton.disabled = false;
+        refreshButton.textContent = "↻ Aggiorna";
+      });
       toolbarActions.appendChild(modeControl);
       toolbar.appendChild(toolbarActions);
       table.insertAdjacentElement("beforebegin", toolbar);
@@ -583,7 +600,26 @@
     appendTextElement(titleBlock, "strong", "", order?.label || meta.label);
     header.appendChild(titleBlock);
     if (order?.orderId) {
-      appendTextElement(header, "span", "giac-popover-order-id", `#${order.orderId}`);
+      const orderIdButton = appendTextElement(
+        header,
+        "button",
+        "giac-popover-order-id",
+        String(order.orderId)
+      );
+      orderIdButton.type = "button";
+      orderIdButton.title = "Copia ID ordine";
+      orderIdButton.setAttribute("aria-label", `Copia ID ordine ${order.orderId}`);
+      orderIdButton.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(String(order.orderId));
+          orderIdButton.textContent = "Copiato";
+          setTimeout(() => {
+            orderIdButton.textContent = String(order.orderId);
+          }, 1200);
+        } catch {
+          orderIdButton.title = "Copia non disponibile";
+        }
+      });
     }
     const closeButton = appendTextElement(header, "button", "giac-popover-close", "×");
     closeButton.type = "button";
@@ -697,6 +733,18 @@
       openWebappLink.rel = "noopener noreferrer";
       openWebappLink.setAttribute("aria-label", "Apri la webapp Giac in una nuova scheda");
     }
+    if (status === "error") {
+      const optionsButton = appendTextElement(
+        footerActions,
+        "button",
+        "giac-popover-options",
+        "Impostazioni"
+      );
+      optionsButton.type = "button";
+      optionsButton.addEventListener("click", () => {
+        sendMessage({ type: "OPEN_OPTIONS" });
+      });
+    }
     const refreshButton = appendTextElement(footer, "button", "giac-popover-refresh", "↻ Aggiorna verifica");
     refreshButton.type = "button";
     refreshButton.addEventListener("click", async () => {
@@ -760,6 +808,9 @@
     const popover = createPopover();
     renderPopoverContent(popover, data.order, data.freshness);
     positionPopover(popover, badge);
+    if (pinned) {
+      popover.querySelector(".giac-popover-close")?.focus({ preventScroll: true });
+    }
   }
 
   function closePopover() {

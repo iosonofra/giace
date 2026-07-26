@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Giac Feedback Ordini</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <main>
+      <header>
+        <span class="app-icon" aria-hidden="true">G</span>
+        <div><strong>Giac Feedback</strong><small id="connection-label">Verifica configurazione</small></div>
+        <span id="connection-dot" class="status-dot pending" aria-hidden="true"></span>
+      </header>
+
+      <section class="quick-settings">
+        <label>
+          <span><strong>Integrazione attiva</strong><small>Badge nelle pagine ordine</small></span>
+          <input id="enabled" type="checkbox" role="switch">
+        </label>
+        <label>
+          <span><strong>Modalità cronologica</strong><small id="mode-label">Valuta la coda ordini</small></span>
+          <input id="chronological-mode" type="checkbox" role="switch">
+        </label>
+      </section>
+
+      <dl>
+        <div><dt>PrestaShop</dt><dd id="domain-value">Non configurato</dd></div>
+        <div><dt>Token</dt><dd id="token-value">Non configurato</dd></div>
+        <div><dt>Soglia</dt><dd id="threshold-value">0 unità</dd></div>
+      </dl>
+
+      <div id="popup-status" role="status" aria-live="polite"></div>
+
+      <footer>
+        <button id="test-connection" type="button" class="secondary">Verifica ora</button>
+        <button id="open-options" type="button" class="primary">Impostazioni</button>
+      </footer>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

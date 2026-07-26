@@ -7,7 +7,7 @@ export const SETTINGS_SECTIONS = [
 ];
 
 export const EXTENSION_DISTRIBUTIONS = {
-  chrome: { label: 'Chrome', version: 'v0.2.6' },
-  firefox: { label: 'Firefox', version: 'v0.1.5' },
-  userscript: { label: 'Userscript', version: 'v0.1.1' },
+  chrome: { label: 'Chrome', version: 'v0.2.7' },
+  firefox: { label: 'Firefox', version: 'v0.1.6' },
+  userscript: { label: 'Userscript', version: 'v0.1.2' },
 };
