@@ -41,7 +41,14 @@ export function StockOrdersDrawer({ stock }) {
   return (
     <>
       <div className="order-drawer-overlay" onClick={closeDrawer} />
-      <div className={`order-drawer ${smartSkuCounterEnabled ? 'order-drawer-expanded' : ''}`}>
+      <div
+        className={`order-drawer stock-orders-drawer ${
+          smartSkuCounterEnabled ? 'order-drawer-expanded' : ''
+        }`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="stock-orders-drawer-title"
+      >
         <StockOrdersDrawerHeader
           closeDrawer={closeDrawer}
           loadingSkuOrders={loadingSkuOrders}
@@ -64,16 +71,17 @@ export function StockOrdersDrawer({ stock }) {
               </p>
             </div>
           ) : model.displayedOrders.length > 0 ? (
-            <StockOrdersTable
-              copiedOrderId={copiedOrderId}
-              getStateBadgeClass={getStateBadgeClass}
-              handleCopyOrderId={handleCopyOrderId}
-              model={model}
-              selectedSku={selectedSkuForOrders}
-              setSortDirection={setSkuOrdersSortDirection}
-              smartSkuCounterEnabled={smartSkuCounterEnabled}
-              sortDirection={skuOrdersSortDirection}
-            />
+            <div className="stock-orders-table-shell">
+              <StockOrdersTable
+                copiedOrderId={copiedOrderId}
+                getStateBadgeClass={getStateBadgeClass}
+                handleCopyOrderId={handleCopyOrderId}
+                model={model}
+                setSortDirection={setSkuOrdersSortDirection}
+                smartSkuCounterEnabled={smartSkuCounterEnabled}
+                sortDirection={skuOrdersSortDirection}
+              />
+            </div>
           ) : (
             <div style={{
               color: 'var(--text-secondary)',
@@ -96,11 +104,6 @@ export function StockOrdersDrawer({ stock }) {
           )}
         </div>
 
-        <div className="order-drawer-footer">
-          <button className="btn btn-primary" onClick={closeDrawer}>
-            Chiudi
-          </button>
-        </div>
       </div>
     </>
   );

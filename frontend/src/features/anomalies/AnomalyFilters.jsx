@@ -1,4 +1,5 @@
 export function AnomalyFilters({
+  filteredCount,
   getAnomalySourceLabel,
   getAnomalyTypeLabel,
   onlyActionable,
@@ -14,6 +15,7 @@ export function AnomalyFilters({
   sources,
   type,
   types,
+  totalCount,
 }) {
   return (
     <div className="anomaly-filter-panel">
@@ -25,6 +27,9 @@ export function AnomalyFilters({
           value={search}
           onChange={event => setSearch(event.target.value)}
         />
+        <svg className="search-icon-svg" viewBox="0 0 20 20" aria-hidden="true">
+          <path d="M12.9 14.32a8 8 0 1 1 1.41-1.41l5.35 5.33-1.42 1.42-5.33-5.34zM8 14A6 6 0 1 0 8 2a6 6 0 0 0 0 12z" />
+        </svg>
       </div>
       <select
         className="select-control"
@@ -63,9 +68,14 @@ export function AnomalyFilters({
         type="button"
         className={`btn-small-link anomaly-toggle ${onlyActionable ? 'active' : ''}`}
         onClick={() => setOnlyActionable(!onlyActionable)}
+        aria-pressed={onlyActionable}
       >
-        {onlyActionable ? 'Mostra tutte' : 'Solo risolvibili'}
+        <span className="anomaly-toggle-indicator" aria-hidden="true" />
+        Solo risolvibili
       </button>
+      <span className="anomaly-filter-count" aria-live="polite">
+        {filteredCount} di {totalCount}
+      </span>
     </div>
   );
 }

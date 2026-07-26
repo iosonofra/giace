@@ -1,3 +1,18 @@
+function formatSyncDate(date) {
+  if (!date) return null;
+  const parsedDate = new Date(date);
+  if (Number.isNaN(parsedDate.getTime())) return null;
+  return parsedDate.toLocaleString('it-IT', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+}
+
+
 export function StockSyncCards({ stock }) {
   const {
     getRelativeTimeString,
@@ -11,106 +26,66 @@ export function StockSyncCards({ stock }) {
   const stockSyncDate = stockSource === 'google_sheets'
     ? status?.google_sheet_last_sync
     : status?.active_warehouse_batch?.imported_at;
+  const stockSourceLabel = (
+    status?.active_warehouse_batch?.sheet_name
+    || status?.active_warehouse_batch?.filename
+    || 'File locale'
+  );
 
   return (
-    <div className="sync-cards-grid">
-      <div className={`glass-panel sync-card ${syncingStock ? 'card-loading-pulse-green' : ''}`}>
-        <div className="sync-card-icon stock">
-          <Icons.Stock style={{
-            animation: syncingStock ? 'spin 1s infinite linear' : 'none',
-            height: '24px',
-            width: '24px',
-          }} />
-        </div>
+    <div className="glass-panel stock-status-strip" aria-label="Stato sincronizzazioni">
+      <div className={`stock-status-item ${syncingStock ? 'loading' : ''}`}>
+        <span className="stock-status-icon stock"><Icons.Stock /></span>
         <div>
-          <div style={{
-            color: 'var(--text-secondary)',
-            fontSize: '0.75rem',
-            fontWeight: '600',
-            letterSpacing: '0.5px',
-            textTransform: 'uppercase',
-          }}>
-            Sincronizzazione Giacenze
-          </div>
-          <div style={{ fontSize: '0.9rem', fontWeight: '600', marginTop: '2px' }}>
-            Sorgente:{' '}
-            <span style={{ color: 'var(--color-primary)' }}>
-              {status?.active_warehouse_batch?.sheet_name
-                || status?.active_warehouse_batch?.filename
-                || 'File locale'}
-            </span>
-          </div>
-          <div style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginTop: '2px' }}>
-            Ultimo sync:{' '}
-            <strong style={{ color: 'var(--text-primary)' }}>
-              {stockSyncDate ? new Date(stockSyncDate).toLocaleString('it-IT') : 'Mai'}
-            </strong>
-            {stockSyncDate && (
-              <span style={{ color: 'var(--text-secondary)', marginLeft: '6px' }}>
-                | {getRelativeTimeString(stockSyncDate)}
-              </span>
-            )}
-          </div>
+          <span>Giacenze</span>
+          <strong>{stockSourceLabel}</strong>
         </div>
+        <small className="stock-status-meta">
+          {syncingStock
+            ? 'Sincronizzazione in corso'
+            : stockSyncDate
+              ? (
+                <>
+                  <span>
+                    Ultimo sync: <time dateTime={stockSyncDate}>
+                      {formatSyncDate(stockSyncDate)}
+                    </time>
+                  </span>
+                  <i aria-hidden="true" />
+                  <span>Aggiornate {getRelativeTimeString(stockSyncDate)}</span>
+                </>
+              )
+              : 'Mai sincronizzate'}
+        </small>
       </div>
 
-      <div className={`glass-panel sync-card ${syncingOrders ? 'card-loading-pulse' : ''}`}>
-        <div className="sync-card-icon orders">
-          <Icons.Orders style={{
-            animation: syncingOrders ? 'spin 1s infinite linear' : 'none',
-            height: '24px',
-            width: '24px',
-          }} />
-        </div>
+      <span className="stock-status-divider" aria-hidden="true" />
+
+      <div className={`stock-status-item ${syncingOrders ? 'loading' : ''}`}>
+        <span className="stock-status-icon orders"><Icons.Orders /></span>
         <div>
-          <div style={{
-            color: 'var(--text-secondary)',
-            fontSize: '0.75rem',
-            fontWeight: '600',
-            letterSpacing: '0.5px',
-            textTransform: 'uppercase',
-          }}>
-            Sincronizzazione PrestaShop
-          </div>
-          <div style={{ fontSize: '0.9rem', fontWeight: '600', marginTop: '2px' }}>
-            Stato:
-            <span
-              className={`badge ${status?.mock_mode ? 'badge-warning' : 'badge-success'}`}
-              style={{
-                fontSize: '0.7rem',
-                marginLeft: '4px',
-                padding: '2px 8px',
-                verticalAlign: 'middle',
-              }}
-            >
-              {status?.mock_mode ? 'Simulazione' : 'Connesso'}
-            </span>
-          </div>
-          {syncingOrders && syncProgressText ? (
-            <div style={{
-              color: 'var(--color-primary)',
-              fontSize: '0.8rem',
-              fontWeight: '600',
-              marginTop: '2px',
-            }}>
-              {syncProgressText}
-            </div>
-          ) : (
-            <div style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginTop: '2px' }}>
-              Ultimo sync:{' '}
-              <strong style={{ color: 'var(--text-primary)' }}>
-                {status?.last_orders_sync
-                  ? new Date(status.last_orders_sync).toLocaleString('it-IT')
-                  : 'Mai'}
-              </strong>
-              {status?.last_orders_sync && (
-                <span style={{ color: 'var(--text-secondary)', marginLeft: '6px' }}>
-                  | {getRelativeTimeString(status.last_orders_sync)}
-                </span>
-              )}
-            </div>
-          )}
+          <span>PrestaShop</span>
+          <strong>{status?.mock_mode ? 'Simulazione' : 'Connesso'}</strong>
         </div>
+        <small className="stock-status-meta">
+          {syncingOrders
+            ? syncProgressText || 'Sincronizzazione in corso'
+            : status?.last_orders_sync
+              ? (
+                <>
+                  <span>
+                    Ultimo sync: <time dateTime={status.last_orders_sync}>
+                      {formatSyncDate(status.last_orders_sync)}
+                    </time>
+                  </span>
+                  <i aria-hidden="true" />
+                  <span>
+                    Aggiornato {getRelativeTimeString(status.last_orders_sync)}
+                  </span>
+                </>
+              )
+              : 'Mai sincronizzato'}
+        </small>
       </div>
     </div>
   );

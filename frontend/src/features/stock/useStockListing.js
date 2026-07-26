@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 
 import { apiFetch } from '../../api/client';
-import { paginateStockRows } from './stockPresentation';
+import {
+  matchesStockAvailability,
+  paginateStockRows,
+  summarizeStock,
+} from './stockPresentation';
 
 
 export function useStockListing({ active, ensureLoaded, refreshKey, setTabLoading }) {
@@ -10,7 +14,9 @@ export function useStockListing({ active, ensureLoaded, refreshKey, setTabLoadin
   const [stockData, setStockData] = useState([]);
   const [stockViewMode, setStockViewMode] = useState('standard');
   const [missingStockData, setMissingStockData] = useState([]);
-  const [stockLimit, setStockLimit] = useState(50);
+  const [stockAvailabilityFilter, setStockAvailabilityFilter] =
+    useState('all');
+  const [stockLimit, setStockLimit] = useState('all');
   const [stockPage, setStockPage] = useState(1);
 
   useEffect(() => {
@@ -62,12 +68,19 @@ export function useStockListing({ active, ensureLoaded, refreshKey, setTabLoadin
   const currentStockSourceData = stockViewMode === 'standard'
     ? stockData
     : missingStockData;
+  const stockSummary = useMemo(
+    () => summarizeStock(currentStockSourceData),
+    [currentStockSourceData],
+  );
   const sortedStock = useMemo(() => [...currentStockSourceData]
     .filter(item => (
-      item.sku.toLowerCase().includes(searchStock.toLowerCase())
-      || (
-        item.description
-        && item.description.toLowerCase().includes(searchStock.toLowerCase())
+      matchesStockAvailability(item, stockAvailabilityFilter)
+      && (
+        item.sku.toLowerCase().includes(searchStock.toLowerCase())
+        || (
+          item.description
+          && item.description.toLowerCase().includes(searchStock.toLowerCase())
+        )
       )
     ))
     .sort((left, right) => {
@@ -83,7 +96,12 @@ export function useStockListing({ active, ensureLoaded, refreshKey, setTabLoadin
       return stockSort.direction === 'asc'
         ? leftValue.localeCompare(rightValue)
         : rightValue.localeCompare(leftValue);
-    }), [currentStockSourceData, searchStock, stockSort]);
+    }), [
+      currentStockSourceData,
+      searchStock,
+      stockAvailabilityFilter,
+      stockSort,
+    ]);
   const stockPagination = useMemo(
     () => paginateStockRows(sortedStock, stockPage, stockLimit),
     [sortedStock, stockLimit, stockPage],
@@ -93,6 +111,7 @@ export function useStockListing({ active, ensureLoaded, refreshKey, setTabLoadin
     setStockPage(1);
   }, [
     searchStock,
+    stockAvailabilityFilter,
     stockLimit,
     stockSort.direction,
     stockSort.field,
@@ -112,11 +131,13 @@ export function useStockListing({ active, ensureLoaded, refreshKey, setTabLoadin
     paginatedStock: stockPagination.rows,
     searchStock,
     setSearchStock,
+    setStockAvailabilityFilter,
     setStockLimit,
     setStockPage,
     setStockViewMode,
     sortedStock,
     stockData,
+    stockSummary,
     stockLimit,
     stockPage,
     stockSort,

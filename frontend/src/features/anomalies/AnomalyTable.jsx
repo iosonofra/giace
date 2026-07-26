@@ -9,14 +9,14 @@ export function AnomalyTable({
     <table className="custom-table anomaly-table">
       <thead>
         <tr>
-          <th>Problema</th>
-          <th>Oggetto</th>
-          <th>Stato ordine</th>
-          <th>Origine</th>
-          <th>Impatto</th>
-          <th>Dettaglio</th>
-          <th>Rilevata il</th>
-          <th style={{ textAlign: 'center', width: '140px' }}>Prossima azione</th>
+          <th className="anomaly-col-problem">Problema</th>
+          <th className="anomaly-col-object">Oggetto</th>
+          <th className="anomaly-col-state">Stato ordine</th>
+          <th className="anomaly-col-source">Origine</th>
+          <th className="anomaly-col-impact">Impatto</th>
+          <th className="anomaly-col-detail">Dettaglio</th>
+          <th className="anomaly-col-date">Rilevata il</th>
+          <th className="anomaly-col-action">Prossima azione</th>
         </tr>
       </thead>
       <tbody>
@@ -55,20 +55,26 @@ export function AnomalyTable({
                   {meta.severityLabel}
                 </span>
               </td>
-              <td className="anomaly-message">{anomaly.message}</td>
-              <td style={{ color: 'var(--text-secondary)' }}>
+              <td>
+                <span className="anomaly-message" title={anomaly.message}>
+                  {anomaly.message}
+                </span>
+              </td>
+              <td className="anomaly-date">
                 {formatDate(anomaly.created_at)}
               </td>
-              <td style={{ textAlign: 'center' }}>
+              <td className="anomaly-action-cell">
                 {meta.actionable ? (
                   <button
-                    className="btn btn-neutral btn-sm"
+                    className="btn btn-neutral btn-sm anomaly-action-button"
                     onClick={() => onAction(anomaly, meta)}
                     title={meta.actionLabel}
                   >
                     {meta.actionLabel}
                   </button>
-                ) : '-'}
+                ) : (
+                  <span className="anomaly-no-action">Nessuna azione</span>
+                )}
               </td>
             </tr>
           );

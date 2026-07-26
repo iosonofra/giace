@@ -2,6 +2,13 @@ export function formatStockOrderQty(value) {
   return Number(value).toLocaleString('it-IT', { maximumFractionDigits: 2 });
 }
 
+export function formatStockOrderCurrency(value) {
+  return `€ ${Number(value || 0).toLocaleString('it-IT', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
 export function formatSmartCounterNote(value) {
   return String(value || '').replace(/(\d+)\.0(?!\d)/g, '$1');
 }

@@ -13,7 +13,7 @@ export function useAssociationsData({
   showActionMsg,
 }) {
   const [productsPage, setProductsPage] = useState(1);
-  const [productsLimit] = useState(50);
+  const [productsLimit, setProductsLimit] = useState(50);
   const [searchProduct, setSearchProduct] = useState('');
   const [availabilityFilter, setAvailabilityFilter] = useState('all');
   const [productSort, setProductSort] = useState({
@@ -101,6 +101,10 @@ export function useAssociationsData({
     productsPage * productsLimit,
   );
 
+  useEffect(() => {
+    setProductsPage(currentPage => Math.min(currentPage, totalProductsPages));
+  }, [totalProductsPages]);
+
   const handleSortProduct = field => {
     const direction = productSort.field === field && productSort.direction === 'asc'
       ? 'desc'
@@ -155,11 +159,13 @@ export function useAssociationsData({
     handleSortProduct,
     paginatedProducts,
     productData,
+    productsLimit,
     productsPage,
     productSort,
     searchProduct,
     setAssociationToDelete,
     setAvailabilityFilter,
+    setProductsLimit,
     setProductsPage,
     setSearchProduct,
     setShowDeleteAssociationConfirm,

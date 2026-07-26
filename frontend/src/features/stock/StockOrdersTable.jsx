@@ -1,5 +1,6 @@
 import {
   formatSmartCounterNote,
+  formatStockOrderCurrency,
   formatStockOrderQty,
 } from './stockOrdersDrawerModel';
 
@@ -46,13 +47,12 @@ export function StockOrdersTable({
   getStateBadgeClass,
   handleCopyOrderId,
   model,
-  selectedSku,
   setSortDirection,
   smartSkuCounterEnabled,
   sortDirection,
 }) {
   return (
-    <table className="custom-table">
+    <table className="custom-table stock-orders-table">
       <thead>
         <tr>
           <th>Ordine</th>
@@ -77,26 +77,38 @@ export function StockOrdersTable({
           <th>Cliente</th>
           <th>Stato</th>
           <th>Prodotto</th>
-          <th style={{ textAlign: 'right' }}>Qta</th>
-          <th style={{ textAlign: 'right' }}>×SKU</th>
-          <th style={{ textAlign: 'right' }}>Impegnato</th>
+          <th className="stock-orders-number">Qta</th>
+          <th className="stock-orders-number">×SKU</th>
+          <th className="stock-orders-number">Impegnato</th>
           {smartSkuCounterEnabled && (
             <>
               <th>Esito</th>
               <th>Residuo / Note</th>
             </>
           )}
-          <th style={{ textAlign: 'right' }}>Valore</th>
+          <th className="stock-orders-number">Valore</th>
         </tr>
       </thead>
       <tbody>
-        {model.displayedOrders.map((order, index) => (
-          <tr
-            key={`${order.order_id}-${order.product_id}-${index}`}
-            className={smartSkuCounterEnabled
-              ? `smart-counter-row ${order.smart_status || ''}`
-              : ''}
-          >
+        {model.displayedOrders.map((order, index) => {
+          const previousOrder = model.displayedOrders[index - 1];
+          const nextOrder = model.displayedOrders[index + 1];
+          const groupClass = previousOrder?.order_id === order.order_id
+            ? 'order-group-continuation'
+            : nextOrder?.order_id === order.order_id
+              ? 'order-group-start'
+              : '';
+          return (
+            <tr
+              key={`${order.order_id}-${order.product_id}-${index}`}
+              className={[
+                'stock-order-row',
+                groupClass,
+                smartSkuCounterEnabled
+                  ? `smart-counter-row ${order.smart_status || ''}`
+                  : '',
+              ].filter(Boolean).join(' ')}
+            >
             <OrderIdCell
               copiedOrderId={copiedOrderId}
               handleCopyOrderId={handleCopyOrderId}
@@ -105,8 +117,11 @@ export function StockOrdersTable({
             <td style={{ color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
               {order.date_add
                 ? new Date(order.date_add).toLocaleString('it-IT', {
-                  dateStyle: 'short',
-                  timeStyle: 'short',
+                  day: '2-digit',
+                  month: '2-digit',
+                  year: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit',
                 })
                 : '—'}
             </td>
@@ -124,25 +139,14 @@ export function StockOrdersTable({
             </td>
             <td>
               <span style={{ fontWeight: '500' }}>{order.product_reference}</span>
-              <span style={{
-                color: 'var(--text-secondary)',
-                fontSize: '0.72rem',
-                marginLeft: '4px',
-              }}>
-                (SKU: {selectedSku})
-              </span>
             </td>
-            <td style={{ textAlign: 'right', fontWeight: '500' }}>
+            <td className="stock-orders-number" style={{ fontWeight: '500' }}>
               {order.product_quantity}
             </td>
-            <td style={{ textAlign: 'right', color: 'var(--text-secondary)' }}>
+            <td className="stock-orders-number" style={{ color: 'var(--text-secondary)' }}>
               ×{order.qty_required}
             </td>
-            <td style={{
-              color: 'var(--color-primary)',
-              fontWeight: '700',
-              textAlign: 'right',
-            }}>
+            <td className="stock-orders-number stock-orders-committed">
               {order.contribution}
             </td>
             {smartSkuCounterEnabled && (
@@ -167,9 +171,17 @@ export function StockOrdersTable({
                   {order.component_issues?.length > 0 && (
                     <div className="smart-counter-issues">
                       {order.component_issues.map(issue => (
-                        <span key={issue.sku}>
-                          {issue.sku}: richiesti {formatStockOrderQty(issue.qty_required)},
-                          {' '}disp. {formatStockOrderQty(issue.qty_available)}
+                        <span key={issue.sku} className="smart-counter-issue">
+                          <code>{issue.sku}</code>
+                          <span>
+                            richiesti <b>{formatStockOrderQty(issue.qty_required)}</b>
+                          </span>
+                          <span>
+                            disponibili{' '}
+                            <b className="smart-counter-missing-qty">
+                              {formatStockOrderQty(issue.qty_available)}
+                            </b>
+                          </span>
                         </span>
                       ))}
                     </div>
@@ -177,30 +189,27 @@ export function StockOrdersTable({
                 </td>
               </>
             )}
-            <td style={{
-              color: 'var(--text-secondary)',
-              textAlign: 'right',
-              whiteSpace: 'nowrap',
-            }}>
+            <td className="stock-orders-number stock-orders-value">
               {order.total_paid != null
-                ? `€ ${Number(order.total_paid).toFixed(2)}`
+                ? formatStockOrderCurrency(order.total_paid)
                 : '—'}
             </td>
-          </tr>
-        ))}
+            </tr>
+          );
+        })}
       </tbody>
       <tfoot>
         <tr className="table-total-row">
           <td colSpan={5} style={{ fontWeight: '700' }}>Totali</td>
-          <td style={{ textAlign: 'right' }}>{model.visibleTotals.quantity}</td>
+          <td className="stock-orders-number">{model.visibleTotals.quantity}</td>
           <td />
-          <td style={{ textAlign: 'right', color: 'var(--color-primary)' }}>
+          <td className="stock-orders-number stock-orders-committed">
             {model.visibleTotals.committed}
           </td>
           {smartSkuCounterEnabled && <td colSpan={2} />}
-          <td style={{ textAlign: 'right' }}>
+          <td className="stock-orders-number">
             {model.visibleTotals.value > 0
-              ? `€ ${model.visibleTotals.value.toFixed(2)}`
+              ? formatStockOrderCurrency(model.visibleTotals.value)
               : '—'}
           </td>
         </tr>

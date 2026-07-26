@@ -1,4 +1,7 @@
-import { formatStockOrderQty } from './stockOrdersDrawerModel';
+import {
+  formatStockOrderCurrency,
+  formatStockOrderQty,
+} from './stockOrdersDrawerModel';
 
 
 export function StockOrdersDrawerHeader({
@@ -12,13 +15,16 @@ export function StockOrdersDrawerHeader({
   toggleSmartSkuCounter,
 }) {
   const { smartSummary } = model;
+  const smartInitialStock = Number(smartSummary?.initial_selected_stock || 0);
+  const smartFinalStock = Number(smartSummary?.final_selected_stock || 0);
+  const smartConsumedStock = Math.max(0, smartInitialStock - smartFinalStock);
 
   return (
     <div className="order-drawer-header">
       <div className="order-drawer-title-row">
-        <h3>
+        <h3 id="stock-orders-drawer-title">
           Ordini impegnati — SKU:{' '}
-          <span style={{ color: 'var(--color-primary)' }}>{selectedSku}</span>
+          <span className="stock-orders-drawer-sku">{selectedSku}</span>
         </h3>
         <div className="order-drawer-title-actions">
           {!loadingSkuOrders && skuOrdersData.length > 0 && (
@@ -35,7 +41,12 @@ export function StockOrdersDrawerHeader({
                 {loadingSmartSkuCounter
                   ? 'Calcolo Smart...'
                   : smartSkuCounterEnabled
-                    ? 'Conteggio Smart attivo'
+                    ? (
+                      <>
+                        <span className="smart-mode-dot" aria-hidden="true" />
+                        Conteggio Smart attivo
+                      </>
+                    )
                     : 'Conteggio Smart'}
               </button>
             </span>
@@ -45,18 +56,18 @@ export function StockOrdersDrawerHeader({
             onClick={closeDrawer}
             aria-label="Chiudi dettaglio ordine"
           >
-            x
+            <span aria-hidden="true">×</span>
           </button>
         </div>
       </div>
 
       {!loadingSkuOrders && skuOrdersData.length > 0 && (
         <div className="order-drawer-stats">
-          <div className="drawer-stat-chip">
+          <div className="drawer-stat-chip stat-primary">
             <span className="stat-value">{model.totalOrders}</span>
             <span className="stat-label">Ordini</span>
           </div>
-          <div className="drawer-stat-chip">
+          <div className="drawer-stat-chip stat-primary">
             <span className="stat-value">{model.totalCommitted}</span>
             <span className="stat-label">SKU Impegnate</span>
           </div>
@@ -64,11 +75,22 @@ export function StockOrdersDrawerHeader({
             <div className={`drawer-stat-chip ${model.remainingStock <= 0 ? 'stat-danger' : 'stat-success'}`}>
               <span className="stat-value">{formatStockOrderQty(model.remainingStock)}</span>
               <span className="stat-label">Giacenza Rimanente</span>
+              {smartSkuCounterEnabled && smartSummary && (
+                <span className="stat-detail">
+                  Smart {formatStockOrderQty(smartInitialStock)}
+                  {' → '}
+                  {formatStockOrderQty(smartFinalStock)}
+                  {' · '}
+                  consumo {formatStockOrderQty(smartConsumedStock)}
+                </span>
+              )}
             </div>
           )}
           {model.totalValue > 0 && (
-            <div className="drawer-stat-chip">
-              <span className="stat-value">€ {model.totalValue.toFixed(2)}</span>
+            <div className="drawer-stat-chip stat-neutral">
+              <span className="stat-value">
+                {formatStockOrderCurrency(model.totalValue)}
+              </span>
               <span className="stat-label">Valore Stimato</span>
             </div>
           )}
@@ -86,14 +108,6 @@ export function StockOrdersDrawerHeader({
               </div>
             </>
           )}
-        </div>
-      )}
-      {!loadingSkuOrders && smartSkuCounterEnabled && smartSummary && (
-        <div className="order-drawer-controls">
-          <span className="order-drawer-smart-summary">
-            {formatStockOrderQty(smartSummary.initial_selected_stock || 0)} {'->'}{' '}
-            {formatStockOrderQty(smartSummary.final_selected_stock || 0)} disponibili
-          </span>
         </div>
       )}
     </div>

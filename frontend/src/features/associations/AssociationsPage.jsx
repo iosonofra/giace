@@ -90,10 +90,12 @@ export function AssociationsPage({ associations }) {
     paginatedProducts,
     Pagination,
     productData,
+    productsLimit,
     productsPage,
     productSort,
     searchProduct,
     setAvailabilityFilter,
+    setProductsLimit,
     setProductsPage,
     setSearchProduct,
     sortedProducts,
@@ -339,6 +341,11 @@ export function AssociationsPage({ associations }) {
               currentPage={productsPage}
               totalPages={totalProductsPages}
               onPageChange={setProductsPage}
+              limit={productsLimit}
+              limitOptions={[25, 50, 100]}
+              onLimitChange={setProductsLimit}
+              showPageNumbers
+              totalItems={sortedProducts.length}
               disabled={tabLoading}
             />
           </>
