@@ -53,7 +53,7 @@ export function AppSidebar({
                     <span className="nav-item-badge-wrapper">
                       {label}
                       {anomaliesCount > 0 && (
-                        <span className="badge badge-danger" style={{ padding: '2px 6px', fontSize: '0.7rem' }}>
+                        <span className="badge badge-danger nav-anomaly-count" style={{ padding: '2px 6px' }}>
                           {anomaliesCount}
                         </span>
                       )}

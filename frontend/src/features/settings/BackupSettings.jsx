@@ -9,8 +9,8 @@ export function BackupSettings({ settings }) {
 
   return (
     <div className="glass-panel widget-card">
-                      <h2 style={{ fontSize: '1.2rem', marginBottom: '8px' }}>Backup & Ripristino Database</h2>
-                      <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '24px', lineHeight: '1.6' }}>
+                      <h2 className="backup-page-title" style={{ marginBottom: '8px' }}>Backup & Ripristino Database</h2>
+                      <p className="backup-page-description" style={{ color: 'var(--text-secondary)', marginBottom: '24px' }}>
                         Salva una copia completa dell'intero database locale (ordini, giacenze, associazioni, impostazioni) oppure ripristina un backup precedente.
                         Il ripristino sovrascrive tutti i dati correnti e riavvia automaticamente il server.
                       </p>
@@ -29,13 +29,13 @@ export function BackupSettings({ settings }) {
                           gap: '12px',
                           textAlign: 'center'
                         }}>
-                          <div style={{ fontSize: '2.5rem', fontWeight: '800', color: 'var(--color-primary)' }}>
+                          <div className="backup-restore-countdown" style={{ color: 'var(--color-primary)' }}>
                             {restoreCountdown}
                           </div>
-                          <div style={{ fontWeight: '600', color: 'var(--text-primary)' }}>
+                          <div className="backup-restore-success" style={{ color: 'var(--text-primary)' }}>
                             Database ripristinato con successo!
                           </div>
-                          <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                          <div className="backup-restore-message" style={{ color: 'var(--text-secondary)' }}>
                             Il server si sta riavviando… la pagina si aggiornerà automaticamente tra {restoreCountdown} secondi.
                           </div>
                           <div className="spinner" style={{ width: '24px', height: '24px' }}></div>
@@ -49,9 +49,9 @@ export function BackupSettings({ settings }) {
                             <svg width="22" height="22" fill="none" stroke="var(--color-success)" strokeWidth="2" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                             </svg>
-                            <span style={{ fontWeight: '700', fontSize: '1rem', color: 'var(--text-primary)' }}>Scarica Backup</span>
+                            <span className="backup-card-title" style={{ color: 'var(--text-primary)' }}>Scarica Backup</span>
                           </div>
-                          <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: '16px', lineHeight: '1.5' }}>
+                          <p className="backup-card-description" style={{ color: 'var(--text-secondary)', marginBottom: '16px' }}>
                             Scarica una copia del database SQLite (<code>.db</code>). Contiene tutti i tuoi dati, pronto per il ripristino.
                           </p>
                           <button
@@ -78,32 +78,21 @@ export function BackupSettings({ settings }) {
                             <svg width="22" height="22" fill="none" stroke="var(--color-danger)" strokeWidth="2" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
                             </svg>
-                            <span style={{ fontWeight: '700', fontSize: '1rem', color: 'var(--text-primary)' }}>Ripristina Database</span>
+                            <span className="backup-card-title" style={{ color: 'var(--text-primary)' }}>Ripristina Database</span>
                           </div>
-                          <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: '16px', lineHeight: '1.5' }}>
-                            Carica un file <code>.db</code> precedentemente scaricato. <strong style={{ color: 'var(--color-danger)' }}>Sovrascrive tutti i dati correnti.</strong>
+                          <p className="backup-card-description" style={{ color: 'var(--text-secondary)', marginBottom: '16px' }}>
+                            Carica un file <code>.db</code> precedentemente scaricato. <strong className="backup-danger-copy">Sovrascrive tutti i dati correnti.</strong>
                             Prima del ripristino viene salvata una copia di emergenza automatica.
                           </p>
                           <label
-                            style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '8px',
-                              padding: '9px 16px',
-                              borderRadius: '8px',
-                              border: '1px solid rgba(239,68,68,0.3)',
-                              backgroundColor: restoreLoading ? 'rgba(239,68,68,0.08)' : 'rgba(239,68,68,0.08)',
-                              color: 'var(--color-danger)',
-                              fontWeight: '600',
-                              fontSize: '0.88rem',
-                              cursor: restoreLoading || backupLoading ? 'not-allowed' : 'pointer',
-                              opacity: restoreLoading || backupLoading ? 0.6 : 1,
-                              transition: 'all 0.2s'
-                            }}
+                            className={`backup-restore-action ${
+                              restoreLoading || backupLoading ? 'is-disabled' : ''
+                            }`}
+                            aria-busy={restoreLoading}
                           >
                             {restoreLoading ? (
                               <>
-                                <div className="spinner" style={{ width: '14px', height: '14px', border: '2px solid rgba(239,68,68,0.3)', borderTopColor: 'var(--color-danger)' }}></div>
+                                <span className="spinner spinner-inline spinner-danger" />
                                 {restoreCountdown !== null ? `Riavvio in ${restoreCountdown}s...` : 'Ripristino in corso...'}
                               </>
                             ) : (
@@ -112,7 +101,7 @@ export function BackupSettings({ settings }) {
                             <input
                               type="file"
                               accept=".db"
-                              style={{ display: 'none' }}
+                              className="backup-file-input"
                               onChange={handleRestoreDatabase}
                               disabled={restoreLoading || backupLoading}
                             />

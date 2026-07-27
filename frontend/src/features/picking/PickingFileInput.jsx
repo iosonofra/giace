@@ -114,6 +114,7 @@ export function PickingFileInput({
           type="button"
           className="btn btn-primary"
           disabled={loading || files.length === 0}
+          aria-busy={loading}
           onClick={onSubmit}
         >
           {loading ? (

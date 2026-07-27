@@ -1,3 +1,4 @@
+import { useExitPresence } from '../../components/ui/useExitPresence';
 import { StockOrdersDrawerHeader } from './StockOrdersDrawerHeader';
 import { StockOrdersTable } from './StockOrdersTable';
 import { deriveStockOrdersDrawer } from './stockOrdersDrawerModel';
@@ -22,10 +23,13 @@ export function StockOrdersDrawer({ stock }) {
     toggleSmartSkuCounter,
   } = stock;
 
-  if (!selectedSkuForOrders) return null;
+  const presence = useExitPresence(selectedSkuForOrders);
+  if (!presence.shouldRender) return null;
+
+  const renderedSku = presence.renderedValue;
 
   const model = deriveStockOrdersDrawer({
-    selectedSku: selectedSkuForOrders,
+    selectedSku: renderedSku,
     skuOrdersData,
     smartSkuCounterData,
     smartSkuCounterEnabled,
@@ -40,11 +44,14 @@ export function StockOrdersDrawer({ stock }) {
 
   return (
     <>
-      <div className="order-drawer-overlay" onClick={closeDrawer} />
+      <div
+        className={`order-drawer-overlay ${presence.isExiting ? 'is-exiting' : ''}`}
+        onClick={closeDrawer}
+      />
       <div
         className={`order-drawer stock-orders-drawer ${
           smartSkuCounterEnabled ? 'order-drawer-expanded' : ''
-        }`}
+        } ${presence.isExiting ? 'is-exiting' : ''}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="stock-orders-drawer-title"
@@ -54,7 +61,7 @@ export function StockOrdersDrawer({ stock }) {
           loadingSkuOrders={loadingSkuOrders}
           loadingSmartSkuCounter={loadingSmartSkuCounter}
           model={model}
-          selectedSku={selectedSkuForOrders}
+          selectedSku={renderedSku}
           skuOrdersData={skuOrdersData}
           smartSkuCounterEnabled={smartSkuCounterEnabled}
           toggleSmartSkuCounter={toggleSmartSkuCounter}

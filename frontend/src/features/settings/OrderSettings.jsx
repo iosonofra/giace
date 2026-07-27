@@ -54,6 +54,7 @@ export function OrderSettings({ settings }) {
                           className="btn btn-primary orders-sync-button"
                           onClick={handleSyncOrders}
                           disabled={syncingOrders || loading}
+                          aria-busy={syncingOrders}
                         >
                           {syncingOrders ? (
                             <>
@@ -145,7 +146,7 @@ export function OrderSettings({ settings }) {
                                   })}
                                 </div>
                               ) : (
-                                <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: '8px 0', textAlign: 'center' }}>Nessuno stato trovato per la ricerca inserita.</p>
+                                <p className="order-states-empty" style={{ color: 'var(--text-secondary)', margin: '8px 0', textAlign: 'center' }}>Nessuno stato trovato per la ricerca inserita.</p>
                               )}
                             </div>
 
@@ -164,6 +165,8 @@ export function OrderSettings({ settings }) {
                                   className="btn btn-primary"
                                   onClick={handleSaveOrderStates}
                                   disabled={!orderStatesDirty || savingStateSettings}
+                                  aria-busy={savingStateSettings}
+                                  data-loading-indicator="true"
                                 >
                                   {savingStateSettings ? "Salvataggio..." : "Salva Stati Ordine"}
                                 </button>

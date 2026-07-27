@@ -54,6 +54,7 @@ export function StockSyncStatusRail({ settings }) {
           type="button"
           className="btn btn-secondary stock-sync-button"
           disabled={syncingGoogleSheets}
+          aria-busy={syncingGoogleSheets}
           onClick={handleSyncGoogleSheetsNow}
         >
           {syncingGoogleSheets ? 'Sincronizzazione...' : 'Sincronizza ora'}

@@ -97,7 +97,7 @@ export function PickingAggregatedView({
                         : 'Clicca per segnare come contata')
                       : undefined}
                   >
-                    <td style={{ fontWeight: '700' }}>{requirement.sku}</td>
+                    <td className="picking-sku-cell">{requirement.sku}</td>
                     <td className="picking-description-cell">{requirement.description}</td>
                     <td className="num-col strong-num">
                       {formatPickingQty(requirement.qty_required)}

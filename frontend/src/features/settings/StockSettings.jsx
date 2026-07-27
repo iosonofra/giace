@@ -40,7 +40,13 @@ export function StockSettings({ settings }) {
         </div>
         <footer className="stock-settings-footer">
           <span>Le modifiche diventano attive dopo il salvataggio.</span>
-          <button type="submit" className="btn btn-primary" disabled={savingStockSettings}>
+          <button
+            type="submit"
+            className="btn btn-primary"
+            disabled={savingStockSettings}
+            aria-busy={savingStockSettings}
+            data-loading-indicator="true"
+          >
             {savingStockSettings ? 'Salvataggio...' : 'Salva impostazioni giacenze'}
           </button>
         </footer>

@@ -8,6 +8,7 @@ import React, {
 import { Icons } from './components/ui/Icons';
 import { Pagination } from './components/ui/Pagination';
 import { TableSkeleton } from './components/ui/TableSkeleton';
+import { useExitPresence } from './components/ui/useExitPresence';
 import { AppHeader } from './features/app/AppHeader';
 import { AppOverlays } from './features/app/AppOverlays';
 import { AppSidebar } from './features/app/AppSidebar';
@@ -79,6 +80,7 @@ function App() {
   const [, setTimeTick] = useState(Date.now());
   const [tabLoading, setTabLoading] = useState(true);
   const [actionMessage, setActionMessage] = useState(null);
+  const toastPresence = useExitPresence(actionMessage);
 
   // Theme settings
   const [theme, setTheme] = useState(readStoredTheme);
@@ -416,10 +418,19 @@ function App() {
       {/* Main Content Area */}
       <main className="main-content">
         {/* Fixed-position toast alerts */}
-        {actionMessage && (
+        {toastPresence.shouldRender && (
           <div className="toast-container">
-            <div className={`toast-alert badge-${actionMessage.type === 'danger' ? 'danger' : actionMessage.type === 'warning' ? 'warning' : 'success'}`}>
-              <span>{actionMessage.text}</span>
+            <div
+              className={`toast-alert badge-${
+                toastPresence.renderedValue.type === 'danger'
+                  ? 'danger'
+                  : toastPresence.renderedValue.type === 'warning'
+                    ? 'warning'
+                    : 'success'
+              } ${toastPresence.isExiting ? 'is-exiting' : ''}`}
+              role="status"
+            >
+              <span>{toastPresence.renderedValue.text}</span>
               <button className="toast-close" onClick={() => setActionMessage(null)} aria-label="Chiudi notifica">x</button>
             </div>
           </div>

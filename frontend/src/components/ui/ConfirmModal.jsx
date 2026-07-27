@@ -1,5 +1,8 @@
 import React from 'react';
 
+import { useExitPresence } from './useExitPresence';
+
+
 export function ConfirmModal({
   isOpen,
   title,
@@ -10,9 +13,27 @@ export function ConfirmModal({
   confirmText,
   variant = 'danger',
 }) {
-  if (!isOpen) return null;
+  const contentRef = React.useRef({
+    confirmText,
+    message,
+    title,
+    variant,
+    warningText,
+  });
+  if (isOpen) {
+    contentRef.current = {
+      confirmText,
+      message,
+      title,
+      variant,
+      warningText,
+    };
+  }
+  const presence = useExitPresence(isOpen);
+  if (!presence.shouldRender) return null;
 
-  const icon = variant === 'danger' ? (
+  const displayed = contentRef.current;
+  const icon = displayed.variant === 'danger' ? (
     <svg width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
     </svg>
@@ -24,58 +45,43 @@ export function ConfirmModal({
 
   return (
     <>
-      <div className="modal-overlay" onClick={onCancel}></div>
-      <div className="confirm-modal">
-        <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
-          <div
-            style={{
-              padding: '8px',
-              borderRadius: '50%',
-              background: variant === 'danger' ? 'rgba(239, 68, 68, 0.1)' : 'rgba(245, 158, 11, 0.1)',
-              color: variant === 'danger' ? 'var(--color-danger)' : 'var(--color-warning)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              flexShrink: 0,
-            }}
-          >
+      <div
+        className={`modal-overlay ${presence.isExiting ? 'is-exiting' : ''}`}
+        onClick={onCancel}
+      />
+      <div
+        className={`confirm-modal confirm-modal-variant-${displayed.variant} ${
+          presence.isExiting ? 'is-exiting' : ''
+        }`}
+      >
+        <div className="confirm-modal-heading">
+          <div className="confirm-modal-icon">
             {icon}
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: '700', color: 'var(--text-primary)' }}>{title}</h3>
-            <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
-              {message}
+          <div className="confirm-modal-copy">
+            <h3 className="confirm-modal-title">{displayed.title}</h3>
+            <p className="confirm-modal-message">
+              {displayed.message}
             </p>
           </div>
         </div>
 
-        {warningText && (
-          <div
-            style={{
-              padding: '12px',
-              borderRadius: '8px',
-              background: variant === 'danger' ? 'rgba(239, 68, 68, 0.05)' : 'rgba(245, 158, 11, 0.05)',
-              border: variant === 'danger' ? '1px solid rgba(239, 68, 68, 0.2)' : '1px solid rgba(245, 158, 11, 0.2)',
-              fontSize: '0.8rem',
-              color: variant === 'danger' ? '#fca5a5' : '#fde68a',
-              lineHeight: '1.5',
-            }}
-          >
-            {warningText}
+        {displayed.warningText && (
+          <div className="confirm-modal-warning">
+            {displayed.warningText}
           </div>
         )}
 
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '8px' }}>
+        <div className="confirm-modal-actions">
           <button type="button" className="btn btn-neutral" onClick={onCancel}>
             Annulla
           </button>
           <button
             type="button"
-            className={`btn btn-${variant}`}
-            style={variant === 'danger' ? { backgroundColor: 'var(--color-danger)', borderColor: 'var(--color-danger)', color: 'white' } : {}}
+            className={`btn btn-${displayed.variant}`}
             onClick={onConfirm}
           >
-            {confirmText}
+            {displayed.confirmText}
           </button>
         </div>
       </div>

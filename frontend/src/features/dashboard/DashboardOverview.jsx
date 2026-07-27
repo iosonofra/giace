@@ -25,21 +25,17 @@ export function DashboardOverview({ dashboard }) {
           marginBottom: '20px',
           padding: '20px',
         }}>
-          <h3 style={{
+          <h3 className="dashboard-setup-title" style={{
             alignItems: 'center',
             color: 'var(--text-primary)',
             display: 'flex',
-            fontSize: '1rem',
-            fontWeight: '800',
             gap: '8px',
             marginBottom: '8px',
           }}>
             <Icons.Stock /> Configurazione iniziale giacenze
           </h3>
-          <p style={{
+          <p className="dashboard-setup-description" style={{
             color: 'var(--text-secondary)',
-            fontSize: '0.85rem',
-            lineHeight: '1.6',
             marginBottom: '16px',
           }}>
             Questo strumento sincronizza e calcola le giacenze fisiche di magazzino
@@ -61,15 +57,14 @@ export function DashboardOverview({ dashboard }) {
                 borderRadius: '8px',
                 padding: '12px',
               }}>
-                <strong style={{
+                <strong className="dashboard-setup-step-title" style={{
                   color: 'var(--text-primary)',
                   display: 'block',
-                  fontSize: '0.82rem',
                   marginBottom: '4px',
                 }}>
                   {title}
                 </strong>
-                <span style={{ color: 'var(--text-secondary)', fontSize: '0.78rem' }}>
+                <span className="dashboard-setup-step-description" style={{ color: 'var(--text-secondary)' }}>
                   {text}
                 </span>
               </div>

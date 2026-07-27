@@ -14,7 +14,7 @@ function PageTitle({ activeTab }) {
     return (
       <>
         <h1>Editor Associazioni e Disponibilità Kit</h1>
-        <p style={{ marginTop: '6px', lineHeight: '1.5', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+        <p className="page-title-description" style={{ marginTop: '6px', color: 'var(--text-secondary)' }}>
           Gestisci le associazioni tra i <strong>prodotti composti (kit o bundle)</strong> e i singoli articoli fisici.
           Visualizza la <em>Disponibilità Finale</em> calcolata in tempo reale in base alle giacenze residue di ciascun articolo
           e scopri lo <em>SKU Limitante</em> che ne blocca/limita la vendita.
@@ -46,6 +46,7 @@ export function AppHeader({
   syncingGoogleSheets,
   syncingOrders,
 }) {
+  const syncAllBusy = syncingGoogleSheets || syncingOrders;
   const syncAllDisabled = syncingGoogleSheets || syncingOrders || loading;
 
   return (
@@ -72,6 +73,7 @@ export function AppHeader({
             className="btn btn-secondary"
             onClick={onRefresh}
             disabled={loading}
+            aria-busy={loading}
             title="Ricarica i dati salvati nel database locale senza avviare nuove richieste esterne (veloce)"
           >
             <icons.Sync spinning={loading} /> Aggiorna Dati
@@ -82,10 +84,12 @@ export function AppHeader({
           <button
             className="btn btn-primary"
             onClick={onSyncAll}
-            disabled={loading}
+            disabled={loading || syncAllBusy}
+            aria-busy={syncAllBusy}
+            data-loading-indicator="true"
             title="Avvia la sincronizzazione da Google Sheets ed esegue il calcolo degli ordini da PrestaShop (richiede qualche secondo)"
           >
-            Sincronizza Tutto
+            {syncAllBusy ? 'Sincronizzazione…' : 'Sincronizza Tutto'}
           </button>
         )}
 
@@ -95,6 +99,7 @@ export function AppHeader({
               className="btn btn-primary"
               onClick={onSyncAll}
               disabled={syncAllDisabled}
+              aria-busy={syncAllBusy}
               title="Avvia la sincronizzazione da Google Sheets ed esegue il calcolo degli ordini da PrestaShop (richiede qualche secondo)"
             >
               <icons.Sync spinning={syncingGoogleSheets || syncingOrders} /> Sincronizza Tutto (Sheets &amp; Ordini)
@@ -104,6 +109,7 @@ export function AppHeader({
               className="btn btn-primary"
               onClick={onSyncOrders}
               disabled={syncingOrders || loading}
+              aria-busy={syncingOrders}
               title="Scarica i nuovi ordini da PrestaShop e ricalcola le giacenze (richiede qualche secondo)"
             >
               <icons.Sync spinning={syncingOrders} /> Sincronizza Ordini
@@ -112,7 +118,12 @@ export function AppHeader({
         )}
 
         {activeTab === 'orders' && (
-          <button className="btn btn-primary" onClick={onSyncOrders} disabled={syncingOrders || loading}>
+          <button
+            className="btn btn-primary"
+            onClick={onSyncOrders}
+            disabled={syncingOrders || loading}
+            aria-busy={syncingOrders}
+          >
             <icons.Sync spinning={syncingOrders} /> Sincronizza Ordini
           </button>
         )}

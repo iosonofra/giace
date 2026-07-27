@@ -56,6 +56,7 @@ export function PickingPlanSummary({
         type="submit"
         className="btn btn-primary picking-auto-submit"
         disabled={loading}
+        aria-busy={loading}
       >
         {loading ? (
           <>

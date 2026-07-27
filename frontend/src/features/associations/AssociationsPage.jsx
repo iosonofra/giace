@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 
+import { useExitPresence } from '../../components/ui/useExitPresence';
 import {
   ASSOCIATION_FILTERS,
   associationAvailability,
@@ -19,6 +20,7 @@ function SortLabel({
     <button
       type="button"
       className={`association-sort-button ${active ? 'active' : ''}`}
+      aria-pressed={active}
       onClick={() => onSort(field)}
     >
       {children}
@@ -36,12 +38,20 @@ function AssociationImportDialog({
   onCancel,
   onConfirm,
 }) {
-  if (!file) return null;
+  const presence = useExitPresence(file);
+  if (!presence.shouldRender) return null;
+
+  const renderedFile = presence.renderedValue;
   return (
     <>
-      <div className="modal-overlay" onClick={onCancel} />
       <div
-        className="custom-modal association-import-modal"
+        className={`modal-overlay ${presence.isExiting ? 'is-exiting' : ''}`}
+        onClick={onCancel}
+      />
+      <div
+        className={`custom-modal association-import-modal ${
+          presence.isExiting ? 'is-exiting' : ''
+        }`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="association-import-title"
@@ -50,7 +60,7 @@ function AssociationImportDialog({
         <span className="association-editor-eyebrow">Importazione associazioni</span>
         <h3 id="association-import-title">Sostituire le associazioni attuali?</h3>
         <p>
-          Il file <strong>{file.name}</strong> diventerà la nuova sorgente attiva.
+          Il file <strong>{renderedFile.name}</strong> diventerà la nuova sorgente attiva.
           Prima dell’importazione verranno validate tutte le righe e le quantità.
         </p>
         <div className="association-import-warning">
@@ -66,8 +76,9 @@ function AssociationImportDialog({
             className="btn btn-primary"
             onClick={onConfirm}
             disabled={loading}
+            aria-busy={loading}
           >
-            Importa e sostituisci
+            {loading ? 'Importazione…' : 'Importa e sostituisci'}
           </button>
         </div>
       </div>

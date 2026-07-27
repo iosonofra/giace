@@ -54,7 +54,12 @@ export function PickingTextInput({
               Nuovo calcolo
             </button>
           )}
-          <button type="submit" className="btn btn-primary picking-calculate-btn" disabled={loading}>
+          <button
+            type="submit"
+            className="btn btn-primary picking-calculate-btn"
+            disabled={loading}
+            aria-busy={loading}
+          >
             {loading ? (
               <>
                 <span className="spinner picking-inline-spinner" />

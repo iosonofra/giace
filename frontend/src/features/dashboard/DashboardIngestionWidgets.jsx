@@ -8,10 +8,10 @@ function UploadCard({ description, label, onChange, uploadIcon = 'cloud' }) {
           <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
         )}
       </svg>
-      <span style={{ fontSize: '0.85rem', fontWeight: '600', marginTop: '4px' }}>
+      <span className="upload-card-title" style={{ marginTop: '4px' }}>
         {label}
       </span>
-      <span style={{ color: 'var(--text-secondary)', fontSize: '0.72rem' }}>
+      <span className="upload-card-description" style={{ color: 'var(--text-secondary)' }}>
         {description}
       </span>
       <input
@@ -28,9 +28,8 @@ function UploadCard({ description, label, onChange, uploadIcon = 'cloud' }) {
 function ActiveBatch({ batch, association = false }) {
   if (!batch) return null;
   return (
-    <p style={{
+    <p className="dashboard-active-batch" style={{
       color: 'var(--text-secondary)',
-      fontSize: '0.75rem',
       marginBottom: 0,
       marginTop: '4px',
     }}>
@@ -68,10 +67,9 @@ export function DashboardIngestionWidgets({ dashboard }) {
             borderRadius: '8px',
             padding: '16px',
           }}>
-            <h3 style={{
+            <h3 className="dashboard-sync-title" style={{
               alignItems: 'center',
               display: 'flex',
-              fontSize: '0.95rem',
               gap: '8px',
               marginBottom: '6px',
             }}>
@@ -84,9 +82,8 @@ export function DashboardIngestionWidgets({ dashboard }) {
               }} />
               Sincronizzazione Google Sheets Attiva
             </h3>
-            <p style={{
+            <p className="dashboard-widget-description" style={{
               color: 'var(--text-secondary)',
-              fontSize: '0.82rem',
               marginBottom: '12px',
             }}>
               L'inventario è collegato al foglio di calcolo remoto.
@@ -100,12 +97,14 @@ export function DashboardIngestionWidgets({ dashboard }) {
               <button
                 className="btn btn-primary"
                 disabled={syncingGoogleSheets}
+                aria-busy={syncingGoogleSheets}
+                data-loading-indicator="true"
                 onClick={handleSyncGoogleSheetsNow}
-                style={{ fontSize: '0.8rem', padding: '6px 12px' }}
+                style={{ padding: '6px 12px' }}
               >
                 {syncingGoogleSheets ? 'Sincronizzazione...' : 'Sincronizza Ora'}
               </button>
-              <span style={{ color: 'var(--text-secondary)', fontSize: '0.78rem' }}>
+              <span className="dashboard-sync-meta" style={{ color: 'var(--text-secondary)' }}>
                 Verificato: {googleSheetLastSync
                   ? new Date(googleSheetLastSync).toLocaleString('it-IT')
                   : 'Mai'}
@@ -128,17 +127,14 @@ export function DashboardIngestionWidgets({ dashboard }) {
                 padding: '12px',
               }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  <label style={{
+                  <label className="dashboard-field-label" style={{
                     color: 'var(--text-secondary)',
-                    fontSize: '0.72rem',
-                    fontWeight: '600',
-                    textTransform: 'uppercase',
                   }}>
                     Foglio Excel Attivo
                   </label>
                   <select
                     className="select-control"
-                    style={{ fontSize: '0.82rem', height: '32px', width: '180px' }}
+                    style={{ height: '32px', width: '180px' }}
                     value={selectedSheet}
                     onChange={event => setSelectedSheet(event.target.value)}
                   >
@@ -149,7 +145,7 @@ export function DashboardIngestionWidgets({ dashboard }) {
                 </div>
                 <button
                   className="btn btn-primary"
-                  style={{ fontSize: '0.82rem', height: '32px', padding: '0 12px' }}
+                  style={{ height: '32px', padding: '0 12px' }}
                   onClick={() => handleLocalImport('warehouse')}
                   disabled={loading}
                 >
@@ -182,12 +178,12 @@ export function DashboardIngestionWidgets({ dashboard }) {
               justifyContent: 'space-between',
               padding: '12px',
             }}>
-              <span style={{ color: 'var(--text-secondary)', fontSize: '0.82rem' }}>
+              <span className="dashboard-widget-description" style={{ color: 'var(--text-secondary)' }}>
                 Trovato file <code>associazione.xlsx</code> in locale.
               </span>
               <button
                 className="btn btn-primary"
-                style={{ fontSize: '0.82rem', height: '32px', padding: '0 12px' }}
+                style={{ height: '32px', padding: '0 12px' }}
                 onClick={() => handleLocalImport('associations')}
                 disabled={loading}
               >

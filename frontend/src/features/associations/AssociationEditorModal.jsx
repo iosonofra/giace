@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 
+import { useExitPresence } from '../../components/ui/useExitPresence';
 import { AssociationGuidedEditor } from './AssociationGuidedEditor';
 import {
   buildWarehouseSkuIndex,
@@ -36,8 +37,9 @@ export function AssociationEditorModal({
     () => deriveGuidedAssociation(guidedComponents),
     [guidedComponents],
   );
+  const presence = useExitPresence(isAssociationModalOpen);
 
-  if (!isAssociationModalOpen) return null;
+  if (!presence.shouldRender) return null;
 
   const associationHasContent = associationModalMode === 'guided'
     ? guidedSummary.configuredComponents.length > 0
@@ -57,9 +59,14 @@ export function AssociationEditorModal({
 
   return (
     <>
-      <div className="modal-overlay" onClick={closeModal} />
       <div
-        className="custom-modal association-editor-modal"
+        className={`modal-overlay ${presence.isExiting ? 'is-exiting' : ''}`}
+        onClick={closeModal}
+      />
+      <div
+        className={`custom-modal association-editor-modal ${
+          presence.isExiting ? 'is-exiting' : ''
+        }`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="association-editor-title"

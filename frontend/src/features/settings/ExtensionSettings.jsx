@@ -131,6 +131,8 @@ export function ExtensionSettings({ settings }) {
                 || !extensionTokenDirty
                 || extensionApiToken.trim().length < 16
               }
+              aria-busy={savingExtensionSettings}
+              data-loading-indicator="true"
             >
               {savingExtensionSettings ? 'Salvataggio...' : 'Salva configurazione'}
             </button>

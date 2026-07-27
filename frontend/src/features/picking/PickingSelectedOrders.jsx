@@ -101,7 +101,7 @@ export function PickingSelectedOrders({
 
                       return (
                         <tr key={item.sku} className={item.status === 'mancante' ? 'picking-row-critical' : item.status === 'parziale' ? 'picking-row-warning' : ''}>
-                          <td style={{ fontWeight: '600' }}>{item.sku}</td>
+                          <td className="picking-sku-cell">{item.sku}</td>
                           <td className="picking-description-cell">
                             {item.description}
                           </td>

@@ -12,7 +12,10 @@ function SortableHeader({
 }) {
   const active = sort.field === field;
   return (
-    <th className={className}>
+    <th
+      className={className}
+      aria-sort={active ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
+    >
       <button
         type="button"
         className={`stock-sort-button ${active ? 'active' : ''}`}
@@ -125,6 +128,7 @@ export function StockTablePanel({ stock }) {
               type="button"
               className="btn btn-secondary stock-sheet-sync"
               disabled={syncingGoogleSheets}
+              aria-busy={syncingGoogleSheets}
               onClick={handleSyncGoogleSheetsNow}
             >
               <Icons.Sync spinning={syncingGoogleSheets} />

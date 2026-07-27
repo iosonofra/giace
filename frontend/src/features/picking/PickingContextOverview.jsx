@@ -71,6 +71,8 @@ function TextContext({ handleSyncSpecificOrders, pickingResults, syncingSpecific
                 type="button"
                 className="btn btn-danger btn-sm"
                 disabled={syncingSpecificOrders}
+                aria-busy={syncingSpecificOrders}
+                data-loading-indicator="true"
                 onClick={handleSyncSpecificOrders}
               >
                 {syncingSpecificOrders ? 'Sincronizzazione...' : 'Recupera e ricalcola'}

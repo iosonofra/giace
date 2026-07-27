@@ -7,37 +7,23 @@ import {
 
 function OrderIdCell({ copiedOrderId, handleCopyOrderId, orderId }) {
   return (
-    <td
-      style={{
-        color: 'var(--color-primary)',
-        cursor: 'pointer',
-        fontWeight: '700',
-        position: 'relative',
-        whiteSpace: 'nowrap',
-      }}
-      onClick={() => handleCopyOrderId(orderId)}
-      title="Clicca per copiare l'ID ordine"
-    >
-      {orderId}
-      {copiedOrderId === orderId && (
-        <span style={{
-          background: 'rgba(16, 185, 129, 0.95)',
-          borderRadius: '4px',
-          bottom: '100%',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-          color: '#fff',
-          fontSize: '0.7rem',
-          fontWeight: '600',
-          left: '50%',
-          padding: '4px 8px',
-          pointerEvents: 'none',
-          position: 'absolute',
-          transform: 'translateX(-50%) translateY(-4px)',
-          zIndex: 9999,
-        }}>
-          Copiato!
-        </span>
-      )}
+    <td className="stock-order-id-cell">
+      <button
+        type="button"
+        className={`stock-order-id-button ${
+          copiedOrderId === orderId ? 'copied' : ''
+        }`}
+        onClick={() => handleCopyOrderId(orderId)}
+        title="Clicca per copiare l'ID ordine"
+        aria-label={`Copia ID ordine ${orderId}`}
+      >
+        {orderId}
+        {copiedOrderId === orderId && (
+          <span className="stock-order-copy-tooltip" role="status">
+            Copiato!
+          </span>
+        )}
+      </button>
     </td>
   );
 }
@@ -56,7 +42,7 @@ export function StockOrdersTable({
       <thead>
         <tr>
           <th>Ordine</th>
-          <th>
+          <th aria-sort={sortDirection === 'asc' ? 'ascending' : 'descending'}>
             <button
               type="button"
               className="table-sort-header"
@@ -125,9 +111,9 @@ export function StockOrdersTable({
                 })
                 : '—'}
             </td>
-            <td style={{ fontWeight: '500', whiteSpace: 'nowrap' }}>
+            <td className="stock-order-customer" style={{ whiteSpace: 'nowrap' }}>
               {order.customer_name || (
-                <span style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>
+                <span className="stock-order-empty" style={{ color: 'var(--text-secondary)' }}>
                   N/D
                 </span>
               )}
@@ -138,9 +124,9 @@ export function StockOrdersTable({
               </span>
             </td>
             <td>
-              <span style={{ fontWeight: '500' }}>{order.product_reference}</span>
+              <span className="stock-order-product-reference">{order.product_reference}</span>
             </td>
-            <td className="stock-orders-number" style={{ fontWeight: '500' }}>
+            <td className="stock-orders-number stock-order-quantity">
               {order.product_quantity}
             </td>
             <td className="stock-orders-number" style={{ color: 'var(--text-secondary)' }}>
@@ -200,7 +186,7 @@ export function StockOrdersTable({
       </tbody>
       <tfoot>
         <tr className="table-total-row">
-          <td colSpan={5} style={{ fontWeight: '700' }}>Totali</td>
+          <td className="table-total-label" colSpan={5}>Totali</td>
           <td className="stock-orders-number">{model.visibleTotals.quantity}</td>
           <td />
           <td className="stock-orders-number stock-orders-committed">

@@ -171,10 +171,11 @@ export function ConnectionSettings({ settings }) {
                                 className="btn btn-secondary prestashop-test-button"
                                 onClick={handleTestConnection}
                                 disabled={testingConnection || savingConnectionSettings || !prestashopRealReady}
+                                aria-busy={testingConnection}
                               >
                                 {testingConnection ? (
                                   <>
-                                    <div className="spinner" style={{ width: '14px', height: '14px', border: '2px solid rgba(255,255,255,0.2)', borderTopColor: 'var(--text-primary)' }}></div>
+                                    <span className="spinner spinner-inline" />
                                     Verifica...
                                   </>
                                 ) : (
@@ -193,7 +194,13 @@ export function ConnectionSettings({ settings }) {
                                 ? 'Configurazione pronta per verifica e salvataggio.'
                                 : 'Completa URL e chiave prima del test.'}
                           </span>
-                          <button type="submit" className="btn btn-primary" disabled={savingConnectionSettings || testingConnection}>
+                          <button
+                            type="submit"
+                            className="btn btn-primary"
+                            disabled={savingConnectionSettings || testingConnection}
+                            aria-busy={savingConnectionSettings}
+                            data-loading-indicator="true"
+                          >
                             {savingConnectionSettings ? "Salvataggio..." : "Salva Configurazione"}
                           </button>
                         </div>

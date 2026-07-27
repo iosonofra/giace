@@ -1,3 +1,6 @@
+import { useExitPresence } from '../../components/ui/useExitPresence';
+
+
 export function StockProductsDrawer({ stock }) {
   const {
     copiedAssociatedProductId,
@@ -9,13 +12,22 @@ export function StockProductsDrawer({ stock }) {
     skuProductsData,
   } = stock;
 
-  if (!selectedSkuForProducts) return null;
+  const presence = useExitPresence(selectedSkuForProducts);
+  if (!presence.shouldRender) return null;
+
+  const renderedSku = presence.renderedValue;
+  const closeDrawer = () => setSelectedSkuForProducts(null);
 
   return (
     <>
-      <div className="order-drawer-overlay" onClick={() => setSelectedSkuForProducts(null)} />
+      <div
+        className={`order-drawer-overlay ${presence.isExiting ? 'is-exiting' : ''}`}
+        onClick={closeDrawer}
+      />
       <aside
-        className="order-drawer stock-products-drawer"
+        className={`order-drawer stock-products-drawer ${
+          presence.isExiting ? 'is-exiting' : ''
+        }`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="stock-products-drawer-title"
@@ -25,13 +37,13 @@ export function StockProductsDrawer({ stock }) {
             <div>
               <span className="stock-products-drawer-eyebrow">Prodotti associati</span>
               <h3 id="stock-products-drawer-title">
-                SKU <span>{selectedSkuForProducts}</span>
+                SKU <span>{renderedSku}</span>
               </h3>
             </div>
             <button
               type="button"
               className="order-drawer-close"
-              onClick={() => setSelectedSkuForProducts(null)}
+              onClick={closeDrawer}
               aria-label="Chiudi prodotti associati"
             >
               ×
@@ -99,7 +111,7 @@ export function StockProductsDrawer({ stock }) {
         </div>
 
         <div className="order-drawer-footer">
-          <button type="button" className="btn btn-primary" onClick={() => setSelectedSkuForProducts(null)}>
+          <button type="button" className="btn btn-primary" onClick={closeDrawer}>
             Chiudi
           </button>
         </div>
