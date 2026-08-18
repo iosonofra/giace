@@ -10,7 +10,9 @@ export function buildWarehouseSkuIndex(stockData) {
       qty_total: 0,
       sku,
     };
-    existing.qty_total += Number(item.qty_total || 0);
+    if (!item.is_calculation_excluded) {
+      existing.qty_total += Number(item.qty_total || 0);
+    }
     if (!existing.description && item.description) {
       existing.description = item.description;
     }

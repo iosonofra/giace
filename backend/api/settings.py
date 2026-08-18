@@ -1,7 +1,10 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from backend.database import get_db
+from backend.calculator import run_calculation
 from backend.schemas.settings import (
     SettingsResponse,
     SettingsUpdatePayload,
@@ -17,9 +20,13 @@ from backend.services.settings_writer import (
     SettingsValidationError,
     write_settings,
 )
+from backend.services.calculation_inputs import (
+    resolve_calculation_batch_ids,
+)
 
 
 router = APIRouter(tags=["settings"])
+logger = logging.getLogger(__name__)
 
 
 @router.get("/api/settings", response_model=SettingsResponse)
@@ -40,6 +47,10 @@ def update_settings(
 ):
     if isinstance(payload, SettingsUpdatePayload):
         payload = payload.provided_values()
+    calculation_policy_changed = bool(
+        {"exclude_return_lots", "excluded_lot_keywords"}
+        & payload.keys()
+    )
     try:
         write_settings(db, payload)
     except SettingsValidationError as error:
@@ -49,6 +60,16 @@ def update_settings(
         ) from error
 
     _sync_env_file(db)
+    if calculation_policy_changed:
+        try:
+            batch_ids = resolve_calculation_batch_ids(db)
+            if batch_ids.warehouse and batch_ids.associations:
+                run_calculation(db)
+        except Exception:
+            logger.exception(
+                "Impossibile ricalcolare le giacenze dopo la modifica "
+                "della policy sui lotti."
+            )
     return get_settings(db)
 
 @router.post("/api/settings/google-sheets/sync")

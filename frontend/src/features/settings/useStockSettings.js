@@ -23,6 +23,8 @@ export function useStockSettings({
   const [mappingQty, setMappingQty] = useState('Qta Tot.');
   const [mappingDesc, setMappingDesc] = useState('Descrizione Sku');
   const [mappingLotto, setMappingLotto] = useState('Lotto');
+  const [excludeReturnLots, setExcludeReturnLots] = useState(false);
+  const [excludedLotKeywords, setExcludedLotKeywords] = useState('RESO, RESI');
 
   useEffect(() => {
     if (initialStockSource) setStockSource(initialStockSource);
@@ -40,6 +42,10 @@ export function useStockSettings({
     setMappingQty(currentSettings.mapping_qty || 'Qta Tot.');
     setMappingDesc(currentSettings.mapping_desc || 'Descrizione Sku');
     setMappingLotto(currentSettings.mapping_lotto || 'Lotto');
+    setExcludeReturnLots(Boolean(currentSettings.exclude_return_lots));
+    setExcludedLotKeywords(
+      (currentSettings.excluded_lot_keywords || ['RESO', 'RESI']).join(', '),
+    );
   }, [currentSettings]);
 
   const handleSaveGoogleSheetsSettings = async event => {
@@ -65,6 +71,14 @@ export function useStockSettings({
       setSettingsError('Le colonne SKU e Quantità sono obbligatorie.');
       return;
     }
+    const normalizedLotKeywords = excludedLotKeywords
+      .split(',')
+      .map(keyword => keyword.trim())
+      .filter(Boolean);
+    if (excludeReturnLots && normalizedLotKeywords.length === 0) {
+      setSettingsError('Inserisci almeno una parola per i lotti esclusi.');
+      return;
+    }
 
     setSavingStockSettings(true);
     setSettingsError(null);
@@ -81,6 +95,8 @@ export function useStockSettings({
           mapping_qty: mappingQty,
           mapping_desc: mappingDesc,
           mapping_lotto: mappingLotto,
+          exclude_return_lots: excludeReturnLots,
+          excluded_lot_keywords: normalizedLotKeywords,
         }),
       });
       const data = await response.json();
@@ -132,6 +148,8 @@ export function useStockSettings({
   };
 
   return {
+    excludeReturnLots,
+    excludedLotKeywords,
     googleSheetLastError,
     googleSheetLastSync,
     googleSheetName,
@@ -151,6 +169,8 @@ export function useStockSettings({
     setMappingLotto,
     setMappingQty,
     setMappingSku,
+    setExcludeReturnLots,
+    setExcludedLotKeywords,
     setStockSource,
     setSyncingGoogleSheets,
     stockSource,

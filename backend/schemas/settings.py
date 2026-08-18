@@ -24,6 +24,8 @@ class SettingsResponse(BaseModel):
     mapping_qty: str
     mapping_desc: str
     mapping_lotto: str
+    exclude_return_lots: bool
+    excluded_lot_keywords: list[str]
 
 
 class SettingsUpdatePayload(BaseModel):
@@ -42,6 +44,8 @@ class SettingsUpdatePayload(BaseModel):
     mapping_qty: Any = None
     mapping_desc: Any = None
     mapping_lotto: Any = None
+    exclude_return_lots: Any = None
+    excluded_lot_keywords: Any = None
 
     def provided_values(self) -> dict:
         return self.model_dump(exclude_unset=True)

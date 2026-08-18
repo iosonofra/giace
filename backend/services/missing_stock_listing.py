@@ -7,6 +7,10 @@ from backend.models import (
     SkuCommitment,
     WarehouseStock,
 )
+from backend.services.stock_calculation_policy import (
+    is_stock_row_calculable,
+    load_stock_calculation_policy,
+)
 
 
 def list_missing_stock(db) -> list[dict]:
@@ -28,6 +32,7 @@ def list_missing_stock(db) -> list[dict]:
         db,
         latest_run.id,
         batches_by_type.get("warehouse"),
+        load_stock_calculation_policy(db),
     )
     connected_counts = _load_connected_counts(
         db,
@@ -86,6 +91,7 @@ def _load_missing_commitments(
     db,
     calc_run_id,
     warehouse_batch,
+    calculation_policy,
 ):
     query = (
         db.query(SkuCommitment)
@@ -95,16 +101,26 @@ def _load_missing_commitments(
         )
     )
     if warehouse_batch:
-        stock_skus = (
-            db.query(WarehouseStock.sku)
+        stock_items = (
+            db.query(WarehouseStock)
             .filter(
                 WarehouseStock.import_batch_id
                 == warehouse_batch.id,
             )
+            .all()
         )
-        query = query.filter(
-            ~SkuCommitment.sku.in_(stock_skus),
-        )
+        calculable_skus = {
+            item.sku
+            for item in stock_items
+            if is_stock_row_calculable(
+                item,
+                calculation_policy,
+            )
+        }
+        if calculable_skus:
+            query = query.filter(
+                ~SkuCommitment.sku.in_(calculable_skus),
+            )
     return query.all()
 
 

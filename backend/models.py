@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, ForeignKey, UniqueConstraint, Text
+from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, ForeignKey, UniqueConstraint, Text, Index
 from sqlalchemy.sql import func
 from backend.database import Base
 
@@ -40,6 +40,14 @@ class ProductComponent(Base):
 
 class PrestashopOrder(Base):
     __tablename__ = "prestashop_orders"
+    __table_args__ = (
+        Index(
+            "ix_prestashop_orders_state_date",
+            "current_state",
+            "date_add",
+            "order_id",
+        ),
+    )
     
     order_id = Column(Integer, primary_key=True)
     current_state = Column(Integer, nullable=False)
@@ -55,7 +63,7 @@ class PrestashopOrderLine(Base):
     __tablename__ = "prestashop_order_lines"
     
     id = Column(Integer, primary_key=True, autoincrement=True)
-    order_id = Column(Integer, ForeignKey("prestashop_orders.order_id", ondelete="CASCADE"), nullable=False)
+    order_id = Column(Integer, ForeignKey("prestashop_orders.order_id", ondelete="CASCADE"), nullable=False, index=True)
     line_id = Column(Integer, nullable=True)
     product_id = Column(Integer, nullable=False)
     product_attribute_id = Column(Integer, nullable=True)

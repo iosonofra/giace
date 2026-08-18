@@ -16,6 +16,23 @@ COMPATIBILITY_COLUMNS = (
     ),
 )
 
+COMPATIBILITY_INDEXES = (
+    (
+        "prestashop_orders",
+        "ix_prestashop_orders_state_date",
+        {"current_state", "date_add", "order_id"},
+        "CREATE INDEX ix_prestashop_orders_state_date "
+        "ON prestashop_orders (current_state, date_add, order_id)",
+    ),
+    (
+        "prestashop_order_lines",
+        "ix_prestashop_order_lines_order_id",
+        {"order_id"},
+        "CREATE INDEX ix_prestashop_order_lines_order_id "
+        "ON prestashop_order_lines (order_id)",
+    ),
+)
+
 
 def apply_compatibility_migrations(db_engine) -> None:
     """Add columns required by releases that predate a migration system."""
@@ -33,6 +50,30 @@ def apply_compatibility_migrations(db_engine) -> None:
         if column_name in existing_columns:
             continue
 
+        with db_engine.begin() as connection:
+            connection.execute(text(statement))
+
+    schema = inspect(db_engine)
+    for (
+        table_name,
+        index_name,
+        required_columns,
+        statement,
+    ) in COMPATIBILITY_INDEXES:
+        if table_name not in existing_tables:
+            continue
+        existing_columns = {
+            column["name"]
+            for column in schema.get_columns(table_name)
+        }
+        if not required_columns.issubset(existing_columns):
+            continue
+        existing_indexes = {
+            index["name"]
+            for index in schema.get_indexes(table_name)
+        }
+        if index_name in existing_indexes:
+            continue
         with db_engine.begin() as connection:
             connection.execute(text(statement))
 

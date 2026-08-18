@@ -6,6 +6,7 @@ import { AssociationEditorModal } from '../associations/AssociationEditorModal';
 import { formatPickingQty } from '../picking/pickingUtils';
 import { StockOrdersDrawer } from '../stock/StockOrdersDrawer';
 import { StockProductsDrawer } from '../stock/StockProductsDrawer';
+import { AssociatedProductStockDrawer } from '../stock/AssociatedProductStockDrawer';
 
 
 export function AppOverlays({
@@ -18,6 +19,7 @@ export function AppOverlays({
 }) {
   return (
     <>
+      <AssociatedProductStockDrawer stock={stockUi} />
       <StockProductsDrawer stock={stockUi} />
       <StockOrdersDrawer stock={stockUi} />
 

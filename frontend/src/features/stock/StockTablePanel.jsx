@@ -1,6 +1,7 @@
 import {
   getStockRowPresentation,
 } from './stockPresentation';
+import { AssociatedProductsStockTable } from './AssociatedProductsStockTable';
 
 
 function SortableHeader({
@@ -34,6 +35,16 @@ function SortableHeader({
 export function StockTablePanel({ stock }) {
   const {
     currentStockSourceData,
+    associatedProductData,
+    associatedProductFilter,
+    associatedProductLimit,
+    associatedProductLoading,
+    associatedProductPage,
+    associatedProductSearch,
+    associatedProductSortPreset,
+    associatedProductSummary,
+    associatedProductTotalPages,
+    filteredAssociatedProducts,
     fetchSkuOrders,
     fetchSkuProducts,
     handleSortStock,
@@ -45,6 +56,11 @@ export function StockTablePanel({ stock }) {
     Pagination,
     searchStock,
     setSearchStock,
+    setAssociatedProductFilter,
+    setAssociatedProductLimit,
+    setAssociatedProductPage,
+    setAssociatedProductSearch,
+    setAssociatedProductSortPreset,
     setStockAvailabilityFilter,
     setStockLimit,
     setStockPage,
@@ -63,12 +79,37 @@ export function StockTablePanel({ stock }) {
     totalStockPages,
   } = stock;
 
-  const summaryItems = [
-    { id: 'total', filter: 'all', label: 'SKU totali', tone: 'neutral' },
-    { id: 'low', filter: 'low', label: 'Disponibilità bassa', tone: 'warning' },
-    { id: 'unavailable', filter: 'unavailable', label: 'Esaurite', tone: 'danger' },
-    { id: 'committed', filter: 'committed', label: 'Con quantità impegnata', tone: 'primary' },
-  ];
+  const productMode = stockViewMode === 'products';
+  const activeSummary = productMode ? associatedProductSummary : stockSummary;
+  const activeFilter = productMode
+    ? associatedProductFilter
+    : stockAvailabilityFilter;
+  const setActiveFilter = productMode
+    ? setAssociatedProductFilter
+    : setStockAvailabilityFilter;
+  const summaryItems = productMode
+    ? [
+      { id: 'total', filter: 'all', label: 'Prodotti associati', tone: 'neutral' },
+      { id: 'low', filter: 'low', label: 'Disponibilità bassa', tone: 'warning' },
+      { id: 'unavailable', filter: 'unavailable', label: 'Esauriti', tone: 'danger' },
+      { id: 'committed', filter: 'committed', label: 'Con quantità impegnata', tone: 'primary' },
+    ]
+    : [
+      { id: 'total', filter: 'all', label: 'SKU totali', tone: 'neutral' },
+      { id: 'low', filter: 'low', label: 'Disponibilità bassa', tone: 'warning' },
+      { id: 'unavailable', filter: 'unavailable', label: 'Esaurite', tone: 'danger' },
+      { id: 'committed', filter: 'committed', label: 'Con quantità impegnata', tone: 'primary' },
+    ];
+  const activeSearch = productMode ? associatedProductSearch : searchStock;
+  const setActiveSearch = productMode
+    ? setAssociatedProductSearch
+    : setSearchStock;
+  const resultCount = productMode
+    ? filteredAssociatedProducts.length
+    : sortedStock.length;
+  const sourceCount = productMode
+    ? associatedProductData.length
+    : currentStockSourceData.length;
 
   return (
     <div className="glass-panel widget-card stock-table-workbench">
@@ -78,13 +119,13 @@ export function StockTablePanel({ stock }) {
             key={item.id}
             type="button"
             className={`stock-kpi-item ${item.tone} ${
-              stockAvailabilityFilter === item.filter ? 'active' : ''
+              activeFilter === item.filter ? 'active' : ''
             }`}
-            aria-pressed={stockAvailabilityFilter === item.filter}
-            onClick={() => setStockAvailabilityFilter(item.filter)}
+            aria-pressed={activeFilter === item.filter}
+            onClick={() => setActiveFilter(item.filter)}
           >
             <span>{item.label}</span>
-            <strong>{stockSummary[item.id]}</strong>
+            <strong>{activeSummary[item.id]}</strong>
           </button>
         ))}
       </div>
@@ -97,9 +138,11 @@ export function StockTablePanel({ stock }) {
             <input
               type="search"
               className="search-input"
-              placeholder="Cerca SKU o descrizione"
-              value={searchStock}
-              onChange={event => setSearchStock(event.target.value)}
+              placeholder={productMode
+                ? 'Cerca ID, nome, riferimento o componente'
+                : 'Cerca SKU o descrizione'}
+              value={activeSearch}
+              onChange={event => setActiveSearch(event.target.value)}
             />
           </label>
 
@@ -114,6 +157,14 @@ export function StockTablePanel({ stock }) {
             </button>
             <button
               type="button"
+              className={stockViewMode === 'products' ? 'active' : ''}
+              aria-pressed={stockViewMode === 'products'}
+              onClick={() => setStockViewMode('products')}
+            >
+              Prodotti associati
+            </button>
+            <button
+              type="button"
               className={stockViewMode === 'missing' ? 'active danger' : ''}
               aria-pressed={stockViewMode === 'missing'}
               onClick={() => setStockViewMode('missing')}
@@ -122,6 +173,25 @@ export function StockTablePanel({ stock }) {
               <b>{missingStockData.length}</b>
             </button>
           </div>
+
+          {productMode && (
+            <label className="associated-product-sort-select">
+              <span>Ordina per</span>
+              <select
+                value={associatedProductSortPreset}
+                onChange={event => setAssociatedProductSortPreset(event.target.value)}
+              >
+                {associatedProductSortPreset === 'custom' && (
+                  <option value="custom" disabled>Ordinamento personalizzato</option>
+                )}
+                <option value="stock">Giacenza SKU</option>
+                <option value="priority">Disponibilità critica</option>
+                <option value="name">Nome prodotto</option>
+                <option value="residual">Residua crescente</option>
+                <option value="committed">Quantità impegnata</option>
+              </select>
+            </label>
+          )}
 
           {stockSource === 'google_sheets' && (
             <button
@@ -135,14 +205,18 @@ export function StockTablePanel({ stock }) {
               {syncingGoogleSheets ? 'Sincronizzazione...' : 'Sincronizza Sheets'}
             </button>
           )}
-          <span className="stock-result-count">
-            {sortedStock.length} di {currentStockSourceData.length} SKU
-          </span>
+          {(!productMode || activeSearch.trim()) && (
+            <span className="stock-result-count">
+              {resultCount} di {sourceCount} {productMode ? 'prodotti' : 'SKU'}
+            </span>
+          )}
         </div>
       </div>
 
       <div className="table-container stock-table-scroll">
-        {tabLoading ? (
+        {productMode ? (
+          <AssociatedProductsStockTable stock={stock} />
+        ) : tabLoading ? (
           <TableSkeleton rows={8} cols={9} />
         ) : sortedStock.length > 0 ? (
           <table className="custom-table stock-inventory-table">
@@ -229,7 +303,9 @@ export function StockTablePanel({ stock }) {
                       {empty ?? item.qty_total}
                     </td>
                     <td className="stock-number-cell stock-col-quantity">
-                      {meta.isSpacer ? '' : item.qty_committed > 0 ? (
+                      {meta.isCalculationExcluded ? (
+                        <span className="stock-excluded-value">—</span>
+                      ) : meta.isSpacer ? '' : item.qty_committed > 0 ? (
                         <button
                           type="button"
                           className="clickable-qty-badge"
@@ -243,15 +319,22 @@ export function StockTablePanel({ stock }) {
                       )}
                     </td>
                     <td className={`stock-number-cell stock-col-quantity stock-residual ${meta.availabilityTone}`}>
-                      {empty ?? (meta.isMissing ? '0' : item.qty_residual)}
+                      {empty ?? (meta.isCalculationExcluded
+                        ? <span className="stock-excluded-value">—</span>
+                        : (meta.isMissing ? '0' : item.qty_residual))}
                     </td>
                     <td className="stock-col-level">
                       {meta.isSpacer ? '' : (
-                        <div className="stock-level-cell">
+                        <div
+                          className={`stock-level-cell ${meta.isCalculationExcluded ? 'excluded' : ''}`}
+                          title={item.calculation_exclusion_reason || undefined}
+                        >
                           <span className={`stock-level-label ${meta.availabilityTone}`}>
                             {meta.availabilityLabel}
                           </span>
-                          <div>
+                          {meta.isCalculationExcluded ? (
+                            <span className="stock-excluded-reason">Lotto di reso</span>
+                          ) : <div>
                             <span
                               className="stock-bar-container"
                               role="progressbar"
@@ -268,7 +351,7 @@ export function StockTablePanel({ stock }) {
                             <span className="stock-level-percentage">
                               {Math.round(meta.percent)}%
                             </span>
-                          </div>
+                          </div>}
                         </div>
                       )}
                     </td>
@@ -304,7 +387,19 @@ export function StockTablePanel({ stock }) {
         )}
       </div>
 
-      {!tabLoading && sortedStock.length > 0 && (
+      {productMode && !associatedProductLoading && filteredAssociatedProducts.length > 0 ? (
+        <Pagination
+          currentPage={associatedProductPage}
+          totalPages={associatedProductTotalPages}
+          onPageChange={setAssociatedProductPage}
+          limit={associatedProductLimit}
+          onLimitChange={setAssociatedProductLimit}
+          limitOptions={[25, 50, 100]}
+          allowAll
+          totalItems={filteredAssociatedProducts.length}
+          disabled={associatedProductLoading}
+        />
+      ) : !productMode && !tabLoading && sortedStock.length > 0 && (
         <Pagination
           currentPage={stockPage}
           totalPages={totalStockPages}

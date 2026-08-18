@@ -106,8 +106,8 @@ class PrestaShopClient:
 
     def get_order_ids_and_update_times(self, state_ids: List[int], valid_product_ids: List[int] = None) -> List[Dict[str, Any]]:
         """
-        Fetches only order IDs and their date_upd from PrestaShop for fast change detection.
-        In mock mode, returns the mock order IDs and fixed/generated dates.
+        Fetches order IDs, states and date_upd for fast change detection.
+        In mock mode, returns the equivalent lightweight snapshot.
         """
         if self.mock_mode:
             mock_orders = self.mock_data.generate_orders(
@@ -117,6 +117,7 @@ class PrestaShopClient:
             return [
                 {
                     "id": order["order_id"],
+                    "current_state": order["current_state"],
                     "date_upd": order["date_upd"].strftime(
                         "%Y-%m-%d %H:%M:%S"
                     ),

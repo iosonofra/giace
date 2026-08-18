@@ -8,6 +8,10 @@ from backend.models import (
     WarehouseStock,
 )
 from backend.picking_rules import is_ignored_picking_sku
+from backend.services.stock_calculation_policy import (
+    is_stock_row_calculable,
+    load_stock_calculation_policy,
+)
 
 
 def analyze_stored_orders(db, order_ids_raw) -> dict:
@@ -29,14 +33,28 @@ def analyze_stored_orders(db, order_ids_raw) -> dict:
         for order_id in order_ids
         if order_id in order_map
     ]
-    found_order_ids = [
-        order.order_id
-        for order in sorted_orders
-    ]
     missing_order_ids = [
         order_id
         for order_id in order_ids
         if order_id not in order_map
+    ]
+
+    return _analyze_loaded_orders(
+        db,
+        sorted_orders,
+        missing_order_ids=missing_order_ids,
+    )
+
+
+def _analyze_loaded_orders(
+    db,
+    sorted_orders,
+    *,
+    missing_order_ids=None,
+) -> dict:
+    found_order_ids = [
+        order.order_id
+        for order in sorted_orders
     ]
 
     lines_by_order = _load_lines_by_order(db, found_order_ids)
@@ -52,7 +70,7 @@ def analyze_stored_orders(db, order_ids_raw) -> dict:
 
     return {
         "orders_found": found_order_ids,
-        "orders_missing": missing_order_ids,
+        "orders_missing": missing_order_ids or [],
         "sku_requirements": serialize_aggregate_requirements(
             all_requirements,
             stock_map,
@@ -64,6 +82,38 @@ def analyze_stored_orders(db, order_ids_raw) -> dict:
             stock_map,
         ),
     }
+
+
+def analyze_stored_orders_by_state(db, state_id: int) -> dict:
+    orders = (
+        db.query(PrestashopOrder)
+        .filter(PrestashopOrder.current_state == state_id)
+        .order_by(
+            PrestashopOrder.date_add,
+            PrestashopOrder.order_id,
+        )
+        .all()
+    )
+    result = _analyze_loaded_orders(
+        db,
+        orders,
+    )
+    result["source_state"] = {
+        "id": state_id,
+        "name": (
+            next(
+                (
+                    order.current_state_label
+                    for order in orders
+                    if order.current_state_label
+                ),
+                None,
+            )
+            or f"Stato {state_id}"
+        ),
+        "count": len(orders),
+    }
+    return result
 
 
 def _normalize_order_ids(order_ids_raw) -> list[int]:
@@ -142,6 +192,7 @@ def load_inventory_context(db):
     )
     stock_map = {}
     if active_warehouse:
+        calculation_policy = load_stock_calculation_policy(db)
         stock_items = (
             db.query(WarehouseStock)
             .filter(
@@ -151,6 +202,11 @@ def load_inventory_context(db):
             .all()
         )
         for item in stock_items:
+            if not is_stock_row_calculable(
+                item,
+                calculation_policy,
+            ):
+                continue
             sku = item.sku.strip()
             if not sku or sku.startswith("__spacer_"):
                 continue

@@ -10,6 +10,10 @@ from backend.models import (
     ProductComponent,
     WarehouseStock,
 )
+from backend.services.stock_calculation_policy import (
+    is_stock_row_calculable,
+    load_stock_calculation_policy,
+)
 from backend.services.auto_picking import simulate_auto_picking
 
 
@@ -201,6 +205,7 @@ def _load_inventory(db):
     stock_order = {}
     warehouse = batch_map.get("warehouse")
     if warehouse:
+        calculation_policy = load_stock_calculation_policy(db)
         stock_items = (
             db.query(WarehouseStock)
             .filter(
@@ -210,6 +215,11 @@ def _load_inventory(db):
             .all()
         )
         for item in stock_items:
+            if not is_stock_row_calculable(
+                item,
+                calculation_policy,
+            ):
+                continue
             sku = item.sku.strip()
             if not sku or sku.startswith("__spacer_"):
                 continue

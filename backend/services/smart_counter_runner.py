@@ -14,6 +14,10 @@ from backend.services.smart_counter import (
     EMPTY_SUMMARY,
     simulate_smart_counter,
 )
+from backend.services.stock_calculation_policy import (
+    is_stock_row_calculable,
+    load_stock_calculation_policy,
+)
 
 
 def run_smart_counter(
@@ -103,8 +107,14 @@ def _load_stock(db, active_warehouse):
         .order_by(WarehouseStock.id)
         .all()
     )
+    calculation_policy = load_stock_calculation_policy(db)
     stock_map = {}
     for item in stock_items:
+        if not is_stock_row_calculable(
+            item,
+            calculation_policy,
+        ):
+            continue
         sku = item.sku.strip()
         if not sku or sku.startswith("__spacer_"):
             continue

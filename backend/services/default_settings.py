@@ -42,6 +42,8 @@ def _default_values(environment: Mapping[str, str]) -> dict[str, str]:
         "mapping_qty": "Qta Tot.",
         "mapping_desc": "Descrizione Sku",
         "mapping_lotto": "Lotto",
+        "exclude_return_lots": "false",
+        "excluded_lot_keywords": json.dumps(["RESO", "RESI"]),
     }
 
 

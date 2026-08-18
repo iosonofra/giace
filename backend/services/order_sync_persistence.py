@@ -105,29 +105,77 @@ def save_specific_orders(
     states_map: dict[int, str],
     synced_at: datetime | None = None,
 ) -> int:
-    """Replace only the requested orders, preserving the other rows."""
-    synced_at = synced_at or _utc_naive_now()
-    saved_count = 0
+    """Replace requested orders in one transaction."""
+    return apply_order_delta(
+        db,
+        orders_data,
+        [order["order_id"] for order in orders_data],
+        states_map,
+        synced_at=synced_at,
+        clear_sync_anomalies=False,
+    )
 
+
+def apply_order_delta(
+    db,
+    orders_data: list[dict],
+    replace_order_ids,
+    states_map: dict[int, str],
+    synced_at: datetime | None = None,
+    *,
+    clear_sync_anomalies: bool = True,
+) -> int:
+    """Atomically remove stale rows and insert changed order details."""
+    synced_at = synced_at or _utc_naive_now()
+    replace_ids = {
+        int(order_id)
+        for order_id in replace_order_ids
+    }
+    unique_orders = {}
     for order in orders_data:
-        order_id = order["order_id"]
+        order_id = int(order["order_id"])
+        replace_ids.add(order_id)
+        if order_id in unique_orders:
+            logger.warning(
+                "Ordine duplicato ignorato durante il delta: %s",
+                order_id,
+            )
+            continue
+        unique_orders[order_id] = order
+
+    if replace_ids:
         (
             db.query(PrestashopOrderLine)
-            .filter(PrestashopOrderLine.order_id == order_id)
+            .filter(PrestashopOrderLine.order_id.in_(replace_ids))
             .delete()
         )
         (
             db.query(PrestashopOrder)
-            .filter(PrestashopOrder.order_id == order_id)
+            .filter(PrestashopOrder.order_id.in_(replace_ids))
             .delete()
         )
 
-        db.add(_build_order(order, states_map, synced_at))
-        db.commit()
+    if clear_sync_anomalies:
+        (
+            db.query(ImportAnomaly)
+            .filter(ImportAnomaly.source == "orders_sync")
+            .delete()
+        )
 
-        for line in order["lines"]:
-            db.add(_build_line(order_id, line))
-        saved_count += 1
+    orders_to_save = [
+        _build_order(order, states_map, synced_at)
+        for order in unique_orders.values()
+    ]
+    lines_to_save = [
+        _build_line(order_id, line)
+        for order_id, order in unique_orders.items()
+        for line in order["lines"]
+    ]
+
+    if orders_to_save:
+        db.bulk_save_objects(orders_to_save)
+    if lines_to_save:
+        db.bulk_save_objects(lines_to_save)
 
     db.commit()
-    return saved_count
+    return len(orders_to_save)

@@ -229,6 +229,50 @@ def write_settings(
             raise SettingsValidationError("Sorgente stock non valida.")
         _upsert(db, "stock_source", stock_source)
 
+    exclude_return_lots = payload.get("exclude_return_lots")
+    if exclude_return_lots is not None:
+        if not isinstance(exclude_return_lots, bool):
+            raise SettingsValidationError(
+                "exclude_return_lots deve essere un booleano."
+            )
+        _upsert(
+            db,
+            "exclude_return_lots",
+            "true" if exclude_return_lots else "false",
+        )
+
+    excluded_lot_keywords = payload.get("excluded_lot_keywords")
+    if excluded_lot_keywords is not None:
+        if not isinstance(excluded_lot_keywords, list):
+            raise SettingsValidationError(
+                "Le parole dei lotti esclusi devono essere una lista."
+            )
+        normalized_keywords = []
+        for value in excluded_lot_keywords:
+            if not isinstance(value, str):
+                raise SettingsValidationError(
+                    "Ogni parola dei lotti esclusi deve essere testuale."
+                )
+            keyword = value.strip().upper()
+            if not keyword:
+                continue
+            if len(keyword) > 30:
+                raise SettingsValidationError(
+                    "Le parole dei lotti esclusi possono contenere "
+                    "al massimo 30 caratteri."
+                )
+            if keyword not in normalized_keywords:
+                normalized_keywords.append(keyword)
+        if not normalized_keywords:
+            raise SettingsValidationError(
+                "Configura almeno una parola per i lotti esclusi."
+            )
+        _upsert(
+            db,
+            "excluded_lot_keywords",
+            json.dumps(normalized_keywords),
+        )
+
     interval_fields = {
         "google_sheet_sync_interval": (
             "L'intervallo deve essere un intero >= 1."

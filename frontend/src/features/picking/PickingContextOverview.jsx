@@ -111,6 +111,35 @@ function FileContext({ pickingFilesSummary, pickingResults }) {
   );
 }
 
+function StateContext({ pickingResults, pickingSourceState }) {
+  const state = pickingSourceState || pickingResults.source_state || {};
+  const sync = pickingResults.orders_sync || {};
+  const hasIncrementalStats = sync.sync_mode === 'incremental';
+
+  return (
+    <>
+      <div className="picking-context-card success">
+        <div>Ordini importati</div>
+        <strong>{pickingResults.orders_found.length} ordini</strong>
+        <p>
+          {pickingResults.orders_found.length > 0
+            ? pickingResults.orders_found.join(', ')
+            : 'Nessun ordine nello stato selezionato'}
+        </p>
+      </div>
+      <div className="picking-context-card file">
+        <div>Stato ordine selezionato</div>
+        <strong>{state.name || `Stato ${state.id || '—'}`}</strong>
+        <p>
+          {hasIncrementalStats
+            ? `Aggiornati ${sync.orders_added_or_updated || 0} · rimossi ${sync.orders_removed || 0} · invariati ${sync.orders_unchanged || 0}`
+            : 'Elaborazione cronologica dal più vecchio al più recente.'}
+        </p>
+      </div>
+    </>
+  );
+}
+
 export function PickingContextOverview({
   formatPickingQty,
   handleSyncSpecificOrders,
@@ -118,6 +147,7 @@ export function PickingContextOverview({
   pickingFilesSummary,
   pickingInputMode,
   pickingResults,
+  pickingSourceState,
   syncingSpecificOrders,
 }) {
   return (
@@ -140,6 +170,11 @@ export function PickingContextOverview({
           <AutomaticContext
             formatPickingQty={formatPickingQty}
             pickingResults={pickingResults}
+          />
+        ) : pickingResults.source_state ? (
+          <StateContext
+            pickingResults={pickingResults}
+            pickingSourceState={pickingSourceState}
           />
         ) : pickingInputMode === 'text' ? (
           <TextContext

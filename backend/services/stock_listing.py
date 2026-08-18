@@ -7,6 +7,10 @@ from backend.models import (
     SkuCommitment,
     WarehouseStock,
 )
+from backend.services.stock_calculation_policy import (
+    excluded_lot_keyword,
+    load_stock_calculation_policy,
+)
 
 
 def list_stock(db) -> list[dict]:
@@ -44,6 +48,7 @@ def list_stock(db) -> list[dict]:
         .order_by(WarehouseStock.id.asc())
         .all()
     )
+    calculation_policy = load_stock_calculation_policy(db)
     commitments = _load_commitments(db, latest_run)
     connected_counts = _load_connected_counts(
         db,
@@ -54,6 +59,7 @@ def list_stock(db) -> list[dict]:
         stock_items,
         commitments,
         connected_counts,
+        calculation_policy,
     )
 
 
@@ -92,10 +98,17 @@ def _serialize_stock_items(
     stock_items,
     commitments,
     connected_counts,
+    calculation_policy,
 ) -> list[dict]:
     sku_counts = {}
     for item in stock_items:
-        if not _is_spacer(item):
+        if (
+            not _is_spacer(item)
+            and excluded_lot_keyword(
+                item.lotto,
+                calculation_policy,
+            ) is None
+        ):
             sku_counts[item.sku] = sku_counts.get(item.sku, 0) + 1
 
     processed_counts = {}
@@ -107,12 +120,21 @@ def _serialize_stock_items(
             result.append(_serialize_spacer(index))
             continue
 
-        allocated = _allocate_commitment(
-            item,
-            commitments,
-            sku_counts,
-            processed_counts,
-            allocated_commitments,
+        excluded_keyword = excluded_lot_keyword(
+            item.lotto,
+            calculation_policy,
+        )
+
+        allocated = (
+            0.0
+            if excluded_keyword
+            else _allocate_commitment(
+                item,
+                commitments,
+                sku_counts,
+                processed_counts,
+                allocated_commitments,
+            )
         )
         result.append(
             {
@@ -122,12 +144,22 @@ def _serialize_stock_items(
                 "lotto": item.lotto or "",
                 "qty_total": item.qty_total,
                 "qty_committed": allocated,
-                "qty_residual": item.qty_total - allocated,
+                "qty_residual": (
+                    None
+                    if excluded_keyword
+                    else item.qty_total - allocated
+                ),
                 "connected_products": connected_counts.get(
                     item.sku,
                     0,
                 ),
                 "is_spacer": False,
+                "is_calculation_excluded": bool(excluded_keyword),
+                "calculation_exclusion_reason": (
+                    f"Lotto contenente {excluded_keyword}"
+                    if excluded_keyword
+                    else None
+                ),
             }
         )
 
@@ -183,4 +215,6 @@ def _serialize_spacer(index: int) -> dict:
         "qty_residual": 0.0,
         "connected_products": 0,
         "is_spacer": True,
+        "is_calculation_excluded": False,
+        "calculation_exclusion_reason": None,
     }

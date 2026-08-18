@@ -1,6 +1,7 @@
 import { PickingAutomaticPlanner } from './PickingAutomaticPlanner';
 import { PickingFileInput } from './PickingFileInput';
 import { PickingResultsPanel } from './PickingResultsPanel';
+import { PickingStateInput } from './PickingStateInput';
 import { PickingTextInput } from './PickingTextInput';
 
 
@@ -21,6 +22,7 @@ export function PickingPage({
   onUploadFiles,
   setFileAnomalies,
   setFileSummary,
+  stateInputProps,
   automaticPlannerProps,
   resultsProps,
   LoadingSkeleton,
@@ -36,7 +38,7 @@ export function PickingPage({
         <div className="picking-section-head">
           <div>
             <span className="widget-title">Pianificazione Prelievo</span>
-            <p>Inserisci ordini da testo oppure importa uno o più Excel di prelievo.</p>
+            <p>Inserisci gli ordini da testo, Excel, stato PrestaShop o proposta automatica.</p>
           </div>
         </div>
 
@@ -62,6 +64,15 @@ export function PickingPage({
             onClick={() => selectMode('file')}
           >
             Carica Excel
+          </button>
+          <button
+            type="button"
+            className={`picking-mode-btn ${inputMode === 'state' ? 'active' : ''}`}
+            role="tab"
+            aria-selected={inputMode === 'state'}
+            onClick={() => selectMode('state')}
+          >
+            Stato ordine
           </button>
           <button
             type="button"
@@ -106,6 +117,8 @@ export function PickingPage({
               loading={loading}
               hasResults={Boolean(results)}
             />
+          ) : inputMode === 'state' ? (
+            <PickingStateInput {...stateInputProps} />
           ) : (
             <PickingAutomaticPlanner {...automaticPlannerProps} />
           )}

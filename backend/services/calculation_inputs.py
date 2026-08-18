@@ -13,6 +13,9 @@ from backend.models import (
     ProductComponent,
     WarehouseStock,
 )
+from backend.services.stock_calculation_policy import (
+    load_stock_calculation_policy,
+)
 
 
 @dataclass(frozen=True)
@@ -109,11 +112,15 @@ def load_calculation_inputs(
         )
         .all()
     )
+    calculation_policy = load_stock_calculation_policy(db)
     return CalculationInputs(
         included_states=included_states,
         order_lines=order_lines,
         components_map=build_components_map(components),
-        sku_total_stock=aggregate_stock(stock),
+        sku_total_stock=aggregate_stock(
+            stock,
+            calculation_policy,
+        ),
     )
 
 

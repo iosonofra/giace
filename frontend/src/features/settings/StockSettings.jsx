@@ -1,4 +1,5 @@
 import { StockMappingSettings } from './StockMappingSettings';
+import { StockCalculationPolicySettings } from './StockCalculationPolicySettings';
 import { StockSourceSettings } from './StockSourceSettings';
 import { StockSyncStatusRail } from './StockSyncStatusRail';
 
@@ -35,6 +36,7 @@ export function StockSettings({ settings }) {
           <div className="stock-workbench-main">
             <StockSourceSettings settings={settings} />
             <StockMappingSettings settings={settings} />
+            <StockCalculationPolicySettings settings={settings} />
           </div>
           <StockSyncStatusRail settings={settings} />
         </div>

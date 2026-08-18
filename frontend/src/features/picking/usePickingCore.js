@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { apiFetch } from '../../api/client';
 
 const ORDER_ID_PATTERN = /\b\d{4,8}\b/g;
@@ -15,6 +15,10 @@ export function usePickingCore({ showActionMsg }) {
   const [pickingError, setPickingError] = useState(null);
   const [pickingInputMode, setPickingInputMode] = useState('text');
   const [selectedPickingFiles, setSelectedPickingFiles] = useState([]);
+  const [pickingOrderStates, setPickingOrderStates] = useState([]);
+  const [selectedPickingStateId, setSelectedPickingStateId] = useState('');
+  const [pickingStatesLoading, setPickingStatesLoading] = useState(false);
+  const [pickingStatesError, setPickingStatesError] = useState(null);
   const [pickingFilesAnomalies, setPickingFilesAnomalies] = useState([]);
   const [pickingFilesSummary, setPickingFilesSummary] = useState([]);
   const [pickingViewMode, setPickingViewMode] = useState('aggregated');
@@ -32,6 +36,37 @@ export function usePickingCore({ showActionMsg }) {
     () => new Set(rawPickingText.match(ORDER_ID_PATTERN) || []).size,
     [rawPickingText],
   );
+
+  const loadPickingOrderStates = useCallback(async () => {
+    setPickingStatesLoading(true);
+    setPickingStatesError(null);
+    try {
+      const response = await apiFetch('/api/orders/available-states');
+      const data = await response.json();
+      if (!response.ok) {
+        setPickingStatesError(
+          data.detail || 'Impossibile caricare gli stati ordine.',
+        );
+        return;
+      }
+      const nextStates = data.states || [];
+      setPickingOrderStates(nextStates);
+      setSelectedPickingStateId(current => (
+        nextStates.some(state => String(state.id) === String(current))
+          ? current
+          : ''
+      ));
+    } catch (error) {
+      setPickingStatesError(`Errore di connessione: ${error.message}`);
+    } finally {
+      setPickingStatesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (pickingInputMode !== 'state' || pickingOrderStates.length > 0) return;
+    loadPickingOrderStates();
+  }, [loadPickingOrderStates, pickingInputMode, pickingOrderStates.length]);
 
   const handleCalculatePicking = async (event) => {
     event?.preventDefault();
@@ -106,6 +141,46 @@ export function usePickingCore({ showActionMsg }) {
     }
   };
 
+  const handleCalculatePickingState = async (event) => {
+    event?.preventDefault();
+    if (!selectedPickingStateId) {
+      setPickingError('Seleziona lo stato degli ordini da importare.');
+      return;
+    }
+
+    setPickingLoading(true);
+    setPickingError(null);
+    setPickingFilesAnomalies([]);
+    setPickingFilesSummary([]);
+    try {
+      const response = await apiFetch('/api/orders/analyze-state', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ state_id: Number(selectedPickingStateId) }),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setPickingResults(data);
+        setPickingRequirementFilter('all');
+        if (data.source_state) {
+          setPickingOrderStates(current => current.map(state => (
+            String(state.id) === String(data.source_state.id)
+              ? { ...state, ...data.source_state }
+              : state
+          )));
+        }
+      } else {
+        setPickingError(
+          data.detail || "Errore durante l'importazione degli ordini.",
+        );
+      }
+    } catch (error) {
+      setPickingError(`Errore di connessione: ${error.message}`);
+    } finally {
+      setPickingLoading(false);
+    }
+  };
+
   const togglePickingSkuCounted = (sku) => {
     if (!pickingCountingMode || !sku) return;
     setCountedPickingSkus((current) => {
@@ -168,6 +243,7 @@ export function usePickingCore({ showActionMsg }) {
     countedPickingSkus,
     detectedPickingOrderCount,
     handleCalculatePicking,
+    handleCalculatePickingState,
     handleSyncSpecificOrders,
     handleUploadPickingFiles,
     pickingCountingMode,
@@ -176,8 +252,11 @@ export function usePickingCore({ showActionMsg }) {
     pickingFilesSummary,
     pickingInputMode,
     pickingLoading,
+    pickingOrderStates,
     pickingRequirementFilter,
     pickingResults,
+    pickingStatesError,
+    pickingStatesLoading,
     pickingViewMode,
     rawPickingText,
     selectedPickingFiles,
@@ -191,6 +270,9 @@ export function usePickingCore({ showActionMsg }) {
     setPickingViewMode,
     setRawPickingText,
     setSelectedPickingFiles,
+    selectedPickingStateId,
+    setSelectedPickingStateId,
+    loadPickingOrderStates,
     syncingSpecificOrders,
     togglePickingCountingMode,
     togglePickingSkuCounted,

@@ -11,6 +11,15 @@ export function getStockAvailability(item) {
     item?.is_spacer || item?.sku?.startsWith('__spacer_'),
   );
   const isMissing = Boolean(item?.is_missing);
+  const isCalculationExcluded = Boolean(item?.is_calculation_excluded);
+  if (isCalculationExcluded) {
+    return {
+      id: 'excluded',
+      label: 'Non calcolato',
+      percent: 0,
+      tone: 'neutral',
+    };
+  }
   const total = Number(item?.qty_total || 0);
   const residual = Number(item?.qty_residual || 0);
   const percent = !isSpacer && !isMissing && total > 0
@@ -57,6 +66,7 @@ export function getStockRowPresentation(item) {
     availabilityTone: availability.tone,
     barClass: availability.tone,
     isMissing,
+    isCalculationExcluded: Boolean(item.is_calculation_excluded),
     isSpacer,
     percent,
     rowStyle: isSpacer
@@ -93,6 +103,10 @@ export function summarizeStock(rows) {
     }
     const availability = getStockAvailability(item);
     summary.total += 1;
+    if (availability.id === 'excluded') {
+      summary.excluded += 1;
+      return summary;
+    }
     summary[availability.id] += 1;
     if (Number(item?.qty_committed || 0) > 0) {
       summary.committed += 1;
@@ -101,6 +115,7 @@ export function summarizeStock(rows) {
   }, {
     available: 0,
     committed: 0,
+    excluded: 0,
     low: 0,
     total: 0,
     unavailable: 0,

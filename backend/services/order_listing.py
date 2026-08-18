@@ -8,6 +8,7 @@ from backend.models import (
     PrestashopOrderLine,
     ProductComponent,
 )
+from backend.services.order_sync_config import load_included_state_ids
 
 
 def list_orders(
@@ -17,7 +18,7 @@ def list_orders(
     limit: int = 50,
     state_id: int | None = None,
 ) -> dict:
-    available_states = _load_available_states(db)
+    available_states = list_available_order_states(db)
     orders_query = db.query(PrestashopOrder)
     if state_id is not None:
         orders_query = orders_query.filter(
@@ -54,19 +55,12 @@ def list_orders(
             if limit > 0
             else 1
         ),
-        "available_states": [
-            {
-                "id": state_value,
-                "name": label or f"Stato {state_value}",
-                "count": count,
-            }
-            for state_value, label, count in available_states
-        ],
+        "available_states": available_states,
     }
 
 
-def _load_available_states(db):
-    return (
+def list_available_order_states(db) -> list[dict]:
+    states = (
         db.query(
             PrestashopOrder.current_state,
             PrestashopOrder.current_state_label,
@@ -79,6 +73,47 @@ def _load_available_states(db):
         .order_by(PrestashopOrder.current_state_label)
         .all()
     )
+    return [
+        {
+            "id": state_value,
+            "name": label or f"Stato {state_value}",
+            "count": count,
+        }
+        for state_value, label, count in states
+    ]
+
+
+def list_enabled_order_states(
+    db,
+    prestashop_states: list[dict] | None = None,
+) -> list[dict]:
+    enabled_ids = load_included_state_ids(db)
+    local_states = {
+        state["id"]: state
+        for state in list_available_order_states(db)
+    }
+    prestashop_names = {}
+    for state in prestashop_states or []:
+        try:
+            state_id = int(state.get("id"))
+        except (AttributeError, TypeError, ValueError):
+            continue
+        name = str(state.get("name") or "").strip()
+        if name:
+            prestashop_names[state_id] = name
+
+    return [
+        {
+            "id": state_id,
+            "name": (
+                prestashop_names.get(state_id)
+                or local_states.get(state_id, {}).get("name")
+                or f"Stato {state_id}"
+            ),
+            "count": local_states.get(state_id, {}).get("count", 0),
+        }
+        for state_id in enabled_ids
+    ]
 
 
 def _load_order_details(db, orders):

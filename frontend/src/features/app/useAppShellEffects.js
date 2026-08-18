@@ -4,11 +4,13 @@ export function useAppShellEffects({
   activeTab,
   selectedSkuForOrders,
   selectedSkuForProducts,
+  selectedAssociatedProduct,
   setActiveTab,
   setIsAssociationModalOpen,
   setIsMobileSidebarOpen,
   setSelectedSkuForOrders,
   setSelectedSkuForProducts,
+  setSelectedAssociatedProduct,
   setShowClearAnomaliesConfirm,
   setShowDeleteAssociationConfirm,
   setShowRestoreConfirm,
@@ -36,7 +38,7 @@ export function useAppShellEffects({
     const root = document.documentElement;
     const body = document.body;
     const drawerOpen = Boolean(
-      selectedSkuForOrders || selectedSkuForProducts,
+      selectedSkuForOrders || selectedSkuForProducts || selectedAssociatedProduct,
     );
 
     root.classList.toggle('drawer-open', drawerOpen);
@@ -46,7 +48,7 @@ export function useAppShellEffects({
       root.classList.remove('drawer-open');
       body.classList.remove('drawer-open');
     };
-  }, [selectedSkuForOrders, selectedSkuForProducts]);
+  }, [selectedAssociatedProduct, selectedSkuForOrders, selectedSkuForProducts]);
 
   useEffect(() => {
     const handleKeyDown = event => {
@@ -54,6 +56,7 @@ export function useAppShellEffects({
         setIsAssociationModalOpen(false);
         setSelectedSkuForOrders(null);
         setSelectedSkuForProducts(null);
+        setSelectedAssociatedProduct(null);
         setShowRestoreConfirm(false);
         setShowClearAnomaliesConfirm(false);
         setShowDeleteAssociationConfirm(false);
@@ -89,6 +92,7 @@ export function useAppShellEffects({
     setIsMobileSidebarOpen,
     setSelectedSkuForOrders,
     setSelectedSkuForProducts,
+    setSelectedAssociatedProduct,
     setShowClearAnomaliesConfirm,
     setShowDeleteAssociationConfirm,
     setShowRestoreConfirm,

@@ -1,3 +1,4 @@
+import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -6,7 +7,10 @@ from sqlalchemy.orm import Session
 from backend.api.dependencies import get_ps_client
 from backend.database import get_db
 from backend.prestashop_client import PrestaShopClient
-from backend.services.order_listing import list_orders
+from backend.services.order_listing import (
+    list_enabled_order_states,
+    list_orders,
+)
 from backend.services.order_sync import (
     sync_orders_internal,
     sync_progress,
@@ -15,6 +19,7 @@ from backend.services.order_sync import (
 
 
 router = APIRouter(tags=["orders"])
+logger = logging.getLogger(__name__)
 
 
 @router.get("/api/prestashop/sync-status")
@@ -53,3 +58,25 @@ def get_orders(
         limit=limit,
         state_id=state_id,
     )
+
+
+@router.get("/api/orders/available-states")
+def get_available_order_states(
+    db: Session = Depends(get_db),
+    client: PrestaShopClient = Depends(get_ps_client),
+):
+    try:
+        prestashop_states = client.get_order_states()
+    except Exception as error:
+        logger.warning(
+            "Impossibile aggiornare i nomi degli stati PrestaShop: %s",
+            error,
+        )
+        prestashop_states = []
+
+    return {
+        "states": list_enabled_order_states(
+            db,
+            prestashop_states,
+        )
+    }

@@ -48,7 +48,7 @@ class PrestaShopOrderResource:
             response = self._request_get(
                 f"{self._base_url}orders",
                 params={
-                    "display": "[id,date_upd]",
+                    "display": "[id,current_state,date_upd]",
                     "output_format": "JSON",
                     "filter[current_state]": f"[{states_filter}]",
                     "ws_key": self._api_key,
@@ -68,6 +68,7 @@ class PrestaShopOrderResource:
                     results.append(
                         {
                             "id": int(order["id"]),
+                            "current_state": int(order["current_state"]),
                             "date_upd": order.get("date_upd", ""),
                         }
                     )

@@ -65,9 +65,9 @@ export function useStockListing({ active, ensureLoaded, refreshKey, setTabLoadin
       : 'asc';
     setStockSort({ field, direction });
   };
-  const currentStockSourceData = stockViewMode === 'standard'
-    ? stockData
-    : missingStockData;
+  const currentStockSourceData = stockViewMode === 'missing'
+    ? missingStockData
+    : stockData;
   const stockSummary = useMemo(
     () => summarizeStock(currentStockSourceData),
     [currentStockSourceData],

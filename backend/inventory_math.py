@@ -2,6 +2,7 @@ import math
 from collections import defaultdict
 
 from backend.picking_rules import is_ignored_picking_sku
+from backend.services.stock_calculation_policy import is_stock_row_calculable
 
 
 def build_components_map(components):
@@ -15,11 +16,16 @@ def build_components_map(components):
     return dict(result)
 
 
-def aggregate_stock(stock_rows):
+def aggregate_stock(stock_rows, calculation_policy=None):
     """Somma le giacenze duplicate ignorando le righe separatrici."""
     totals = defaultdict(float)
     for item in stock_rows:
         if item.sku.startswith("__spacer_"):
+            continue
+        if (
+            calculation_policy is not None
+            and not is_stock_row_calculable(item, calculation_policy)
+        ):
             continue
         totals[item.sku] += item.qty_total
     return dict(totals)

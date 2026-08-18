@@ -33,21 +33,30 @@ def orders_match(
     remote_orders: list[dict],
     local_orders: list,
 ) -> bool:
-    local_dates = {
-        order.order_id: order.date_upd
+    local_by_id = {
+        order.order_id: order
         for order in local_orders
     }
-    if len(local_dates) != len(remote_orders):
+    if len(local_by_id) != len(remote_orders):
         return False
 
     for remote_order in remote_orders:
         order_id = remote_order.get("id")
-        if order_id not in local_dates:
+        local_order = local_by_id.get(order_id)
+        if local_order is None:
             return False
-        if local_dates[order_id] != parse_remote_datetime(
+        if local_order.date_upd != parse_remote_datetime(
             remote_order.get("date_upd")
         ):
             return False
+        if "current_state" in remote_order:
+            try:
+                if int(local_order.current_state) != int(
+                    remote_order["current_state"]
+                ):
+                    return False
+            except (AttributeError, TypeError, ValueError):
+                return False
     return True
 
 

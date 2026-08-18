@@ -23,6 +23,27 @@ export function createPickingPageModel({
     onUploadFiles: core.handleUploadPickingFiles,
     setFileAnomalies: core.setPickingFilesAnomalies,
     setFileSummary: core.setPickingFilesSummary,
+    stateInputProps: {
+      states: core.pickingOrderStates,
+      selectedStateId: core.selectedPickingStateId,
+      onStateChange: (stateId) => {
+        core.setSelectedPickingStateId(stateId);
+        core.setPickingResults(null);
+        core.setPickingError(null);
+      },
+      onSubmit: core.handleCalculatePickingState,
+      onReloadStates: core.loadPickingOrderStates,
+      error: core.pickingError,
+      statesError: core.pickingStatesError,
+      loading: core.pickingLoading,
+      statesLoading: core.pickingStatesLoading,
+      hasResults: Boolean(core.pickingResults),
+      onReset: () => {
+        core.setSelectedPickingStateId('');
+        core.setPickingResults(null);
+        core.setPickingError(null);
+      },
+    },
     LoadingSkeleton: shared.TableSkeleton,
     automaticPlannerProps: {
       onSubmit: automatic.handleGenerateAutomaticPicking,
@@ -79,6 +100,7 @@ export function createPickingPageModel({
       pickingInputMode: core.pickingInputMode,
       pickingFilesAnomalies: core.pickingFilesAnomalies,
       pickingFilesSummary: core.pickingFilesSummary,
+      pickingSourceState: core.pickingResults?.source_state || null,
       syncingSpecificOrders: core.syncingSpecificOrders,
       handleSyncSpecificOrders: core.handleSyncSpecificOrders,
       automaticSkuExcludedOrders: (

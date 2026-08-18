@@ -28,7 +28,15 @@ export function useSyncStatusPolling({ setSyncProgressText }) {
         const status = await response.json();
         if (!status.active) return;
 
-        if (status.phase === 'fetching_orders') {
+        if (status.phase === 'checking_changes') {
+          setSyncProgressText('Verifica nuovi ordini...');
+        } else if (status.phase === 'fetching_changes') {
+          setSyncProgressText(
+            status.total_orders > 0
+              ? `Aggiornamento ordini modificati... (${status.synced_orders}/${status.total_orders})`
+              : 'Aggiornamento ordini modificati...',
+          );
+        } else if (status.phase === 'fetching_orders') {
           setSyncProgressText(
             status.total_orders > 0
               ? `Sincronizzazione ordini... (${status.synced_orders}/${status.total_orders})`

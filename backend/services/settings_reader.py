@@ -13,6 +13,21 @@ def _positive_integer(value: str | None, default: int = 10) -> int:
     return int(value) if value and value.isdigit() else default
 
 
+def _keyword_list(value: str | None) -> list[str]:
+    try:
+        parsed = json.loads(value or '["RESO", "RESI"]')
+    except (TypeError, ValueError):
+        parsed = ["RESO", "RESI"]
+    if not isinstance(parsed, list):
+        return ["RESO", "RESI"]
+    normalized = []
+    for item in parsed:
+        keyword = str(item or "").strip().upper()
+        if keyword and keyword not in normalized:
+            normalized.append(keyword)
+    return normalized or ["RESO", "RESI"]
+
+
 def read_settings(
     db,
     environment: Mapping[str, str] | None = None,
@@ -91,4 +106,10 @@ def read_settings(
             "Descrizione Sku",
         ),
         "mapping_lotto": settings.get("mapping_lotto", "Lotto"),
+        "exclude_return_lots": _boolean(
+            settings.get("exclude_return_lots", "false")
+        ),
+        "excluded_lot_keywords": _keyword_list(
+            settings.get("excluded_lot_keywords")
+        ),
     }

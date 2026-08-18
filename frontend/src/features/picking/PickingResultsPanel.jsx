@@ -40,6 +40,7 @@ export function PickingResultsPanel({
   pickingLoading,
   pickingRequirementFilter,
   pickingResults,
+  pickingSourceState,
   pickingViewMode,
   setAutoPickingRemainingFilter,
   setAutoPickingRemainingQuery,
@@ -77,6 +78,7 @@ export function PickingResultsPanel({
         pickingFilesSummary={pickingFilesSummary}
         pickingInputMode={pickingInputMode}
         pickingResults={pickingResults}
+        pickingSourceState={pickingSourceState}
         syncingSpecificOrders={syncingSpecificOrders}
       />
 
