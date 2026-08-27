@@ -1,9 +1,13 @@
+import { SyncActionIcon } from '../../components/ui/SyncActionIcon';
+
+
 export function StockSyncStatusRail({ settings }) {
   const {
     googleSheetLastError,
     googleSheetLastSync,
     googleSheetName,
     googleSheetSyncInterval,
+    googleSheetsSyncSuccessKey,
     handleSyncGoogleSheetsNow,
     mappingQty,
     mappingSku,
@@ -57,6 +61,10 @@ export function StockSyncStatusRail({ settings }) {
           aria-busy={syncingGoogleSheets}
           onClick={handleSyncGoogleSheetsNow}
         >
+          <SyncActionIcon
+            busy={syncingGoogleSheets}
+            successKey={googleSheetsSyncSuccessKey}
+          />
           {syncingGoogleSheets ? 'Sincronizzazione...' : 'Sincronizza ora'}
         </button>
       )}

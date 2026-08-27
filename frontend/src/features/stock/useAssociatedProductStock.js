@@ -121,8 +121,6 @@ export function useAssociatedProductStock({ active, refreshKey, stockRows }) {
   const sortPreset = (() => {
     if (sort.field === 'stock_sequence_index' && sort.direction === 'asc') return 'stock';
     if (sort.field === 'priority' && sort.direction === 'asc') return 'priority';
-    if (sort.field === 'product_name' && sort.direction === 'asc') return 'name';
-    if (sort.field === 'qty_residual' && sort.direction === 'asc') return 'residual';
     if (sort.field === 'qty_committed' && sort.direction === 'desc') return 'committed';
     return 'custom';
   })();
@@ -131,11 +129,14 @@ export function useAssociatedProductStock({ active, refreshKey, stockRows }) {
     const presets = {
       stock: { field: 'stock_sequence_index', direction: 'asc' },
       priority: { field: 'priority', direction: 'asc' },
-      name: { field: 'product_name', direction: 'asc' },
-      residual: { field: 'qty_residual', direction: 'asc' },
       committed: { field: 'qty_committed', direction: 'desc' },
     };
     if (presets[preset]) setSort(presets[preset]);
+  };
+
+  const retry = () => {
+    setError('');
+    setLoaded(false);
   };
 
   return {
@@ -154,6 +155,7 @@ export function useAssociatedProductStock({ active, refreshKey, stockRows }) {
     associatedProductTotalPages: pagination.totalPages,
     filteredAssociatedProducts: sorted,
     handleSortAssociatedProducts: handleSort,
+    retryAssociatedProducts: retry,
     selectedAssociatedProduct: selectedProduct,
     setAssociatedProductFilter: setFilter,
     setAssociatedProductLimit: setLimit,

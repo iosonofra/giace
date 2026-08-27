@@ -1,14 +1,55 @@
+import { useEffect, useRef } from 'react';
+
 import { useExitPresence } from '../../components/ui/useExitPresence';
 import { getSupportedKitCount } from './associatedProductStockPresentation';
 
 
 export function AssociatedProductStockDrawer({ stock }) {
+  const drawerRef = useRef(null);
+  const closeButtonRef = useRef(null);
+  const restoreFocusRef = useRef(null);
   const {
     formatPickingQty,
     selectedAssociatedProduct,
     setSelectedAssociatedProduct,
   } = stock;
   const presence = useExitPresence(selectedAssociatedProduct);
+
+  useEffect(() => {
+    if (!selectedAssociatedProduct) return undefined;
+    restoreFocusRef.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    const focusFrame = window.requestAnimationFrame(() => closeButtonRef.current?.focus());
+    const handleKeyDown = event => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setSelectedAssociatedProduct(null);
+        return;
+      }
+      if (event.key !== 'Tab' || !drawerRef.current) return;
+      const focusable = [...drawerRef.current.querySelectorAll(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      )].filter(element => !element.hasAttribute('hidden'));
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      document.removeEventListener('keydown', handleKeyDown);
+      window.requestAnimationFrame(() => restoreFocusRef.current?.focus({ preventScroll: true }));
+    };
+  }, [selectedAssociatedProduct, setSelectedAssociatedProduct]);
+
   if (!presence.shouldRender) return null;
 
   const product = presence.renderedValue;
@@ -26,20 +67,25 @@ export function AssociatedProductStockDrawer({ stock }) {
         onClick={closeDrawer}
       />
       <aside
+        ref={drawerRef}
         className={`order-drawer associated-product-stock-drawer ${presence.isExiting ? 'is-exiting' : ''}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="associated-product-stock-title"
+        aria-describedby="associated-product-stock-description"
+        onTransitionEnd={presence.completeExit}
       >
         <div className="order-drawer-header">
           <div className="order-drawer-title-row">
             <div>
-              <span className="stock-products-drawer-eyebrow">Giacenza per prodotto</span>
               <h3 id="associated-product-stock-title">Prodotto {product.product_id}</h3>
-              <p>{product.product_name || 'Nome prodotto non disponibile'}</p>
+              <p id="associated-product-stock-description">
+                {product.product_name || 'Nome prodotto non disponibile'}
+              </p>
             </div>
             <button
               type="button"
+              ref={closeButtonRef}
               className="order-drawer-close"
               onClick={closeDrawer}
               aria-label="Chiudi dettaglio prodotto"
@@ -49,19 +95,19 @@ export function AssociatedProductStockDrawer({ stock }) {
           </div>
           <div className="associated-product-drawer-summary">
             <div>
-              <span>Totale</span>
+              <span>Capacità</span>
               <strong>{product.qty_total === null ? '—' : formatPickingQty(product.qty_total)}</strong>
             </div>
             <div>
-              <span>Impegnata</span>
+              <span>Impegnati</span>
               <strong>{product.qty_committed === null ? '—' : formatPickingQty(product.qty_committed)}</strong>
             </div>
             <div>
-              <span>Residua</span>
+              <span>Disponibili</span>
               <strong>{product.qty_residual === null ? '—' : formatPickingQty(product.qty_residual)}</strong>
             </div>
             <div>
-              <span>SKU limitante</span>
+              <span>Componente limitante</span>
               <strong>{product.limiting_sku || '—'}</strong>
             </div>
           </div>

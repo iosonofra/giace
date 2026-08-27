@@ -2,6 +2,8 @@ import {
   getStockRowPresentation,
 } from './stockPresentation';
 import { AssociatedProductsStockTable } from './AssociatedProductsStockTable';
+import { MissingStockTable } from './MissingStockTable';
+import { SyncActionIcon } from '../../components/ui/SyncActionIcon';
 
 
 function SortableHeader({
@@ -44,11 +46,14 @@ export function StockTablePanel({ stock }) {
     associatedProductSortPreset,
     associatedProductSummary,
     associatedProductTotalPages,
+    copyMissingStockSkus,
     filteredAssociatedProducts,
+    exportMissingStockCsv,
     fetchSkuOrders,
     fetchSkuProducts,
     handleSortStock,
     handleSyncGoogleSheetsNow,
+    googleSheetsSyncSuccessKey,
     highlightText,
     Icons,
     missingStockData,
@@ -64,6 +69,7 @@ export function StockTablePanel({ stock }) {
     setStockAvailabilityFilter,
     setStockLimit,
     setStockPage,
+    setStockSort,
     setStockViewMode,
     sortedStock,
     stockAvailabilityFilter,
@@ -80,6 +86,7 @@ export function StockTablePanel({ stock }) {
   } = stock;
 
   const productMode = stockViewMode === 'products';
+  const missingMode = stockViewMode === 'missing';
   const activeSummary = productMode ? associatedProductSummary : stockSummary;
   const activeFilter = productMode
     ? associatedProductFilter
@@ -92,7 +99,7 @@ export function StockTablePanel({ stock }) {
       { id: 'total', filter: 'all', label: 'Prodotti associati', tone: 'neutral' },
       { id: 'low', filter: 'low', label: 'Disponibilità bassa', tone: 'warning' },
       { id: 'unavailable', filter: 'unavailable', label: 'Esauriti', tone: 'danger' },
-      { id: 'committed', filter: 'committed', label: 'Con quantità impegnata', tone: 'primary' },
+      { id: 'committed', filter: 'committed', label: 'Prodotti impegnati', tone: 'primary' },
     ]
     : [
       { id: 'total', filter: 'all', label: 'SKU totali', tone: 'neutral' },
@@ -100,6 +107,18 @@ export function StockTablePanel({ stock }) {
       { id: 'unavailable', filter: 'unavailable', label: 'Esaurite', tone: 'danger' },
       { id: 'committed', filter: 'committed', label: 'Con quantità impegnata', tone: 'primary' },
     ];
+  const missingSummary = missingStockData.reduce((summary, item) => ({
+    committed: summary.committed + Number(item.qty_committed || 0),
+    maxCommitted: Math.max(summary.maxCommitted, Number(item.qty_committed || 0)),
+    products: summary.products + Number(item.connected_products || 0),
+    total: summary.total + 1,
+  }), { committed: 0, maxCommitted: 0, products: 0, total: 0 });
+  const missingSummaryItems = [
+    { id: 'total', label: 'SKU mancanti', value: missingSummary.total, tone: 'danger' },
+    { id: 'committed', label: 'Unità richieste', value: missingSummary.committed, tone: 'primary' },
+    { id: 'products', label: 'Prodotti coinvolti', value: missingSummary.products, tone: 'neutral' },
+    { id: 'maxCommitted', label: 'Picco per SKU', value: missingSummary.maxCommitted, tone: 'warning' },
+  ];
   const activeSearch = productMode ? associatedProductSearch : searchStock;
   const setActiveSearch = productMode
     ? setAssociatedProductSearch
@@ -113,21 +132,35 @@ export function StockTablePanel({ stock }) {
 
   return (
     <div className="glass-panel widget-card stock-table-workbench">
-      <div className="stock-kpi-strip" aria-label="Riepilogo giacenze">
-        {summaryItems.map(item => (
-          <button
-            key={item.id}
-            type="button"
-            className={`stock-kpi-item ${item.tone} ${
-              activeFilter === item.filter ? 'active' : ''
-            }`}
-            aria-pressed={activeFilter === item.filter}
-            onClick={() => setActiveFilter(item.filter)}
-          >
-            <span>{item.label}</span>
-            <strong>{activeSummary[item.id]}</strong>
-          </button>
-        ))}
+      <div
+        className="stock-kpi-strip"
+        aria-label={missingMode
+          ? 'Riepilogo SKU non presenti'
+          : productMode
+            ? 'Riepilogo disponibilità prodotti associati'
+            : 'Riepilogo giacenze SKU'}
+      >
+        {missingMode
+          ? missingSummaryItems.map(item => (
+            <div key={item.id} className={`stock-kpi-item static ${item.tone}`}>
+              <span>{item.label}</span>
+              <strong>{item.value}</strong>
+            </div>
+          ))
+          : summaryItems.map(item => (
+            <button
+              key={item.id}
+              type="button"
+              className={`stock-kpi-item ${item.tone} ${
+                activeFilter === item.filter ? 'active' : ''
+              }`}
+              aria-pressed={activeFilter === item.filter}
+              onClick={() => setActiveFilter(item.filter)}
+            >
+              <span>{item.label}</span>
+              <strong>{activeSummary[item.id]}</strong>
+            </button>
+          ))}
       </div>
 
       <div className="stock-toolbar">
@@ -140,7 +173,9 @@ export function StockTablePanel({ stock }) {
               className="search-input"
               placeholder={productMode
                 ? 'Cerca ID, nome, riferimento o componente'
-                : 'Cerca SKU o descrizione'}
+                : missingMode
+                  ? 'Cerca SKU non presente'
+                  : 'Cerca SKU o descrizione'}
               value={activeSearch}
               onChange={event => setActiveSearch(event.target.value)}
             />
@@ -157,14 +192,6 @@ export function StockTablePanel({ stock }) {
             </button>
             <button
               type="button"
-              className={stockViewMode === 'products' ? 'active' : ''}
-              aria-pressed={stockViewMode === 'products'}
-              onClick={() => setStockViewMode('products')}
-            >
-              Prodotti associati
-            </button>
-            <button
-              type="button"
               className={stockViewMode === 'missing' ? 'active danger' : ''}
               aria-pressed={stockViewMode === 'missing'}
               onClick={() => setStockViewMode('missing')}
@@ -172,25 +199,74 @@ export function StockTablePanel({ stock }) {
               SKU non presenti
               <b>{missingStockData.length}</b>
             </button>
+            <button
+              type="button"
+              className={stockViewMode === 'products' ? 'active' : ''}
+              aria-pressed={stockViewMode === 'products'}
+              onClick={() => setStockViewMode('products')}
+            >
+              Prodotti associati
+            </button>
           </div>
 
           {productMode && (
-            <label className="associated-product-sort-select">
-              <span>Ordina per</span>
-              <select
-                value={associatedProductSortPreset}
-                onChange={event => setAssociatedProductSortPreset(event.target.value)}
+            <div className="associated-product-quick-sort" role="group" aria-label="Ordinamento rapido prodotti">
+              <span>Ordina</span>
+              <button
+                type="button"
+                className={associatedProductSortPreset === 'stock' ? 'active' : ''}
+                aria-pressed={associatedProductSortPreset === 'stock'}
+                onClick={() => setAssociatedProductSortPreset('stock')}
               >
-                {associatedProductSortPreset === 'custom' && (
-                  <option value="custom" disabled>Ordinamento personalizzato</option>
-                )}
-                <option value="stock">Giacenza SKU</option>
-                <option value="priority">Disponibilità critica</option>
-                <option value="name">Nome prodotto</option>
-                <option value="residual">Residua crescente</option>
-                <option value="committed">Quantità impegnata</option>
-              </select>
-            </label>
+                Ordine SKU
+              </button>
+              <button
+                type="button"
+                className={associatedProductSortPreset === 'priority' ? 'active' : ''}
+                aria-pressed={associatedProductSortPreset === 'priority'}
+                onClick={() => setAssociatedProductSortPreset('priority')}
+              >
+                Critici prima
+              </button>
+              <button
+                type="button"
+                className={associatedProductSortPreset === 'committed' ? 'active' : ''}
+                aria-pressed={associatedProductSortPreset === 'committed'}
+                onClick={() => setAssociatedProductSortPreset('committed')}
+              >
+                Più impegnati
+              </button>
+            </div>
+          )}
+
+          {missingMode && (
+            <div className="associated-product-quick-sort" role="group" aria-label="Ordinamento rapido SKU non presenti">
+              <span>Ordina</span>
+              <button
+                type="button"
+                className={stockSort.field === 'sku' && stockSort.direction === 'asc' ? 'active' : ''}
+                aria-pressed={stockSort.field === 'sku' && stockSort.direction === 'asc'}
+                onClick={() => setStockSort({ field: 'sku', direction: 'asc' })}
+              >
+                SKU
+              </button>
+              <button
+                type="button"
+                className={stockSort.field === 'qty_committed' && stockSort.direction === 'desc' ? 'active' : ''}
+                aria-pressed={stockSort.field === 'qty_committed' && stockSort.direction === 'desc'}
+                onClick={() => setStockSort({ field: 'qty_committed', direction: 'desc' })}
+              >
+                Più urgenti
+              </button>
+              <button
+                type="button"
+                className={stockSort.field === 'connected_products' && stockSort.direction === 'desc' ? 'active' : ''}
+                aria-pressed={stockSort.field === 'connected_products' && stockSort.direction === 'desc'}
+                onClick={() => setStockSort({ field: 'connected_products', direction: 'desc' })}
+              >
+                Più prodotti
+              </button>
+            </div>
           )}
 
           {stockSource === 'google_sheets' && (
@@ -201,23 +277,74 @@ export function StockTablePanel({ stock }) {
               aria-busy={syncingGoogleSheets}
               onClick={handleSyncGoogleSheetsNow}
             >
-              <Icons.Sync spinning={syncingGoogleSheets} />
+              <SyncActionIcon
+                busy={syncingGoogleSheets}
+                successKey={googleSheetsSyncSuccessKey}
+              />
               {syncingGoogleSheets ? 'Sincronizzazione...' : 'Sincronizza Sheets'}
             </button>
           )}
-          {(!productMode || activeSearch.trim()) && (
-            <span className="stock-result-count">
-              {resultCount} di {sourceCount} {productMode ? 'prodotti' : 'SKU'}
-            </span>
-          )}
+          <span className="stock-result-count" aria-live="polite">
+            {resultCount} di {sourceCount} {productMode ? 'prodotti' : 'SKU'}
+          </span>
         </div>
       </div>
+
+      {productMode && (
+        <p className="associated-product-context-note" role="note">
+          Le quantità indicano quanti prodotti completi possono essere assemblati.
+          La disponibilità dipende dal componente più limitante.
+        </p>
+      )}
+
+      {missingMode && (
+        <div className="stock-missing-context" role="note">
+          <div>
+            <strong>
+              {missingSummary.total} SKU richiesti dagli ordini non sono presenti nel foglio giacenze
+            </strong>
+            <p>
+              Aggiungili al foglio e sincronizza per ripristinare il calcolo della disponibilità.
+            </p>
+          </div>
+          <div className="stock-missing-actions">
+            <button
+              type="button"
+              className="btn btn-secondary"
+              disabled={sortedStock.length === 0}
+              onClick={() => copyMissingStockSkus(sortedStock)}
+            >
+              Copia SKU
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              disabled={sortedStock.length === 0}
+              onClick={() => exportMissingStockCsv(sortedStock)}
+            >
+              <Icons.Download />
+              Esporta CSV
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="table-container stock-table-scroll">
         {productMode ? (
           <AssociatedProductsStockTable stock={stock} />
         ) : tabLoading ? (
           <TableSkeleton rows={8} cols={9} />
+        ) : missingMode && sortedStock.length > 0 ? (
+          <MissingStockTable
+            fetchSkuOrders={fetchSkuOrders}
+            fetchSkuProducts={fetchSkuProducts}
+            handleSortStock={handleSortStock}
+            highlightText={highlightText}
+            Icons={Icons}
+            rows={paginatedStock}
+            searchStock={searchStock}
+            stockSort={stockSort}
+          />
         ) : sortedStock.length > 0 ? (
           <table className="custom-table stock-inventory-table">
             <thead>
@@ -345,7 +472,7 @@ export function StockTablePanel({ stock }) {
                             >
                               <span
                                 className={`stock-bar-fill ${meta.barClass}`}
-                                style={{ width: `${meta.percent}%` }}
+                                style={{ '--stock-ratio': Math.max(0, Math.min(100, meta.percent)) / 100 }}
                               />
                             </span>
                             <span className="stock-level-percentage">
@@ -381,8 +508,10 @@ export function StockTablePanel({ stock }) {
           </table>
         ) : (
           <div className="stock-empty-state">
-            <strong>Nessuna SKU corrisponde ai filtri</strong>
-            <p>Modifica la ricerca o seleziona un altro stato di disponibilità.</p>
+            <strong>{missingMode ? 'Nessuna SKU mancante trovata' : 'Nessuna SKU corrisponde ai filtri'}</strong>
+            <p>{missingMode
+              ? 'La ricerca non contiene risultati oppure tutte le SKU sono presenti nel foglio.'
+              : 'Modifica la ricerca o seleziona un altro stato di disponibilità.'}</p>
           </div>
         )}
       </div>

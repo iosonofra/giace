@@ -44,6 +44,19 @@ def _default_values(environment: Mapping[str, str]) -> dict[str, str]:
         "mapping_lotto": "Lotto",
         "exclude_return_lots": "false",
         "excluded_lot_keywords": json.dumps(["RESO", "RESI"]),
+        "picking_sheet_write_enabled": "false",
+        "picking_sheet_webapp_url": "",
+        "picking_sheet_shared_secret": "",
+        "picking_sheet_remaining_header": "RIMANENTI",
+        "picking_sheet_day_mapping": json.dumps({
+            "monday": "Lunedì",
+            "tuesday": "Martedì",
+            "wednesday": "Mercoledì",
+            "thursday": "Giovedì",
+            "friday": "Venerdì",
+            "saturday": "",
+            "sunday": "",
+        }),
     }
 
 

@@ -19,12 +19,28 @@ export function useStockSettings({
   const [googleSheetLastSync, setGoogleSheetLastSync] = useState('');
   const [googleSheetLastError, setGoogleSheetLastError] = useState('');
   const [syncingGoogleSheets, setSyncingGoogleSheets] = useState(false);
+  const [googleSheetsSyncSuccessKey, setGoogleSheetsSyncSuccessKey] = useState(0);
   const [mappingSku, setMappingSku] = useState('Sku');
   const [mappingQty, setMappingQty] = useState('Qta Tot.');
   const [mappingDesc, setMappingDesc] = useState('Descrizione Sku');
   const [mappingLotto, setMappingLotto] = useState('Lotto');
   const [excludeReturnLots, setExcludeReturnLots] = useState(false);
   const [excludedLotKeywords, setExcludedLotKeywords] = useState('RESO, RESI');
+  const [pickingSheetWriteEnabled, setPickingSheetWriteEnabled] = useState(false);
+  const [pickingSheetWebappUrl, setPickingSheetWebappUrl] = useState('');
+  const [pickingSheetSharedSecret, setPickingSheetSharedSecret] = useState('');
+  const [pickingSheetRemainingHeader, setPickingSheetRemainingHeader] = useState('RIMANENTI');
+  const [pickingSheetSecretConfigured, setPickingSheetSecretConfigured] = useState(false);
+  const [pickingSheetTesting, setPickingSheetTesting] = useState(false);
+  const [pickingSheetDayMapping, setPickingSheetDayMapping] = useState({
+    monday: 'Lunedì',
+    tuesday: 'Martedì',
+    wednesday: 'Mercoledì',
+    thursday: 'Giovedì',
+    friday: 'Venerdì',
+    saturday: '',
+    sunday: '',
+  });
 
   useEffect(() => {
     if (initialStockSource) setStockSource(initialStockSource);
@@ -46,6 +62,24 @@ export function useStockSettings({
     setExcludedLotKeywords(
       (currentSettings.excluded_lot_keywords || ['RESO', 'RESI']).join(', '),
     );
+    setPickingSheetWriteEnabled(Boolean(currentSettings.picking_sheet_write_enabled));
+    setPickingSheetWebappUrl(currentSettings.picking_sheet_webapp_url || '');
+    setPickingSheetSharedSecret('');
+    setPickingSheetRemainingHeader(
+      currentSettings.picking_sheet_remaining_header || 'RIMANENTI',
+    );
+    setPickingSheetSecretConfigured(Boolean(
+      currentSettings.picking_sheet_shared_secret_configured,
+    ));
+    setPickingSheetDayMapping(currentSettings.picking_sheet_day_mapping || {
+      monday: 'Lunedì',
+      tuesday: 'Martedì',
+      wednesday: 'Mercoledì',
+      thursday: 'Giovedì',
+      friday: 'Venerdì',
+      saturday: '',
+      sunday: '',
+    });
   }, [currentSettings]);
 
   const handleSaveGoogleSheetsSettings = async event => {
@@ -79,6 +113,22 @@ export function useStockSettings({
       setSettingsError('Inserisci almeno una parola per i lotti esclusi.');
       return;
     }
+    if (pickingSheetWriteEnabled) {
+      if (!/^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec$/.test(
+        pickingSheetWebappUrl.trim(),
+      )) {
+        setSettingsError("Inserisci l'URL /exec della Web App Apps Script.");
+        return;
+      }
+      if (!pickingSheetSecretConfigured && pickingSheetSharedSecret.length < 32) {
+        setSettingsError('Configura un secret Apps Script di almeno 32 caratteri.');
+        return;
+      }
+      if (!pickingSheetRemainingHeader.trim()) {
+        setSettingsError('Configura il nome della colonna residuo.');
+        return;
+      }
+    }
 
     setSavingStockSettings(true);
     setSettingsError(null);
@@ -97,10 +147,21 @@ export function useStockSettings({
           mapping_lotto: mappingLotto,
           exclude_return_lots: excludeReturnLots,
           excluded_lot_keywords: normalizedLotKeywords,
+          picking_sheet_write_enabled: pickingSheetWriteEnabled,
+          picking_sheet_webapp_url: pickingSheetWebappUrl.trim(),
+          picking_sheet_remaining_header: pickingSheetRemainingHeader.trim(),
+          ...(pickingSheetSharedSecret
+            ? { picking_sheet_shared_secret: pickingSheetSharedSecret }
+            : {}),
+          picking_sheet_day_mapping: pickingSheetDayMapping,
         }),
       });
       const data = await response.json();
       if (response.ok) {
+        setPickingSheetSecretConfigured(Boolean(
+          data.picking_sheet_shared_secret_configured,
+        ));
+        setPickingSheetSharedSecret('');
         showActionMsg('Impostazioni giacenze salvate con successo.');
         refresh();
       } else {
@@ -116,6 +177,36 @@ export function useStockSettings({
     }
   };
 
+  const generatePickingSheetSecret = () => {
+    const bytes = new Uint8Array(32);
+    crypto.getRandomValues(bytes);
+    setPickingSheetSharedSecret(
+      Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join(''),
+    );
+  };
+
+  const handleTestPickingSheetConnection = async () => {
+    setPickingSheetTesting(true);
+    setSettingsError(null);
+    try {
+      const response = await apiFetch('/api/picking/sheet-write/test', {
+        method: 'POST',
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        setSettingsError(data.detail || 'Collegamento Apps Script non riuscito.');
+        return;
+      }
+      showActionMsg(
+        `Apps Script collegato al foglio ${data.sheet_name}. Nessuna cella modificata.`,
+      );
+    } catch (error) {
+      setSettingsError(`Errore di connessione Apps Script: ${error.message}`);
+    } finally {
+      setPickingSheetTesting(false);
+    }
+  };
+
   const handleSyncGoogleSheetsNow = async () => {
     setSyncingGoogleSheets(true);
     setSyncingStock(true);
@@ -126,6 +217,7 @@ export function useStockSettings({
       });
       const data = await response.json();
       if (response.ok) {
+        setGoogleSheetsSyncSuccessKey(key => key + 1);
         showActionMsg(
           data.status === 'skipped'
             ? 'Nessuna modifica rilevata nel Google Sheet. Giacenze già aggiornate.'
@@ -155,12 +247,22 @@ export function useStockSettings({
     googleSheetName,
     googleSheetSyncInterval,
     googleSheetUrl,
+    googleSheetsSyncSuccessKey,
     handleSaveGoogleSheetsSettings,
     handleSyncGoogleSheetsNow,
     mappingDesc,
     mappingLotto,
     mappingQty,
     mappingSku,
+    generatePickingSheetSecret,
+    handleTestPickingSheetConnection,
+    pickingSheetDayMapping,
+    pickingSheetSecretConfigured,
+    pickingSheetSharedSecret,
+    pickingSheetRemainingHeader,
+    pickingSheetTesting,
+    pickingSheetWebappUrl,
+    pickingSheetWriteEnabled,
     savingStockSettings,
     setGoogleSheetName,
     setGoogleSheetSyncInterval,
@@ -169,6 +271,11 @@ export function useStockSettings({
     setMappingLotto,
     setMappingQty,
     setMappingSku,
+    setPickingSheetDayMapping,
+    setPickingSheetSharedSecret,
+    setPickingSheetRemainingHeader,
+    setPickingSheetWebappUrl,
+    setPickingSheetWriteEnabled,
     setExcludeReturnLots,
     setExcludedLotKeywords,
     setStockSource,

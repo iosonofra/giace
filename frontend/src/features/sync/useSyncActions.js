@@ -1,3 +1,5 @@
+import { useState } from 'react';
+
 import { apiFetch } from '../../api/client';
 import { useDataImportActions } from './useDataImportActions';
 import { useSyncStatusPolling } from './useSyncStatusPolling';
@@ -13,6 +15,8 @@ export function useSyncActions({
   showActionMsg,
   stockSource,
 }) {
+  const [ordersSyncSuccessKey, setOrdersSyncSuccessKey] = useState(0);
+  const [syncAllSuccessKey, setSyncAllSuccessKey] = useState(0);
   const { startStatusPolling, stopStatusPolling } = useSyncStatusPolling({
     setSyncProgressText,
   });
@@ -34,6 +38,7 @@ export function useSyncActions({
       });
       const data = await response.json();
       if (response.ok) {
+        setOrdersSyncSuccessKey(key => key + 1);
         showActionMsg(
           `Sincronizzati ${data.orders_synced} ordini con successo! (Mode: ${data.mock_mode ? 'MOCK' : 'REAL'})`,
         );
@@ -85,6 +90,7 @@ export function useSyncActions({
       });
       const ordersResult = await ordersResponse.json();
       if (ordersResponse.ok) {
+        setSyncAllSuccessKey(key => key + 1);
         showActionMsg(
           stockSource === 'google_sheets'
             ? `Sincronizzazione completata! Giacenze Google Sheets aggiornate e sincronizzati ${ordersResult.orders_synced} ordini PrestaShop.`
@@ -137,5 +143,7 @@ export function useSyncActions({
     handleRunCalculation,
     handleSyncAll,
     handleSyncOrders,
+    ordersSyncSuccessKey,
+    syncAllSuccessKey,
   };
 }

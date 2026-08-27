@@ -16,6 +16,7 @@ export function useOrdersData({
   const [searchOrder, setSearchOrder] = useState('');
   const [orderData, setOrderData] = useState([]);
   const [copiedOrderId, setCopiedOrderId] = useState(null);
+  const [copyFeedbackKey, setCopyFeedbackKey] = useState(0);
   const copyResetTimeoutRef = useRef(null);
 
   useEffect(() => {
@@ -81,6 +82,7 @@ export function useOrdersData({
     navigator.clipboard.writeText(String(orderId))
       .then(() => {
         setCopiedOrderId(orderId);
+        setCopyFeedbackKey(current => current + 1);
         if (copyResetTimeoutRef.current) {
           clearTimeout(copyResetTimeoutRef.current);
         }
@@ -97,6 +99,7 @@ export function useOrdersData({
 
   return {
     copiedOrderId,
+    copyFeedbackKey,
     filteredOrders,
     handleCopyOrderId,
     ordersAvailableStates,

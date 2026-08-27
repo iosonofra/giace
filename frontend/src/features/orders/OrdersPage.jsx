@@ -12,6 +12,7 @@ function OrdersSummaryItem({ label, value, tone = 'neutral' }) {
 export function OrdersPage({ orders }) {
   const {
     copiedOrderId,
+    copyFeedbackKey,
     filteredOrders,
     formatDate,
     getOrderStateBadgeClass,
@@ -185,7 +186,11 @@ export function OrdersPage({ orders }) {
                                 </button>
 
                                 {copiedOrderId === order.order_id && (
-                                  <span className="order-copy-confirmation" role="status">
+                                  <span
+                                    key={copyFeedbackKey}
+                                    className="order-copy-confirmation"
+                                    role="status"
+                                  >
                                     Copiato
                                   </span>
                                 )}

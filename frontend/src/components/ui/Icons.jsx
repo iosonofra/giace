@@ -90,6 +90,21 @@ export const Icons = {
     </svg>
   ),
 
+  Check: ({ className = '' } = {}) => (
+    <svg
+      className={`icon-inline icon-check ${className}`.trim()}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <polyline points="5 12.5 9.5 17 19 7" />
+    </svg>
+  ),
+
   Eye: () => (
     <svg style={{ width: '14px', height: '14px' }} fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />

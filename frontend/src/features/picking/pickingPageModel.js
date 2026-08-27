@@ -3,7 +3,8 @@ export function createPickingPageModel({
   clipboard,
   core,
   orders,
-  presentation,
+    presentation,
+    sheetWrite,
   shared,
 }) {
   return {
@@ -139,6 +140,7 @@ export function createPickingPageModel({
       getOrderPickingMeta: shared.getOrderPickingMeta,
       handleCopyOrderId: orders.handleCopyOrderId,
       copiedOrderId: orders.copiedOrderId,
+      copyFeedbackKey: orders.copyFeedbackKey,
       getRelativeTimeString: shared.getRelativeTimeString,
       getStateBadgeClass: shared.getStateBadgeClass,
       hasAutomaticRemainingDetails: (
@@ -171,6 +173,7 @@ export function createPickingPageModel({
       setAutoPickingRemainingVisibleLimit: (
         automatic.setAutoPickingRemainingVisibleLimit
       ),
+      sheetWrite,
     },
   };
 }

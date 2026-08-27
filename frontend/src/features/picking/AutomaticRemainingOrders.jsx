@@ -11,6 +11,7 @@ export function AutomaticRemainingOrders({
   visibleAutomaticRemainingOrders,
   handleCopyOrderId,
   copiedOrderId,
+  copyFeedbackKey,
   getRelativeTimeString,
   getStateBadgeClass,
   formatPickingQty,
@@ -92,7 +93,7 @@ export function AutomaticRemainingOrders({
                                               #{order.chronological_position} · Ordine {order.order_id}
                                             </button>
                                             {copiedOrderId === order.order_id && (
-                                              <span className="picking-order-copied">Copiato</span>
+                                              <span key={copyFeedbackKey} className="picking-order-copied">Copiato</span>
                                             )}
                                             <span>{order.customer_name}</span>
                                             {order.date_add && (

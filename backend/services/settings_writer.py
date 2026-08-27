@@ -193,6 +193,12 @@ def write_settings(
         "mapping_lotto": (
             "Il nome della colonna Lotto deve essere una stringa."
         ),
+        "picking_sheet_webapp_url": (
+            "L'URL Apps Script deve essere una stringa."
+        ),
+        "picking_sheet_remaining_header": (
+            "La colonna residuo Apps Script deve essere una stringa."
+        ),
     }
     for key, error_message in string_fields.items():
         if payload.get(key) is not None:
@@ -210,6 +216,19 @@ def write_settings(
                 payload["extension_api_token"]
             ),
         )
+
+    picking_sheet_secret = payload.get("picking_sheet_shared_secret")
+    if picking_sheet_secret is not None:
+        picking_sheet_secret = _require_string(
+            picking_sheet_secret,
+            "Il secret Apps Script deve essere una stringa.",
+        )
+        if picking_sheet_secret:
+            if len(picking_sheet_secret) < 32 or len(picking_sheet_secret) > 256:
+                raise SettingsValidationError(
+                    "Il secret Apps Script deve contenere da 32 a 256 caratteri."
+                )
+            _upsert(db, "picking_sheet_shared_secret", picking_sheet_secret)
 
     mock_mode = payload.get("prestashop_mock_mode")
     if mock_mode is not None:
@@ -239,6 +258,81 @@ def write_settings(
             db,
             "exclude_return_lots",
             "true" if exclude_return_lots else "false",
+        )
+
+    picking_sheet_write_enabled = payload.get(
+        "picking_sheet_write_enabled"
+    )
+    if picking_sheet_write_enabled is not None:
+        if not isinstance(picking_sheet_write_enabled, bool):
+            raise SettingsValidationError(
+                "picking_sheet_write_enabled deve essere un booleano."
+            )
+        target_url = payload.get(
+            "picking_sheet_webapp_url",
+            _current_value(db, "picking_sheet_webapp_url"),
+        )
+        target_secret = picking_sheet_secret or _current_value(
+            db,
+            "picking_sheet_shared_secret",
+        )
+        target_remaining_header = payload.get(
+            "picking_sheet_remaining_header",
+            _current_value(db, "picking_sheet_remaining_header", "RIMANENTI"),
+        )
+        if picking_sheet_write_enabled:
+            if not re.fullmatch(
+                r"https://script\.google\.com/macros/s/[^/]+/exec",
+                str(target_url or "").strip(),
+            ):
+                raise SettingsValidationError(
+                    "Inserisci l'URL /exec della Web App Apps Script."
+                )
+            if len(str(target_secret or "")) < 32:
+                raise SettingsValidationError(
+                    "Configura un secret Apps Script di almeno 32 caratteri."
+                )
+            if not str(target_remaining_header or "").strip():
+                raise SettingsValidationError(
+                    "Configura il nome della colonna residuo."
+                )
+        _upsert(
+            db,
+            "picking_sheet_write_enabled",
+            "true" if picking_sheet_write_enabled else "false",
+        )
+
+    day_mapping = payload.get("picking_sheet_day_mapping")
+    if day_mapping is not None:
+        required_keys = (
+            "monday", "tuesday", "wednesday", "thursday", "friday",
+            "saturday", "sunday",
+        )
+        if not isinstance(day_mapping, dict) or set(day_mapping) != set(required_keys):
+            raise SettingsValidationError(
+                "La mappatura dei giorni non è valida."
+            )
+        normalized_mapping = {}
+        for key in required_keys:
+            label = _require_string(
+                day_mapping[key],
+                "Le intestazioni dei giorni devono essere testuali.",
+            )
+            if len(label) > 40:
+                raise SettingsValidationError(
+                    "Le intestazioni dei giorni possono contenere al massimo 40 caratteri."
+                )
+            normalized_mapping[key] = label
+        if any(not normalized_mapping[key] for key in (
+            "monday", "tuesday", "wednesday", "thursday", "friday"
+        )):
+            raise SettingsValidationError(
+                "Configura le intestazioni da lunedì a venerdì."
+            )
+        _upsert(
+            db,
+            "picking_sheet_day_mapping",
+            json.dumps(normalized_mapping, ensure_ascii=False),
         )
 
     excluded_lot_keywords = payload.get("excluded_lot_keywords")

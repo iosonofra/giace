@@ -15,6 +15,7 @@ export function useStockData({
     ensureLoaded,
     refreshKey,
     setTabLoading,
+    showActionMsg,
   });
   const associatedProducts = useAssociatedProductStock({
     active: active && listing.stockViewMode === 'products',

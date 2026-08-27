@@ -2,6 +2,7 @@ import { StockMappingSettings } from './StockMappingSettings';
 import { StockCalculationPolicySettings } from './StockCalculationPolicySettings';
 import { StockSourceSettings } from './StockSourceSettings';
 import { StockSyncStatusRail } from './StockSyncStatusRail';
+import { PickingSheetWriteSettings } from './PickingSheetWriteSettings';
 
 
 export function StockSettings({ settings }) {
@@ -37,6 +38,7 @@ export function StockSettings({ settings }) {
             <StockSourceSettings settings={settings} />
             <StockMappingSettings settings={settings} />
             <StockCalculationPolicySettings settings={settings} />
+            <PickingSheetWriteSettings settings={settings} />
           </div>
           <StockSyncStatusRail settings={settings} />
         </div>

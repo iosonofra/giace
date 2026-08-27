@@ -134,3 +134,25 @@ class AppSetting(Base):
     
     key = Column(String(100), primary_key=True)
     value = Column(Text, nullable=False) # JSON encoded list or string value
+
+
+class PickingSheetOperation(Base):
+    """Technical receipt for an inventory write-back operation.
+
+    Google Sheets keeps the human-facing revision history.  This table only
+    guarantees idempotency when the browser retries a request or the network
+    drops after Apps Script has already applied the update.
+    """
+
+    __tablename__ = "picking_sheet_operations"
+
+    operation_id = Column(String(64), primary_key=True)
+    request_hash = Column(String(64), nullable=False)
+    target_date = Column(String(10), nullable=False)
+    target_column = Column(String(100), nullable=True)
+    status = Column(String(20), nullable=False, default="pending")
+    sku_count = Column(Integer, nullable=False, default=0)
+    total_qty = Column(Float, nullable=False, default=0.0)
+    response_json = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=func.now(), nullable=False)
+    applied_at = Column(DateTime, nullable=True)

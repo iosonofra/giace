@@ -4,6 +4,7 @@ export function PickingSelectedOrders({
   getOrderPickingMeta,
   handleCopyOrderId,
   copiedOrderId,
+  copyFeedbackKey,
   getRelativeTimeString,
   getStateBadgeClass,
   formatPickingQty,
@@ -42,7 +43,7 @@ export function PickingSelectedOrders({
                       Ordine {ord.order_id}
                     </button>
                     {copiedOrderId === ord.order_id && (
-                      <span className="picking-order-copied">Copiato</span>
+                      <span key={copyFeedbackKey} className="picking-order-copied">Copiato</span>
                     )}
                     <span>{ord.customer_name}</span>
                     {pickingResults.mode === 'automatic' && (

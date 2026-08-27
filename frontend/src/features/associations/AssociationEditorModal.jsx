@@ -70,6 +70,7 @@ export function AssociationEditorModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="association-editor-title"
+        onTransitionEnd={presence.completeExit}
       >
         <div className="modal-header association-editor-header">
           <div>
@@ -145,6 +146,7 @@ export function AssociationEditorModal({
 
             {associationModalMode === 'guided' ? (
               <AssociationGuidedEditor
+                key="guided"
                 activeAutocompleteIndex={activeAutocompleteIndex}
                 configuredComponents={guidedSummary.configuredComponents}
                 duplicateSkuKeys={guidedSummary.duplicateSkuKeys}
@@ -159,7 +161,7 @@ export function AssociationEditorModal({
                 warehouseSkus={warehouseIndex.skus}
               />
             ) : (
-              <div className="raw-mode-container">
+              <div key="raw" className="raw-mode-container motion-state-reveal">
                 <div className="association-raw-intro">
                   <strong>Inserimento rapido da testo</strong>
                   <p>

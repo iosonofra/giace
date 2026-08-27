@@ -26,6 +26,11 @@ class SettingsResponse(BaseModel):
     mapping_lotto: str
     exclude_return_lots: bool
     excluded_lot_keywords: list[str]
+    picking_sheet_write_enabled: bool
+    picking_sheet_webapp_url: str
+    picking_sheet_shared_secret_configured: bool
+    picking_sheet_remaining_header: str
+    picking_sheet_day_mapping: dict[str, str]
 
 
 class SettingsUpdatePayload(BaseModel):
@@ -46,6 +51,11 @@ class SettingsUpdatePayload(BaseModel):
     mapping_lotto: Any = None
     exclude_return_lots: Any = None
     excluded_lot_keywords: Any = None
+    picking_sheet_write_enabled: Any = None
+    picking_sheet_webapp_url: Any = None
+    picking_sheet_shared_secret: Any = None
+    picking_sheet_remaining_header: Any = None
+    picking_sheet_day_mapping: Any = None
 
     def provided_values(self) -> dict:
         return self.model_dump(exclude_unset=True)

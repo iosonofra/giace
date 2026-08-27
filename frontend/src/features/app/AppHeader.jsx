@@ -1,5 +1,7 @@
 import React from 'react';
 
+import { SyncActionIcon } from '../../components/ui/SyncActionIcon';
+
 const pageCopy = {
   dashboard: ['Dashboard di Controllo', 'Panoramica e strumenti di caricamento/sync della disponibilità magazzino.'],
   stock: ['Giacenza', 'Fai click sulle intestazioni di colonna per ordinare. Visualizza il livello di stock residuo.'],
@@ -42,7 +44,9 @@ export function AppHeader({
   onRefresh,
   onSyncAll,
   onSyncOrders,
+  ordersSyncSuccessKey,
   stockSource,
+  syncAllSuccessKey,
   syncingGoogleSheets,
   syncingOrders,
 }) {
@@ -86,9 +90,9 @@ export function AppHeader({
             onClick={onSyncAll}
             disabled={loading || syncAllBusy}
             aria-busy={syncAllBusy}
-            data-loading-indicator="true"
             title="Avvia la sincronizzazione da Google Sheets ed esegue il calcolo degli ordini da PrestaShop (richiede qualche secondo)"
           >
+            <SyncActionIcon busy={syncAllBusy} successKey={syncAllSuccessKey} />
             {syncAllBusy ? 'Sincronizzazione…' : 'Sincronizza Tutto'}
           </button>
         )}
@@ -102,7 +106,7 @@ export function AppHeader({
               aria-busy={syncAllBusy}
               title="Avvia la sincronizzazione da Google Sheets ed esegue il calcolo degli ordini da PrestaShop (richiede qualche secondo)"
             >
-              <icons.Sync spinning={syncingGoogleSheets || syncingOrders} /> Sincronizza Tutto (Sheets &amp; Ordini)
+              <SyncActionIcon busy={syncAllBusy} successKey={syncAllSuccessKey} /> Sincronizza Tutto (Sheets &amp; Ordini)
             </button>
           ) : (
             <button
@@ -112,7 +116,7 @@ export function AppHeader({
               aria-busy={syncingOrders}
               title="Scarica i nuovi ordini da PrestaShop e ricalcola le giacenze (richiede qualche secondo)"
             >
-              <icons.Sync spinning={syncingOrders} /> Sincronizza Ordini
+              <SyncActionIcon busy={syncingOrders} successKey={ordersSyncSuccessKey} /> Sincronizza Ordini
             </button>
           )
         )}
@@ -124,7 +128,7 @@ export function AppHeader({
             disabled={syncingOrders || loading}
             aria-busy={syncingOrders}
           >
-            <icons.Sync spinning={syncingOrders} /> Sincronizza Ordini
+            <SyncActionIcon busy={syncingOrders} successKey={ordersSyncSuccessKey} /> Sincronizza Ordini
           </button>
         )}
       </div>

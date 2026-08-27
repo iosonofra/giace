@@ -17,7 +17,12 @@ export function PickingFileInput({
   hasResults,
 }) {
   const fileInputRef = useRef(null);
+  const previousFileCountRef = useRef(files.length);
   const [dragOver, setDragOver] = React.useState(false);
+
+  React.useEffect(() => {
+    previousFileCountRef.current = files.length;
+  }, [files.length]);
 
   const addFiles = (incomingFiles) => {
     const excelFiles = Array.from(incomingFiles || []).filter(isExcelFile);
@@ -76,7 +81,15 @@ export function PickingFileInput({
           </span>
           <div className="picking-file-stack">
             {files.map((file, index) => (
-              <div key={`${file.name}-${file.size}-${index}`} className="picking-file-row">
+              <div
+                key={`${file.name}-${file.size}-${index}`}
+                className={`picking-file-row ${
+                  files.length > previousFileCountRef.current
+                  && index >= previousFileCountRef.current
+                    ? 'motion-list-item-reveal'
+                    : ''
+                }`.trim()}
+              >
                 <div className="picking-file-name">
                   <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" aria-hidden="true">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />

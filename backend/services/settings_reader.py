@@ -28,6 +28,30 @@ def _keyword_list(value: str | None) -> list[str]:
     return normalized or ["RESO", "RESI"]
 
 
+DEFAULT_PICKING_DAY_MAPPING = {
+    "monday": "Lunedì",
+    "tuesday": "Martedì",
+    "wednesday": "Mercoledì",
+    "thursday": "Giovedì",
+    "friday": "Venerdì",
+    "saturday": "",
+    "sunday": "",
+}
+
+
+def _day_mapping(value: str | None) -> dict[str, str]:
+    try:
+        parsed = json.loads(value or "{}")
+    except (TypeError, ValueError):
+        parsed = {}
+    if not isinstance(parsed, dict):
+        parsed = {}
+    return {
+        key: str(parsed.get(key, default) or "").strip()
+        for key, default in DEFAULT_PICKING_DAY_MAPPING.items()
+    }
+
+
 def read_settings(
     db,
     environment: Mapping[str, str] | None = None,
@@ -111,5 +135,22 @@ def read_settings(
         ),
         "excluded_lot_keywords": _keyword_list(
             settings.get("excluded_lot_keywords")
+        ),
+        "picking_sheet_write_enabled": _boolean(
+            settings.get("picking_sheet_write_enabled", "false")
+        ),
+        "picking_sheet_webapp_url": settings.get(
+            "picking_sheet_webapp_url",
+            "",
+        ),
+        "picking_sheet_shared_secret_configured": bool(
+            settings.get("picking_sheet_shared_secret", "").strip()
+        ),
+        "picking_sheet_remaining_header": settings.get(
+            "picking_sheet_remaining_header",
+            "RIMANENTI",
+        ),
+        "picking_sheet_day_mapping": _day_mapping(
+            settings.get("picking_sheet_day_mapping")
         ),
     }

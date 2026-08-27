@@ -1,3 +1,6 @@
+import { useId, useState } from 'react';
+
+
 function IncludedSkuRules({
   addSkuFilter,
   excludedSkus,
@@ -231,10 +234,18 @@ function ExcludedSkuRules({
 
 export function PickingAdvancedSkuFilters(props) {
   const ruleCount = props.skuFilter.length + props.excludedSkus.length;
+  const contentId = useId();
+  const [isOpen, setIsOpen] = useState(false);
 
   return (
-    <details className="picking-advanced-filter">
-      <summary>
+    <section className={`picking-advanced-filter ${isOpen ? 'is-open' : ''}`}>
+      <button
+        type="button"
+        className="picking-advanced-summary"
+        aria-expanded={isOpen}
+        aria-controls={contentId}
+        onClick={() => setIsOpen(current => !current)}
+      >
         <span>
           <strong>Filtri SKU avanzati</strong>
           <small>Limita facoltativamente gli ordini candidati.</small>
@@ -242,11 +253,20 @@ export function PickingAdvancedSkuFilters(props) {
         <span className="picking-advanced-status">
           {ruleCount > 0 ? `${ruleCount} regole` : 'Nessuno'}
         </span>
-      </summary>
-      <div className="picking-advanced-content">
-        <IncludedSkuRules {...props} />
-        <ExcludedSkuRules {...props} />
+      </button>
+      <div
+        id={contentId}
+        className="picking-advanced-reveal"
+        aria-hidden={!isOpen}
+        inert={!isOpen}
+      >
+        <div className="picking-advanced-reveal-inner">
+          <div className="picking-advanced-content">
+            <IncludedSkuRules {...props} />
+            <ExcludedSkuRules {...props} />
+          </div>
+        </div>
       </div>
-    </details>
+    </section>
   );
 }

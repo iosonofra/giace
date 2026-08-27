@@ -2,6 +2,7 @@ export function AutomaticSkippedOrders({
   pickingResults,
   handleCopyOrderId,
   copiedOrderId,
+  copyFeedbackKey,
   getRelativeTimeString,
   getStateBadgeClass,
   formatPickingQty,
@@ -31,7 +32,7 @@ export function AutomaticSkippedOrders({
                                               #{order.chronological_position} · Ordine {order.order_id}
                                             </button>
                                             {copiedOrderId === order.order_id && (
-                                              <span className="picking-order-copied">Copiato</span>
+                                              <span key={copyFeedbackKey} className="picking-order-copied">Copiato</span>
                                             )}
                                             <span>{order.customer_name}</span>
                                             {order.date_add && (

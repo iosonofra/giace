@@ -132,7 +132,10 @@ export function ExtensionBrowserSetup({
         ))}
       </div>
 
-      <div className="extension-browser-primary-action">
+      <div
+        key={`extension-action-${extensionBrowserGuide}`}
+        className="extension-browser-primary-action extension-guide-reveal"
+      >
         <div>
           <strong>
             {extensionBrowserGuide === 'userscript'
@@ -147,8 +150,9 @@ export function ExtensionBrowserSetup({
       </div>
 
       <div
+        key={`extension-guide-${extensionBrowserGuide}`}
         id="extension-browser-guide"
-        className="extension-browser-instructions"
+        className="extension-browser-instructions extension-guide-reveal"
         role="region"
         aria-labelledby={`extension-browser-${extensionBrowserGuide}`}
       >

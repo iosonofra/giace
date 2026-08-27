@@ -5,7 +5,7 @@ import {
 } from './stockOrdersDrawerModel';
 
 
-function OrderIdCell({ copiedOrderId, handleCopyOrderId, orderId }) {
+function OrderIdCell({ copiedOrderId, copyFeedbackKey, handleCopyOrderId, orderId }) {
   return (
     <td className="stock-order-id-cell">
       <button
@@ -19,7 +19,7 @@ function OrderIdCell({ copiedOrderId, handleCopyOrderId, orderId }) {
       >
         {orderId}
         {copiedOrderId === orderId && (
-          <span className="stock-order-copy-tooltip" role="status">
+          <span key={copyFeedbackKey} className="stock-order-copy-tooltip" role="status">
             Copiato!
           </span>
         )}
@@ -30,6 +30,7 @@ function OrderIdCell({ copiedOrderId, handleCopyOrderId, orderId }) {
 
 export function StockOrdersTable({
   copiedOrderId,
+  copyFeedbackKey,
   getStateBadgeClass,
   handleCopyOrderId,
   model,
@@ -97,6 +98,7 @@ export function StockOrdersTable({
             >
             <OrderIdCell
               copiedOrderId={copiedOrderId}
+              copyFeedbackKey={copyFeedbackKey}
               handleCopyOrderId={handleCopyOrderId}
               orderId={order.order_id}
             />

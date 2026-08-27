@@ -109,6 +109,7 @@ export function createAppPageModels({
     },
     ordersUi: {
       copiedOrderId: orders.copiedOrderId,
+      copyFeedbackKey: orders.copyFeedbackKey,
       filteredOrders: orders.filteredOrders,
       formatDate: shared.formatDate,
       getOrderStateBadgeClass: (
@@ -138,6 +139,7 @@ export function createAppPageModels({
     stockUi: {
       ...stock,
       getRelativeTimeString: shared.getRelativeTimeString,
+      googleSheetsSyncSuccessKey: settings.googleSheetsSyncSuccessKey,
       handleSyncGoogleSheetsNow: (
         settings.handleSyncGoogleSheetsNow
       ),
@@ -153,6 +155,7 @@ export function createAppPageModels({
       tabLoading: runtime.tabLoading,
       TableSkeleton: shared.TableSkeleton,
       copiedOrderId: orders.copiedOrderId,
+      copyFeedbackKey: orders.copyFeedbackKey,
       formatPickingQty: shared.formatPickingQty,
       getStateBadgeClass: shared.getStateBadgeClass,
       handleCopyOrderId: orders.handleCopyOrderId,

@@ -90,6 +90,7 @@ function SimulationSummary({ formatPickingQty, summary }) {
 
 function SkippedOrdersSummary({
   copiedOrderId,
+  copyFeedbackKey,
   formatPickingQty,
   getRelativeTimeString,
   getStateBadgeClass,
@@ -117,7 +118,7 @@ function SkippedOrdersSummary({
                 #{order.chronological_position} · Ordine {order.order_id}
               </button>
               {copiedOrderId === order.order_id && (
-                <span className="picking-order-copied">Copiato</span>
+                <span key={copyFeedbackKey} className="picking-order-copied">Copiato</span>
               )}
               <span>{order.customer_name}</span>
               {order.date_add && (
@@ -181,6 +182,7 @@ export function PickingAutomaticInsights({
   automaticSkuExcludedOrders,
   automaticSkuLimitExcludedOrders,
   copiedOrderId,
+  copyFeedbackKey,
   formatPickingQty,
   getRelativeTimeString,
   getStateBadgeClass,
@@ -216,6 +218,7 @@ export function PickingAutomaticInsights({
       {pickingViewMode === 'aggregated' && (
         <SkippedOrdersSummary
           copiedOrderId={copiedOrderId}
+          copyFeedbackKey={copyFeedbackKey}
           formatPickingQty={formatPickingQty}
           getRelativeTimeString={getRelativeTimeString}
           getStateBadgeClass={getStateBadgeClass}

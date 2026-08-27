@@ -66,15 +66,20 @@ export function SettingsPage({ settings }) {
                   </div>
                 )}
 
-                {settingsSection === 'connection' && <ConnectionSettings settings={settings} />}
+                <div
+                  key={settingsSection}
+                  className="settings-section-content motion-state-reveal"
+                >
+                  {settingsSection === 'connection' && <ConnectionSettings settings={settings} />}
 
-                {settingsSection === 'extension' && <ExtensionSettings settings={settings} />}
+                  {settingsSection === 'extension' && <ExtensionSettings settings={settings} />}
 
-                {settingsSection === 'stock' && <StockSettings settings={settings} />}
+                  {settingsSection === 'stock' && <StockSettings settings={settings} />}
 
-                {settingsSection === 'orders' && <OrderSettings settings={settings} />}
+                  {settingsSection === 'orders' && <OrderSettings settings={settings} />}
 
-                {settingsSection === 'backup' && <BackupSettings settings={settings} />}
+                  {settingsSection === 'backup' && <BackupSettings settings={settings} />}
+                </div>
 
               </div>
   );

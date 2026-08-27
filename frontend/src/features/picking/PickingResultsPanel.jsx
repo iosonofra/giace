@@ -3,6 +3,7 @@ import { PickingAutomaticInsights } from './PickingAutomaticInsights';
 import { PickingContextOverview } from './PickingContextOverview';
 import { PickingOrdersView } from './PickingOrdersView';
 import { PickingResultsHeader } from './PickingResultsHeader';
+import { PickingSheetWriteDialog } from './PickingSheetWriteDialog';
 
 
 export function PickingResultsPanel({
@@ -19,6 +20,7 @@ export function PickingResultsPanel({
   automaticUnclassifiedCount,
   clearCountedPickingSkus,
   copiedOrderId,
+  copyFeedbackKey,
   countedPickingCount,
   countedPickingSkus,
   filteredAutomaticRemainingOrders,
@@ -54,11 +56,12 @@ export function PickingResultsPanel({
   togglePickingSkuCounted,
   visibleAutomaticRemainingOrders,
   visiblePickingRequirements,
+  sheetWrite,
 }) {
   if (!pickingResults) return null;
 
   return (
-    <div className="glass-panel widget-card picking-results-panel">
+    <div className="glass-panel widget-card picking-results-panel motion-result-reveal">
       <PickingResultsHeader
         clearCountedPickingSkus={clearCountedPickingSkus}
         countedPickingSkus={countedPickingSkus}
@@ -69,6 +72,7 @@ export function PickingResultsPanel({
         pickingViewMode={pickingViewMode}
         setPickingViewMode={setPickingViewMode}
         togglePickingCountingMode={togglePickingCountingMode}
+        sheetWrite={sheetWrite}
       />
 
       <PickingContextOverview
@@ -87,6 +91,7 @@ export function PickingResultsPanel({
         automaticSkuExcludedOrders={automaticSkuExcludedOrders}
         automaticSkuLimitExcludedOrders={automaticSkuLimitExcludedOrders}
         copiedOrderId={copiedOrderId}
+        copyFeedbackKey={copyFeedbackKey}
         formatPickingQty={formatPickingQty}
         getRelativeTimeString={getRelativeTimeString}
         getStateBadgeClass={getStateBadgeClass}
@@ -120,6 +125,7 @@ export function PickingResultsPanel({
           automaticRemainingOrders={automaticRemainingOrders}
           automaticUnclassifiedCount={automaticUnclassifiedCount}
           copiedOrderId={copiedOrderId}
+          copyFeedbackKey={copyFeedbackKey}
           filteredAutomaticRemainingOrders={filteredAutomaticRemainingOrders}
           formatPickingQty={formatPickingQty}
           getOrderPickingMeta={getOrderPickingMeta}
@@ -136,6 +142,7 @@ export function PickingResultsPanel({
           visibleAutomaticRemainingOrders={visibleAutomaticRemainingOrders}
         />
       )}
+      <PickingSheetWriteDialog sheetWrite={sheetWrite} />
     </div>
   );
 }

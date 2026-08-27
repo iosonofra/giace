@@ -53,6 +53,7 @@ export function ConfirmModal({
         className={`confirm-modal confirm-modal-variant-${displayed.variant} ${
           presence.isExiting ? 'is-exiting' : ''
         }`}
+        onTransitionEnd={presence.completeExit}
       >
         <div className="confirm-modal-heading">
           <div className="confirm-modal-icon">

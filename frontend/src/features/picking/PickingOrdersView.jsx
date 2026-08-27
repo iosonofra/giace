@@ -11,6 +11,7 @@ export function PickingOrdersView({
   automaticRemainingOrders,
   automaticUnclassifiedCount,
   copiedOrderId,
+  copyFeedbackKey,
   filteredAutomaticRemainingOrders,
   formatPickingQty,
   getOrderPickingMeta,
@@ -76,6 +77,7 @@ export function PickingOrdersView({
           getOrderPickingMeta={getOrderPickingMeta}
           handleCopyOrderId={handleCopyOrderId}
           copiedOrderId={copiedOrderId}
+          copyFeedbackKey={copyFeedbackKey}
           getRelativeTimeString={getRelativeTimeString}
           getStateBadgeClass={getStateBadgeClass}
           formatPickingQty={formatPickingQty}
@@ -87,6 +89,7 @@ export function PickingOrdersView({
           pickingResults={pickingResults}
           handleCopyOrderId={handleCopyOrderId}
           copiedOrderId={copiedOrderId}
+          copyFeedbackKey={copyFeedbackKey}
           getRelativeTimeString={getRelativeTimeString}
           getStateBadgeClass={getStateBadgeClass}
           formatPickingQty={formatPickingQty}
@@ -107,6 +110,7 @@ export function PickingOrdersView({
           visibleAutomaticRemainingOrders={visibleAutomaticRemainingOrders}
           handleCopyOrderId={handleCopyOrderId}
           copiedOrderId={copiedOrderId}
+          copyFeedbackKey={copyFeedbackKey}
           getRelativeTimeString={getRelativeTimeString}
           getStateBadgeClass={getStateBadgeClass}
           formatPickingQty={formatPickingQty}

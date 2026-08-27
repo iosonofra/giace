@@ -8,6 +8,7 @@ export function PickingResultsHeader({
   pickingViewMode,
   setPickingViewMode,
   togglePickingCountingMode,
+  sheetWrite,
 }) {
   return (
     <>
@@ -41,6 +42,15 @@ export function PickingResultsHeader({
           </div>
         </div>
         <div className="picking-toolbar">
+          {sheetWrite?.enabled && (
+            <button
+              type="button"
+              className="btn btn-secondary picking-sheet-write-trigger"
+              onClick={sheetWrite.show}
+            >
+              Registra su Sheets <span className="badge">Beta</span>
+            </button>
+          )}
           {pickingViewMode === 'aggregated' && (
             <>
               <button

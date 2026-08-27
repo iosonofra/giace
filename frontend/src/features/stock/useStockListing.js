@@ -8,9 +8,18 @@ import {
 } from './stockPresentation';
 
 
-export function useStockListing({ active, ensureLoaded, refreshKey, setTabLoading }) {
+export function useStockListing({
+  active,
+  ensureLoaded,
+  refreshKey,
+  setTabLoading,
+  showActionMsg,
+}) {
   const [searchStock, setSearchStock] = useState('');
-  const [stockSort, setStockSort] = useState({ field: 'index', direction: 'asc' });
+  const [standardStockSort, setStandardStockSort] =
+    useState({ field: 'index', direction: 'asc' });
+  const [missingStockSort, setMissingStockSort] =
+    useState({ field: 'qty_committed', direction: 'desc' });
   const [stockData, setStockData] = useState([]);
   const [stockViewMode, setStockViewMode] = useState('standard');
   const [missingStockData, setMissingStockData] = useState([]);
@@ -59,6 +68,16 @@ export function useStockListing({ active, ensureLoaded, refreshKey, setTabLoadin
     };
   }, [ensureLoaded, stockData.length]);
 
+  const stockSort = stockViewMode === 'missing'
+    ? missingStockSort
+    : standardStockSort;
+  const setStockSort = nextSort => {
+    if (stockViewMode === 'missing') {
+      setMissingStockSort(nextSort);
+      return;
+    }
+    setStandardStockSort(nextSort);
+  };
   const handleSortStock = field => {
     const direction = stockSort.field === field && stockSort.direction === 'asc'
       ? 'desc'
@@ -74,7 +93,7 @@ export function useStockListing({ active, ensureLoaded, refreshKey, setTabLoadin
   );
   const sortedStock = useMemo(() => [...currentStockSourceData]
     .filter(item => (
-      matchesStockAvailability(item, stockAvailabilityFilter)
+      (stockViewMode === 'missing' || matchesStockAvailability(item, stockAvailabilityFilter))
       && (
         item.sku.toLowerCase().includes(searchStock.toLowerCase())
         || (
@@ -101,7 +120,51 @@ export function useStockListing({ active, ensureLoaded, refreshKey, setTabLoadin
       searchStock,
       stockAvailabilityFilter,
       stockSort,
+      stockViewMode,
     ]);
+
+  const copyMissingStockSkus = async (rows = sortedStock) => {
+    const values = rows.map(item => item.sku).filter(Boolean);
+    if (values.length === 0) return;
+    const text = values.join('\n');
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.setAttribute('readonly', '');
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      textarea.remove();
+    }
+    showActionMsg?.(`${values.length} SKU copiati negli appunti.`);
+  };
+
+  const exportMissingStockCsv = (rows = sortedStock) => {
+    if (rows.length === 0) return;
+    const escapeCell = value => `"${String(value ?? '').replaceAll('"', '""')}"`;
+    const header = ['SKU', 'Unita richieste', 'Prodotti associati', 'Stato'];
+    const lines = rows.map(item => [
+      item.sku,
+      Number(item.qty_committed || 0),
+      Number(item.connected_products || 0),
+      'Assente dal foglio',
+    ]);
+    const csv = [header, ...lines]
+      .map(line => line.map(escapeCell).join(';'))
+      .join('\n');
+    const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `sku-non-presenti-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+    showActionMsg?.(`Esportati ${rows.length} SKU non presenti.`);
+  };
   const stockPagination = useMemo(
     () => paginateStockRows(sortedStock, stockPage, stockLimit),
     [sortedStock, stockLimit, stockPage],
@@ -125,7 +188,9 @@ export function useStockListing({ active, ensureLoaded, refreshKey, setTabLoadin
   }, [stockPage, stockPagination.page]);
 
   return {
+    copyMissingStockSkus,
     currentStockSourceData,
+    exportMissingStockCsv,
     handleSortStock,
     missingStockData,
     paginatedStock: stockPagination.rows,
@@ -134,6 +199,7 @@ export function useStockListing({ active, ensureLoaded, refreshKey, setTabLoadin
     setStockAvailabilityFilter,
     setStockLimit,
     setStockPage,
+    setStockSort,
     setStockViewMode,
     sortedStock,
     stockData,

@@ -8,6 +8,7 @@ export function StockOrdersDrawer({ stock }) {
   const {
     Icons,
     copiedOrderId,
+    copyFeedbackKey,
     getStateBadgeClass,
     handleCopyOrderId,
     loadingSkuOrders,
@@ -55,6 +56,7 @@ export function StockOrdersDrawer({ stock }) {
         role="dialog"
         aria-modal="true"
         aria-labelledby="stock-orders-drawer-title"
+        onTransitionEnd={presence.completeExit}
       >
         <StockOrdersDrawerHeader
           closeDrawer={closeDrawer}
@@ -78,9 +80,10 @@ export function StockOrdersDrawer({ stock }) {
               </p>
             </div>
           ) : model.displayedOrders.length > 0 ? (
-            <div className="stock-orders-table-shell">
+            <div className="stock-orders-table-shell drawer-content-reveal">
               <StockOrdersTable
                 copiedOrderId={copiedOrderId}
+                copyFeedbackKey={copyFeedbackKey}
                 getStateBadgeClass={getStateBadgeClass}
                 handleCopyOrderId={handleCopyOrderId}
                 model={model}
@@ -90,7 +93,7 @@ export function StockOrdersDrawer({ stock }) {
               />
             </div>
           ) : (
-            <div style={{
+            <div className="drawer-content-reveal" style={{
               color: 'var(--text-secondary)',
               padding: '60px 24px',
               textAlign: 'center',

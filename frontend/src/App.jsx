@@ -42,6 +42,7 @@ import { derivePickingPresentation } from './features/picking/pickingPresentatio
 import { createPickingPageModel } from './features/picking/pickingPageModel';
 import { usePickingClipboard } from './features/picking/usePickingClipboard';
 import { useAutomaticPicking } from './features/picking/useAutomaticPicking';
+import { usePickingSheetWrite } from './features/picking/usePickingSheetWrite';
 import { useBackupRestore } from './features/settings/useBackupRestore';
 import { SettingsPage } from './features/settings/SettingsPage';
 import { useSettingsData } from './features/settings/useSettingsData';
@@ -190,6 +191,8 @@ function App() {
     handleRunCalculation,
     handleSyncAll,
     handleSyncOrders,
+    ordersSyncSuccessKey,
+    syncAllSuccessKey,
   } = syncActions;
 
   const stockState = useStockData({
@@ -343,12 +346,18 @@ function App() {
     viewMode: pickingViewMode,
     notify: showActionMsg,
   });
+  const pickingSheetWrite = usePickingSheetWrite({
+    notify: showActionMsg,
+    refresh: refreshAppData,
+    results: pickingResults,
+  });
   const pickingPageModel = createPickingPageModel({
     automatic: automaticPicking,
     clipboard: pickingClipboard,
     core: pickingCore,
     orders: ordersState,
     presentation: pickingPresentation,
+    sheetWrite: pickingSheetWrite,
     shared: {
       formatPickingQty,
       getOrderPickingMeta,
@@ -433,6 +442,7 @@ function App() {
                     : 'success'
               } ${toastPresence.isExiting ? 'is-exiting' : ''}`}
               role="status"
+              onTransitionEnd={toastPresence.completeExit}
             >
               <span>{toastPresence.renderedValue.text}</span>
               <button className="toast-close" onClick={() => setActionMessage(null)} aria-label="Chiudi notifica">x</button>
@@ -448,7 +458,9 @@ function App() {
           onRefresh={refreshAppData}
           onSyncAll={handleSyncAll}
           onSyncOrders={handleSyncOrders}
+          ordersSyncSuccessKey={ordersSyncSuccessKey}
           stockSource={stockSource}
+          syncAllSuccessKey={syncAllSuccessKey}
           syncingGoogleSheets={syncingGoogleSheets}
           syncingOrders={syncingOrders}
         />

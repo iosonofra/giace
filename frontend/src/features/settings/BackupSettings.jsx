@@ -17,7 +17,7 @@ export function BackupSettings({ settings }) {
 
                       {/* Restore countdown overlay */}
                       {restoreCountdown !== null && (
-                        <div style={{
+                        <div className="backup-restore-reveal" style={{
                           padding: '20px',
                           borderRadius: '12px',
                           background: 'rgba(99,102,241,0.07)',

@@ -55,6 +55,7 @@ function AssociationImportDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="association-import-title"
+        onTransitionEnd={presence.completeExit}
       >
         <div className="association-import-icon" aria-hidden="true">⇧</div>
         <span className="association-editor-eyebrow">Importazione associazioni</span>

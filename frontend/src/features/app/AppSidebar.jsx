@@ -1,4 +1,5 @@
 import React from 'react';
+import { useExitPresence } from '../../components/ui/useExitPresence';
 
 const navigationItems = [
   ['dashboard', 'Dashboard', 'Dashboard'],
@@ -21,9 +22,17 @@ export function AppSidebar({
   status,
   theme,
 }) {
+  const overlayPresence = useExitPresence(isMobileOpen, 240);
+
   return (
     <>
-      {isMobileOpen && <div className="sidebar-overlay" onClick={onCloseMobile}></div>}
+      {overlayPresence.shouldRender && (
+        <div
+          className={`sidebar-overlay ${overlayPresence.isExiting ? 'is-exiting' : ''}`}
+          onClick={onCloseMobile}
+          onTransitionEnd={overlayPresence.completeExit}
+        />
+      )}
       <aside className={`sidebar ${isMobileOpen ? 'open' : ''}`}>
         <div className="brand-section">
           <div className="brand-logo">

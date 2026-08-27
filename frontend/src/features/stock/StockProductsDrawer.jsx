@@ -31,6 +31,7 @@ export function StockProductsDrawer({ stock }) {
         role="dialog"
         aria-modal="true"
         aria-labelledby="stock-products-drawer-title"
+        onTransitionEnd={presence.completeExit}
       >
         <div className="order-drawer-header">
           <div className="order-drawer-title-row">
@@ -64,12 +65,12 @@ export function StockProductsDrawer({ stock }) {
               <span>Caricamento prodotti associati…</span>
             </div>
           ) : skuProductsData.length === 0 ? (
-            <div className="stock-products-drawer-empty">
+            <div className="stock-products-drawer-empty drawer-content-reveal">
               <strong>Nessun prodotto associato</strong>
               <span>La SKU non risulta collegata a prodotti nel batch attivo.</span>
             </div>
           ) : (
-            <div className="stock-associated-product-list">
+            <div className="stock-associated-product-list drawer-content-reveal">
               {skuProductsData.map(product => (
                 <article key={product.product_id} className="stock-associated-product-card">
                   <div className="stock-associated-product-head">

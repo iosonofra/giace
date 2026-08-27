@@ -1,3 +1,6 @@
+import { useEffect, useRef } from 'react';
+
+
 export function AssociationGuidedEditor({
   activeAutocompleteIndex,
   configuredComponents,
@@ -12,6 +15,12 @@ export function AssociationGuidedEditor({
   warehouseSkuMap,
   warehouseSkus,
 }) {
+  const previousRowCountRef = useRef(guidedComponents.length);
+
+  useEffect(() => {
+    previousRowCountRef.current = guidedComponents.length;
+  }, [guidedComponents.length]);
+
   const addRow = () => {
     setGuidedComponents(previous => [...previous, { sku: '', qty_required: 1 }]);
   };
@@ -28,7 +37,7 @@ export function AssociationGuidedEditor({
   };
 
   return (
-    <div className="guided-mode-container">
+    <div className="guided-mode-container motion-state-reveal">
       <div className="association-components-heading">
         <div>
           <span>Componenti di magazzino</span>
@@ -58,7 +67,15 @@ export function AssociationGuidedEditor({
                 : 'unknown';
 
           return (
-            <div key={index} className={`guided-row association-component-row ${rowTone}`}>
+            <div
+              key={index}
+              className={`guided-row association-component-row ${rowTone} ${
+                guidedComponents.length > previousRowCountRef.current
+                && index >= previousRowCountRef.current
+                  ? 'motion-list-item-reveal'
+                  : ''
+              }`.trim()}
+            >
               <span className="association-component-index">{index + 1}</span>
               <div className="association-component-main">
                 <label htmlFor={`association-sku-${index}`}>SKU componente</label>
