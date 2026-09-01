@@ -156,3 +156,23 @@ class PickingSheetOperation(Base):
     response_json = Column(Text, nullable=True)
     created_at = Column(DateTime, default=func.now(), nullable=False)
     applied_at = Column(DateTime, nullable=True)
+
+
+class PickingSession(Base):
+    """Persistent picking plan and its lifecycle up to Sheet registration."""
+
+    __tablename__ = "picking_sessions"
+
+    session_id = Column(String(64), primary_key=True)
+    status = Column(String(20), nullable=False, default="draft")
+    source_type = Column(String(30), nullable=False, default="simulation")
+    source_json = Column(Text, nullable=True)
+    snapshot_json = Column(Text, nullable=False)
+    requirements_json = Column(Text, nullable=False)
+    orders_json = Column(Text, nullable=False)
+    sheet_operation_id = Column(String(64), nullable=True)
+    receipt_json = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=func.now(), nullable=False)
+    updated_at = Column(DateTime, default=func.now(), nullable=False)
+    verified_at = Column(DateTime, nullable=True)
+    recorded_at = Column(DateTime, nullable=True)

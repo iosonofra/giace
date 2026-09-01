@@ -3,12 +3,13 @@ import React, {
   Suspense,
   useCallback,
   useEffect,
+  useRef,
   useState,
 } from 'react';
 import { Icons } from './components/ui/Icons';
 import { Pagination } from './components/ui/Pagination';
 import { TableSkeleton } from './components/ui/TableSkeleton';
-import { useExitPresence } from './components/ui/useExitPresence';
+import { ToastStack } from './components/ui/ToastStack';
 import { AppHeader } from './features/app/AppHeader';
 import { AppOverlays } from './features/app/AppOverlays';
 import { AppSidebar } from './features/app/AppSidebar';
@@ -44,7 +45,6 @@ import { usePickingClipboard } from './features/picking/usePickingClipboard';
 import { useAutomaticPicking } from './features/picking/useAutomaticPicking';
 import { usePickingSheetWrite } from './features/picking/usePickingSheetWrite';
 import { useBackupRestore } from './features/settings/useBackupRestore';
-import { SettingsPage } from './features/settings/SettingsPage';
 import { useSettingsData } from './features/settings/useSettingsData';
 import { StockPage } from './features/stock/StockPage';
 import { useStockData } from './features/stock/useStockData';
@@ -55,6 +55,7 @@ const deferredPageLoaders = {
   associations: () => import('./features/associations/AssociationsPage'),
   dashboard: () => import('./features/dashboard/DashboardPage'),
   orders: () => import('./features/orders/OrdersPage'),
+  settings: () => import('./features/settings/SettingsPage'),
 };
 
 const AnomaliesPage = lazy(() => deferredPageLoaders.anomalies()
@@ -65,6 +66,8 @@ const DashboardPage = lazy(() => deferredPageLoaders.dashboard()
   .then(module => ({ default: module.DashboardPage })));
 const OrdersPage = lazy(() => deferredPageLoaders.orders()
   .then(module => ({ default: module.OrdersPage })));
+const SettingsPage = lazy(() => deferredPageLoaders.settings()
+  .then(module => ({ default: module.SettingsPage })));
 
 
 function DeferredPageFallback() {
@@ -77,11 +80,13 @@ function DeferredPageFallback() {
 
 
 function App() {
-  const [activeTab, setActiveTab] = useState('stock');
+  const [activeTab, setActiveTab] = useState(() => (
+    new URLSearchParams(window.location.search).has('settings') ? 'settings' : 'stock'
+  ));
   const [, setTimeTick] = useState(Date.now());
   const [tabLoading, setTabLoading] = useState(true);
-  const [actionMessage, setActionMessage] = useState(null);
-  const toastPresence = useExitPresence(actionMessage);
+  const [toasts, setToasts] = useState([]);
+  const toastIdRef = useRef(0);
 
   // Theme settings
   const [theme, setTheme] = useState(readStoredTheme);
@@ -133,6 +138,7 @@ function App() {
     backupLoading,
     handleDownloadBackup,
     handleRestoreDatabase,
+    lastBackupAt,
     restoreCountdown,
     restoreLoading,
     setShowRestoreConfirm,
@@ -299,12 +305,29 @@ function App() {
     theme,
   });
 
-  function showActionMsg(text, type = 'success') {
-    setActionMessage({ text, type });
-    // Errors stay visible until manually dismissed; success/warning auto-dismiss
-    if (type !== 'danger') {
-      setTimeout(() => setActionMessage(null), 5000);
-    }
+  function showActionMsg(text, type = 'success', options = {}) {
+    const serial = toastIdRef.current += 1;
+    const id = options.id || `toast-${serial}`;
+    const normalizedType = ['success', 'warning', 'danger', 'info'].includes(type) ? type : 'info';
+    const nextToast = {
+      id,
+      instanceId: `${id}-${serial}`,
+      text,
+      type: normalizedType,
+      action: options.action,
+      duration: options.duration,
+    };
+
+    setToasts(current => {
+      const withoutRepeatedToast = current.filter(toast => (
+        toast.id !== id && !(toast.text === text && toast.type === normalizedType)
+      ));
+      return [...withoutRepeatedToast, nextToast].slice(-3);
+    });
+  }
+
+  function dismissToast(id) {
+    setToasts(current => current.filter(toast => toast.id !== id));
   }
 
   const handleResolveMissingAssociation = (productId) => {
@@ -430,25 +453,7 @@ function App() {
 
       {/* Main Content Area */}
       <main className="main-content">
-        {/* Fixed-position toast alerts */}
-        {toastPresence.shouldRender && (
-          <div className="toast-container">
-            <div
-              className={`toast-alert badge-${
-                toastPresence.renderedValue.type === 'danger'
-                  ? 'danger'
-                  : toastPresence.renderedValue.type === 'warning'
-                    ? 'warning'
-                    : 'success'
-              } ${toastPresence.isExiting ? 'is-exiting' : ''}`}
-              role="status"
-              onTransitionEnd={toastPresence.completeExit}
-            >
-              <span>{toastPresence.renderedValue.text}</span>
-              <button className="toast-close" onClick={() => setActionMessage(null)} aria-label="Chiudi notifica">x</button>
-            </div>
-          </div>
-        )}
+        <ToastStack toasts={toasts} onDismiss={dismissToast} />
 
         <AppHeader
           activeTab={activeTab}
@@ -504,6 +509,7 @@ function App() {
                     handleSyncOrders,
                     Icons,
                     loading,
+                    lastBackupAt,
                     restoreCountdown,
                     restoreLoading,
                     status,

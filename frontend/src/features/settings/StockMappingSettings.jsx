@@ -1,4 +1,5 @@
 export function StockMappingSettings({ settings }) {
+  const mappingError = settings.stockSettingsErrorSection === 'mapping';
   const fields = [
     ['mapping-sku', 'Nome colonna SKU', settings.mappingSku, settings.setMappingSku, 'Es: Sku', true],
     ['mapping-qty', 'Nome colonna quantità', settings.mappingQty, settings.setMappingQty, 'Es: Qta Tot.', true],
@@ -23,9 +24,11 @@ export function StockMappingSettings({ settings }) {
               type="text"
               className="settings-input"
               placeholder={placeholder}
-              value={value}
-              onChange={event => setter(event.target.value)}
-              required={required}
+            value={value}
+            onChange={event => setter(event.target.value)}
+            required={required}
+            aria-invalid={mappingError && settings.stockSettingsErrorField === id}
+            aria-describedby={mappingError && settings.stockSettingsErrorField === id ? 'stock-mapping-error' : undefined}
             />
           </div>
         ))}

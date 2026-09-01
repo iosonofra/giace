@@ -9,44 +9,29 @@ export function StockSyncStatusRail({ settings }) {
     googleSheetSyncInterval,
     googleSheetsSyncSuccessKey,
     handleSyncGoogleSheetsNow,
-    mappingQty,
-    mappingSku,
     stockSource,
     syncingGoogleSheets,
   } = settings;
   const googleSheets = stockSource === 'google_sheets';
+  const lastSync = googleSheets
+    ? googleSheetLastSync
+      ? new Date(googleSheetLastSync).toLocaleString('it-IT')
+      : 'Mai sincronizzato'
+    : 'Aggiornamento su richiesta';
 
   return (
-    <aside className="stock-sync-rail" aria-labelledby="stock-status-title">
-      <div className="stock-section-heading">
-        <h3 id="stock-status-title">Stato sincronizzazione</h3>
-        <p>Riepilogo della sorgente attualmente configurata.</p>
+    <aside className={`stock-sync-rail ${googleSheetLastError ? 'has-error' : ''}`} aria-labelledby="stock-status-title">
+      <div className="stock-sync-identity">
+        <span className={`settings-status-dot ${googleSheetLastError ? 'danger' : googleSheets ? 'success' : 'neutral'}`} />
+        <div>
+          <span id="stock-status-title">Stato sincronizzazione</span>
+          <strong>{googleSheets ? 'Google Sheets' : 'Excel manuale'}</strong>
+        </div>
       </div>
-      <dl className="stock-status-list">
-        <div><dt>Sorgente</dt><dd>{googleSheets ? 'Google Sheets' : 'Excel manuale'}</dd></div>
-        <div>
-          <dt>{googleSheets ? 'Foglio' : 'Modalità'}</dt>
-          <dd>{googleSheets ? googleSheetName || 'Non indicato' : 'Caricamento locale'}</dd>
-        </div>
-        <div>
-          <dt>{googleSheets ? 'Intervallo' : 'Aggiornamento'}</dt>
-          <dd>{googleSheets ? `${googleSheetSyncInterval} minuti` : 'Su richiesta'}</dd>
-        </div>
-        <div>
-          <dt>Ultima sincronizzazione</dt>
-          <dd>
-            {googleSheets
-              ? googleSheetLastSync
-                ? new Date(googleSheetLastSync).toLocaleString('it-IT')
-                : 'Mai sincronizzato'
-              : 'Non applicabile'}
-          </dd>
-        </div>
-      </dl>
-      <div className="stock-mapping-summary">
-        <span>Mappatura attuale</span>
-        <div><strong>SKU</strong><code>{mappingSku || '—'}</code></div>
-        <div><strong>Quantità</strong><code>{mappingQty || '—'}</code></div>
+      <div className="stock-sync-meta">
+        <div><span>{googleSheets ? 'Foglio' : 'Modalità'}</span><strong>{googleSheets ? googleSheetName || 'Non indicato' : 'Caricamento locale'}</strong></div>
+        <div><span>{googleSheets ? 'Intervallo' : 'Frequenza'}</span><strong>{googleSheets ? `${googleSheetSyncInterval} minuti` : 'Manuale'}</strong></div>
+        <div><span>Ultima sincronizzazione</span><strong>{lastSync}</strong></div>
       </div>
       {googleSheetLastError && (
         <div className="stock-sync-error" role="alert">

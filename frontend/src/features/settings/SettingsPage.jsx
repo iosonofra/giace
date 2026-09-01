@@ -1,86 +1,247 @@
+import { useEffect, useMemo, useState } from 'react';
+
+import { BackupSettings } from './BackupSettings';
 import { ConnectionSettings } from './ConnectionSettings';
 import { ExtensionSettings } from './ExtensionSettings';
-import { StockSettings } from './StockSettings';
 import { OrderSettings } from './OrderSettings';
-import { BackupSettings } from './BackupSettings';
+import { StockSettings } from './StockSettings';
+import { SettingsPreflightPanel } from './SettingsPreflightPanel';
+import { deriveSettingsPreflight, SETTINGS_SEARCH_TERMS } from './settingsPreflight';
 
 export function SettingsPage({ settings }) {
   const {
+    connectionSettingsDirty,
+    connectionVerifiedForCurrentValues,
+    connectionSettingsErrorSection,
     extensionTokenConfigured,
-    getRelativeTimeString,
+    extensionTokenDirty,
+    extensionSettingsErrorSection,
+    extensionTestResult,
+    googleSheetLastSync,
+    googleSheetLastError,
+    lastConnectionTestAt,
+    orderSettingsError,
     orderStatesDirty,
     prestashopStatusLabel,
     prestashopStatusTone,
+    prestashopMockMode,
     selectedStates,
+    setSettingsError,
     setSettingsSection,
     settingsError,
     settingsSection,
     settingsSections,
-    status,
+    stockSettingsDirty,
+    stockSettingsErrorSection,
     stockSource,
   } = settings;
+  const [gridNavigation, setGridNavigation] = useState(() => (
+    typeof window !== 'undefined'
+      && window.matchMedia('(min-width: 481px) and (max-width: 760px)').matches
+  ));
+  const [settingsQuery, setSettingsQuery] = useState('');
+  const [linkCopied, setLinkCopied] = useState(false);
+  const [settingsFocusTarget, setSettingsFocusTarget] = useState('');
+
+  const dirtySections = useMemo(() => ({
+    connection: Boolean(connectionSettingsDirty),
+    extension: Boolean(extensionTokenDirty),
+    stock: Boolean(stockSettingsDirty),
+    orders: Boolean(orderStatesDirty),
+    backup: false,
+  }), [connectionSettingsDirty, extensionTokenDirty, orderStatesDirty, stockSettingsDirty]);
+  const hasUnsavedChanges = Object.values(dirtySections).some(Boolean);
+  const preflight = useMemo(() => deriveSettingsPreflight(settings), [settings]);
+  const filteredSections = useMemo(() => {
+    const query = settingsQuery.trim().toLocaleLowerCase('it');
+    if (!query) return settingsSections;
+    return settingsSections.filter(section => (
+      `${section.label} ${SETTINGS_SEARCH_TERMS[section.id] || ''}`
+        .toLocaleLowerCase('it')
+        .includes(query)
+    ));
+  }, [settingsQuery, settingsSections]);
+  const hasContextualError = Boolean(
+    (settingsSection === 'connection' && connectionSettingsErrorSection)
+    || (settingsSection === 'extension' && extensionSettingsErrorSection)
+    || (settingsSection === 'stock' && stockSettingsErrorSection)
+    || (settingsSection === 'orders' && orderSettingsError),
+  );
+
+  useEffect(() => {
+    if (!hasUnsavedChanges) return undefined;
+    const warnBeforeUnload = event => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warnBeforeUnload);
+    return () => window.removeEventListener('beforeunload', warnBeforeUnload);
+  }, [hasUnsavedChanges]);
+
+  useEffect(() => {
+    const query = window.matchMedia('(min-width: 481px) and (max-width: 760px)');
+    const updateLayout = event => setGridNavigation(event.matches);
+    setGridNavigation(query.matches);
+    query.addEventListener('change', updateLayout);
+    return () => query.removeEventListener('change', updateLayout);
+  }, []);
+
+  const summaries = {
+    connection: {
+      value: connectionSettingsDirty
+        ? 'Modifiche da salvare'
+        : prestashopMockMode
+          ? 'Simulazione attiva'
+          : connectionVerifiedForCurrentValues && lastConnectionTestAt
+            ? 'Connessione verificata'
+            : `${prestashopStatusLabel} · da verificare`,
+      tone: connectionSettingsDirty
+        ? 'warning'
+        : prestashopMockMode || connectionVerifiedForCurrentValues
+          ? prestashopStatusTone
+          : 'neutral',
+    },
+    stock: {
+      value: stockSettingsDirty
+        ? 'Modifiche da salvare'
+        : googleSheetLastError
+          ? 'Ultima sincronizzazione fallita'
+        : stockSource === 'google_sheets'
+          ? googleSheetLastSync ? 'Google Sheets sincronizzato' : 'Google Sheets da sincronizzare'
+          : 'Caricamento Excel',
+      tone: stockSettingsDirty ? 'warning' : googleSheetLastError ? 'danger' : stockSource === 'google_sheets' && googleSheetLastSync ? 'success' : 'neutral',
+    },
+    orders: {
+      value: orderStatesDirty ? 'Modifiche da salvare' : `${selectedStates.length} stati inclusi`,
+      tone: orderStatesDirty ? 'warning' : 'success',
+    },
+    extension: {
+      value: extensionTokenDirty
+        ? 'Modifiche da salvare'
+        : extensionTestResult?.status === 'success'
+          ? 'Collegamento verificato'
+          : extensionTokenConfigured ? 'Configurata · da verificare' : 'Da configurare',
+      tone: extensionTokenDirty ? 'warning' : extensionTestResult?.status === 'success' ? 'success' : 'neutral',
+    },
+    backup: { value: 'Esporta o ripristina', tone: 'neutral' },
+  };
+
+  const changeSection = sectionId => {
+    if (sectionId === settingsSection) return;
+    setSettingsError(null);
+    setSettingsSection(sectionId);
+  };
+
+  const openPreflightFinding = (sectionId, fieldId) => {
+    setSettingsFocusTarget(fieldId || '');
+    changeSection(sectionId);
+    if (!fieldId) return;
+    window.setTimeout(() => document.getElementById(fieldId)?.focus(), 80);
+  };
+
+  const copySectionLink = async () => {
+    const url = new URL(window.location.href);
+    url.searchParams.set('settings', settingsSection);
+    try {
+      await navigator.clipboard.writeText(url.toString());
+      setLinkCopied(true);
+      window.setTimeout(() => setLinkCopied(false), 1600);
+    } catch {
+      setLinkCopied(false);
+    }
+  };
+
+  const handleNavigationKeyDown = event => {
+    if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    if (!gridNavigation && ['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+    event.preventDefault();
+    const navigationSections = filteredSections.length > 0 ? filteredSections : settingsSections;
+    const currentIndex = Math.max(0, navigationSections.findIndex(section => section.id === settingsSection));
+    let nextIndex = currentIndex;
+    if (event.key === 'Home') nextIndex = 0;
+    if (event.key === 'End') nextIndex = navigationSections.length - 1;
+    if (!gridNavigation && event.key === 'ArrowUp') nextIndex = (currentIndex - 1 + navigationSections.length) % navigationSections.length;
+    if (!gridNavigation && event.key === 'ArrowDown') nextIndex = (currentIndex + 1) % navigationSections.length;
+    if (gridNavigation && event.key === 'ArrowLeft') nextIndex = Math.max(0, currentIndex - 1);
+    if (gridNavigation && event.key === 'ArrowRight') nextIndex = Math.min(navigationSections.length - 1, currentIndex + 1);
+    if (gridNavigation && event.key === 'ArrowUp') nextIndex = Math.max(0, currentIndex - 2);
+    if (gridNavigation && event.key === 'ArrowDown') nextIndex = Math.min(navigationSections.length - 1, currentIndex + 2);
+    const nextSection = navigationSections[nextIndex];
+    changeSection(nextSection.id);
+    event.currentTarget.parentElement?.querySelectorAll('[role="tab"]')[nextIndex]?.focus();
+  };
 
   return (
-    <div className="settings-page">
-                <div className="settings-summary-grid">
-                  <div className={`settings-summary-item ${prestashopStatusTone}`}>
-                    <span className="settings-summary-label">PrestaShop</span>
-                    <strong><span className="settings-status-dot" />{prestashopStatusLabel}</strong>
-                  </div>
-                  <div className={`settings-summary-item ${stockSource === 'google_sheets' ? 'success' : 'neutral'}`}>
-                    <span className="settings-summary-label">Giacenze</span>
-                    <strong><span className="settings-status-dot" />{stockSource === 'google_sheets' ? 'Google Sheets' : 'Excel manuale'}</strong>
-                  </div>
-                  <div className={`settings-summary-item ${status?.last_orders_sync ? 'success' : 'neutral'}`}>
-                    <span className="settings-summary-label">Ultima sync ordini</span>
-                    <strong><span className="settings-status-dot" />{status?.last_orders_sync ? getRelativeTimeString(status.last_orders_sync) : 'Mai'}</strong>
-                  </div>
-                  <div className={`settings-summary-item ${orderStatesDirty ? 'warning' : 'success'}`}>
-                    <span className="settings-summary-label">Stati impegnato</span>
-                    <strong><span className="settings-status-dot" />{selectedStates.length} selezionati{orderStatesDirty ? ' - non salvati' : ''}</strong>
-                  </div>
-                  <div className={`settings-summary-item ${extensionTokenConfigured ? 'success' : 'warning'}`}>
-                    <span className="settings-summary-label">Estensione Chrome</span>
-                    <strong><span className="settings-status-dot" />{extensionTokenConfigured ? 'Token protetto' : 'API senza token'}</strong>
-                  </div>
-                </div>
+    <div className="settings-page settings-shell">
+      <nav className="settings-category-rail" aria-label="Navigazione impostazioni">
+        <div className="settings-category-rail-heading">
+          <div><strong>Impostazioni</strong><button type="button" onClick={copySectionLink}>{linkCopied ? 'Copiato' : 'Copia link'}</button></div>
+          <span>Configura la web app per area.</span>
+        </div>
+        <div className="settings-category-search">
+          <label className="sr-only" htmlFor="settings-search">Cerca nelle impostazioni</label>
+          <span aria-hidden="true">⌕</span>
+          <input id="settings-search" type="search" value={settingsQuery} onChange={event => setSettingsQuery(event.target.value)} placeholder="Cerca impostazioni" />
+        </div>
+        <div className="settings-category-list" role="tablist" aria-orientation={gridNavigation ? 'horizontal' : 'vertical'}>
+          {filteredSections.map(section => {
+            const summary = summaries[section.id];
+            const active = settingsSection === section.id;
+            return (
+              <button
+                key={section.id}
+                id={`settings-tab-${section.id}`}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                aria-controls={`settings-panel-${section.id}`}
+                tabIndex={active ? 0 : -1}
+                className={`settings-category-item ${summary.tone} ${active ? 'active' : ''}`}
+                onClick={() => changeSection(section.id)}
+                onKeyDown={handleNavigationKeyDown}
+              >
+                <span className="settings-category-copy">
+                  <strong>{section.label}</strong>
+                  <small>{summary.value}</small>
+                </span>
+                {dirtySections[section.id] && <span className="settings-category-unsaved">Non salvato</span>}
+              </button>
+            );
+          })}
+        </div>
+        {filteredSections.length === 0 && (
+          <div className="settings-category-empty">
+            <span>Nessuna voce trovata.</span>
+            <button type="button" onClick={() => setSettingsQuery('')}>Azzera ricerca</button>
+          </div>
+        )}
+        {hasUnsavedChanges && (
+          <p className="settings-category-draft-note">
+            Le modifiche restano disponibili passando da una sezione all’altra.
+          </p>
+        )}
+      </nav>
 
-                <div className="settings-section-tabs" role="tablist" aria-label="Sezioni impostazioni">
-                  {settingsSections.map(section => (
-                    <button
-                      key={section.id}
-                      type="button"
-                      className={`settings-section-tab ${settingsSection === section.id ? 'active' : ''}`}
-                      onClick={() => setSettingsSection(section.id)}
-                      role="tab"
-                      aria-selected={settingsSection === section.id}
-                    >
-                      <span>{section.label}</span>
-                    </button>
-                  ))}
-                </div>
-
-                {settingsError && (
-                  <div className="settings-alert settings-alert-danger">
-                    {settingsError}
-                  </div>
-                )}
-
-                <div
-                  key={settingsSection}
-                  className="settings-section-content motion-state-reveal"
-                >
-                  {settingsSection === 'connection' && <ConnectionSettings settings={settings} />}
-
-                  {settingsSection === 'extension' && <ExtensionSettings settings={settings} />}
-
-                  {settingsSection === 'stock' && <StockSettings settings={settings} />}
-
-                  {settingsSection === 'orders' && <OrderSettings settings={settings} />}
-
-                  {settingsSection === 'backup' && <BackupSettings settings={settings} />}
-                </div>
-
-              </div>
+      <section className="settings-main-pane" aria-label="Contenuto impostazioni">
+        <SettingsPreflightPanel preflight={preflight} onSelectSection={openPreflightFinding} />
+        {settingsError && !hasContextualError && (
+          <div className="settings-alert settings-alert-danger" role="alert">{settingsError}</div>
+        )}
+        <div
+          key={settingsSection}
+          id={`settings-panel-${settingsSection}`}
+          className="settings-section-content motion-state-reveal"
+          role="tabpanel"
+          aria-labelledby={`settings-tab-${settingsSection}`}
+          tabIndex={0}
+        >
+          {settingsSection === 'connection' && <ConnectionSettings settings={settings} />}
+          {settingsSection === 'stock' && <StockSettings settings={settings} focusTarget={settingsFocusTarget} onFocusTargetHandled={() => setSettingsFocusTarget('')} />}
+          {settingsSection === 'orders' && <OrderSettings settings={settings} />}
+          {settingsSection === 'extension' && <ExtensionSettings settings={settings} />}
+          {settingsSection === 'backup' && <BackupSettings settings={settings} />}
+        </div>
+      </section>
+    </div>
   );
 }

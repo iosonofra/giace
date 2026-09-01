@@ -59,3 +59,8 @@ class SettingsUpdatePayload(BaseModel):
 
     def provided_values(self) -> dict:
         return self.model_dump(exclude_unset=True)
+
+
+class SettingsImportPayload(BaseModel):
+    version: int = 1
+    settings: dict[str, Any]

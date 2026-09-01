@@ -49,7 +49,7 @@ def _require_string(
 def _positive_integer(value, error_message: str) -> str:
     try:
         parsed = int(value)
-        if parsed < 1:
+        if parsed < 1 or parsed > 1440:
             raise ValueError
     except (TypeError, ValueError) as error:
         raise SettingsValidationError(error_message) from error
@@ -130,6 +130,32 @@ def _validate_real_connection(
             timeout=8,
         )
         response.raise_for_status()
+    except requests.Timeout as error:
+        raise SettingsValidationError(
+            "PrestaShop non ha risposto entro 8 secondi. "
+            "Controlla la raggiungibilità del negozio e riprova."
+        ) from error
+    except requests.ConnectionError as error:
+        raise SettingsValidationError(
+            "Server PrestaShop non raggiungibile. "
+            "Controlla URL, rete e certificato HTTPS."
+        ) from error
+    except requests.HTTPError as error:
+        status_code = getattr(error.response, "status_code", None)
+        if status_code in {401, 403}:
+            message = (
+                "Chiave API rifiutata o priva dei permessi necessari. "
+                "Verifica la chiave e abilita la lettura degli stati ordine."
+            )
+        elif status_code == 404:
+            message = (
+                "Endpoint Webservice non trovato. "
+                "Controlla che l'URL termini con /api/."
+            )
+        else:
+            status_label = f" {status_code}" if status_code else ""
+            message = f"PrestaShop ha restituito un errore HTTP{status_label}."
+        raise SettingsValidationError(message) from error
     except Exception as error:
         raise SettingsValidationError(
             "Errore di connessione a PrestaShop: "
@@ -369,11 +395,11 @@ def write_settings(
 
     interval_fields = {
         "google_sheet_sync_interval": (
-            "L'intervallo deve essere un intero >= 1."
+            "L'intervallo deve essere compreso tra 1 e 1440 minuti."
         ),
         "prestashop_sync_interval": (
             "L'intervallo di sincronizzazione ordini deve essere "
-            "un intero >= 1."
+            "compreso tra 1 e 1440 minuti."
         ),
     }
     for key, error_message in interval_fields.items():

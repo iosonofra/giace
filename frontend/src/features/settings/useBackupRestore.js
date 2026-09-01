@@ -7,6 +7,7 @@ export function useBackupRestore({ showActionMsg }) {
   const [restoreCountdown, setRestoreCountdown] = useState(null);
   const [pendingRestoreFile, setPendingRestoreFile] = useState(null);
   const [showRestoreConfirm, setShowRestoreConfirm] = useState(false);
+  const [lastBackupAt, setLastBackupAt] = useState('');
   const restoreIntervalRef = useRef(null);
 
   useEffect(() => () => {
@@ -40,6 +41,7 @@ export function useBackupRestore({ showActionMsg }) {
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
       showActionMsg(`Backup scaricato con successo: ${filename}`);
+      setLastBackupAt(new Date().toISOString());
     } catch (error) {
       showActionMsg(
         `Errore nel download del backup: ${error.message}`,
@@ -118,6 +120,7 @@ export function useBackupRestore({ showActionMsg }) {
     executeRestoreDatabase,
     handleDownloadBackup,
     handleRestoreDatabase,
+    lastBackupAt,
     pendingRestoreFile,
     restoreCountdown,
     restoreLoading,

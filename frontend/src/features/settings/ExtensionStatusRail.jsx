@@ -2,40 +2,26 @@ export function ExtensionStatusRail({
   extensionApiStatusLabel,
   extensionApiStatusTone,
   extensionApiToken,
-  extensionDistribution,
   extensionTestResult,
   extensionTokenDirty,
   handleTestExtensionConnection,
   savingExtensionSettings,
   testingExtensionConnection,
+  lastExtensionTestAt = '',
+  embedded = false,
 }) {
   const hasToken = Boolean(extensionApiToken.trim());
 
   return (
-    <aside className="extension-status-rail" aria-labelledby="extension-status-title">
-      <div className="extension-status-heading">
-        <div>
-          <h3 id="extension-status-title">Stato configurazione</h3>
-          <p>Riepilogo della distribuzione e del collegamento API.</p>
+    <aside className={`extension-status-rail ${embedded ? 'embedded' : ''}`} aria-label="Verifica integrazione">
+      {!embedded && (
+        <div className="extension-status-heading">
+          <div>
+            <h3>Stato configurazione</h3>
+            <p>Riepilogo del collegamento API.</p>
+          </div>
         </div>
-      </div>
-
-      <div className="extension-status-list">
-        <div className="extension-status-row complete">
-          <span className="extension-status-check">✓</span>
-          <div><small>Formato</small><strong>{extensionDistribution.label}</strong></div>
-        </div>
-        <div className={`extension-status-row ${hasToken ? 'complete' : 'pending'}`}>
-          <span className="extension-status-check">{hasToken ? '✓' : '2'}</span>
-          <div><small>Token</small><strong>{hasToken ? 'Presente' : 'Da generare'}</strong></div>
-        </div>
-        <div className={`extension-status-row ${extensionApiStatusTone}`}>
-          <span className="extension-status-check">
-            {extensionApiStatusTone === 'success' ? '✓' : '3'}
-          </span>
-          <div><small>API</small><strong>{extensionApiStatusLabel}</strong></div>
-        </div>
-      </div>
+      )}
 
       <div className={`extension-security-panel ${hasToken ? 'protected' : 'open'}`}>
         <span className="extension-security-icon" aria-hidden="true">{hasToken ? '✓' : '!'}</span>
@@ -61,18 +47,28 @@ export function ExtensionStatusRail({
           </span>
         </div>
       </div>
-      <button
-        type="button"
-        className="btn btn-primary extension-verify-button"
-        onClick={handleTestExtensionConnection}
-        disabled={
-          testingExtensionConnection
-          || savingExtensionSettings
-          || extensionTokenDirty
-        }
-      >
-        {testingExtensionConnection ? 'Verifica in corso...' : 'Verifica collegamento'}
-      </button>
+      <div className="extension-verification-action">
+        <span>
+          {lastExtensionTestAt && !extensionTokenDirty
+            ? `Ultimo controllo: ${new Date(lastExtensionTestAt).toLocaleString('it-IT')}`
+            : extensionTokenDirty
+            ? 'Salva il token prima di eseguire il controllo.'
+            : 'La verifica non modifica le impostazioni salvate.'}
+        </span>
+        <button
+          type="button"
+          className="btn btn-primary extension-verify-button"
+          onClick={handleTestExtensionConnection}
+          disabled={
+            testingExtensionConnection
+            || savingExtensionSettings
+            || extensionTokenDirty
+          }
+          title={extensionTokenDirty ? 'Salva il token prima di verificare il collegamento.' : undefined}
+        >
+          {testingExtensionConnection ? 'Verifica in corso...' : 'Verifica collegamento'}
+        </button>
+      </div>
     </aside>
   );
 }

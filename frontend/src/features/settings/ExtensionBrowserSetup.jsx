@@ -88,6 +88,7 @@ export function ExtensionBrowserSetup({
   extensionBrowserGuide,
   extensionDistribution,
   setExtensionBrowserGuide,
+  embedded = false,
 }) {
   const packageDescription = extensionBrowserGuide === 'chrome'
     ? 'Scarica lo ZIP ed estrai la cartella prima dell’installazione.'
@@ -101,13 +102,15 @@ export function ExtensionBrowserSetup({
       : 'Tre passaggi per attivarlo nel gestore userscript.';
 
   return (
-    <section className="extension-workbench-section" aria-labelledby="extension-step-browser">
-      <div className="extension-section-heading">
-        <div>
-          <h3 id="extension-step-browser">Scegli il formato</h3>
-          <p>Seleziona una delle tre distribuzioni e consulta le istruzioni dedicate.</p>
+    <section className={`extension-workbench-section ${embedded ? 'embedded' : ''}`} aria-label="Formato browser">
+      {!embedded && (
+        <div className="extension-section-heading">
+          <div>
+            <h3>Scegli il formato</h3>
+            <p>Seleziona una delle tre distribuzioni e consulta le istruzioni dedicate.</p>
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="extension-browser-grid" role="group" aria-label="Browser disponibili">
         {BROWSERS.map(browser => (

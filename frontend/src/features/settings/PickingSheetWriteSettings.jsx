@@ -11,7 +11,7 @@ const DAYS = [
 ];
 
 
-export function PickingSheetWriteSettings({ settings }) {
+export function PickingSheetWriteSettings({ settings, embedded = false }) {
   const [secretCopied, setSecretCopied] = useState(false);
   const {
     generatePickingSheetSecret,
@@ -29,7 +29,16 @@ export function PickingSheetWriteSettings({ settings }) {
     setPickingSheetWebappUrl,
     setPickingSheetWriteEnabled,
     stockSource,
+    stockSettingsErrorField,
+    stockSettingsErrorSection,
   } = settings;
+  const writebackError = stockSettingsErrorSection === 'writeback';
+  const getErrorProps = fieldId => ({
+    'aria-invalid': writebackError && stockSettingsErrorField === fieldId,
+    'aria-describedby': writebackError && stockSettingsErrorField === fieldId
+      ? 'stock-writeback-error'
+      : undefined,
+  });
 
   const updateDay = (key, value) => {
     setPickingSheetDayMapping(current => ({ ...current, [key]: value }));
@@ -43,16 +52,21 @@ export function PickingSheetWriteSettings({ settings }) {
   };
 
   return (
-    <section className="stock-config-section picking-sheet-write-settings" aria-labelledby="picking-sheet-write-title">
+    <section
+      className={`stock-config-section picking-sheet-write-settings ${embedded ? 'embedded' : ''}`}
+      aria-labelledby={embedded ? undefined : 'picking-sheet-write-title'}
+      aria-label={embedded ? 'Configurazione registrazione prelievi' : undefined}
+    >
       <div className="stock-section-heading picking-sheet-write-heading">
-        <div>
-          <span className="settings-eyebrow">Funzione beta</span>
-          <h3 id="picking-sheet-write-title">Registrazione prelievi su Google Sheets</h3>
-          <p>
-            Dopo la simulazione, somma le quantità nella colonna della data
-            selezionata senza modificare direttamente totale e formule.
-          </p>
-        </div>
+        {!embedded && (
+          <div>
+            <h3 id="picking-sheet-write-title">Registrazione prelievi su Google Sheets</h3>
+            <p>
+              Dopo la simulazione, somma le quantità nella colonna della data
+              selezionata senza modificare direttamente totale e formule.
+            </p>
+          </div>
+        )}
         <label className={`settings-switch-card picking-sheet-enable-card ${pickingSheetWriteEnabled ? 'active' : ''}`}>
           <span className="picking-sheet-enable-copy">
             <strong>{pickingSheetWriteEnabled ? 'Funzione attiva' : 'Funzione disattivata'}</strong>
@@ -101,6 +115,7 @@ export function PickingSheetWriteSettings({ settings }) {
                   value={pickingSheetWebappUrl}
                   onChange={event => setPickingSheetWebappUrl(event.target.value)}
                   required
+                  {...getErrorProps('picking-sheet-webapp-url')}
                 />
                 <small className="settings-help">Usa l’URL del deployment che termina con /exec.</small>
               </div>
@@ -118,6 +133,7 @@ export function PickingSheetWriteSettings({ settings }) {
                     placeholder={pickingSheetSecretConfigured ? 'Lascia vuoto per mantenere quello attuale' : 'Minimo 32 caratteri'}
                     value={pickingSheetSharedSecret}
                     onChange={event => setPickingSheetSharedSecret(event.target.value)}
+                    {...getErrorProps('picking-sheet-secret')}
                   />
                   <button type="button" className="btn btn-neutral" onClick={generatePickingSheetSecret}>
                     Genera
@@ -144,6 +160,7 @@ export function PickingSheetWriteSettings({ settings }) {
                   onChange={event => setPickingSheetRemainingHeader(event.target.value)}
                   placeholder="RIMANENTI"
                   required
+                  {...getErrorProps('picking-sheet-remaining-header')}
                 />
                 <small className="settings-help">Usata nell’anteprima per calcolare il residuo previsto.</small>
               </div>
@@ -194,6 +211,7 @@ export function PickingSheetWriteSettings({ settings }) {
               className="btn btn-neutral"
               onClick={handleTestPickingSheetConnection}
               disabled={pickingSheetTesting || !pickingSheetSecretConfigured}
+              title={!pickingSheetSecretConfigured ? 'Salva prima un secret condiviso per abilitare la verifica.' : undefined}
             >
               {pickingSheetTesting ? 'Verifica in corso…' : 'Verifica collegamento'}
             </button>

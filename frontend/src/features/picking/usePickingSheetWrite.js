@@ -24,6 +24,9 @@ export function usePickingSheetWrite({ notify, refresh, results }) {
   const [applying, setApplying] = useState(false);
   const [error, setError] = useState('');
   const [receipt, setReceipt] = useState(null);
+  const [session, setSession] = useState(null);
+  const [draftItems, setDraftItems] = useState([]);
+  const [sessionLoading, setSessionLoading] = useState(false);
 
   const items = useMemo(() => (
     (results?.sku_requirements || [])
@@ -33,6 +36,13 @@ export function usePickingSheetWrite({ notify, refresh, results }) {
       }))
       .filter(item => item.sku && item.quantity > 0)
   ), [results]);
+
+  useEffect(() => {
+    setSession(null);
+    setPreview(null);
+    setReceipt(null);
+    setDraftItems(items.map(item => ({ ...item, plannedQuantity: item.quantity })));
+  }, [items]);
 
   useEffect(() => {
     if (!results) {
@@ -51,30 +61,87 @@ export function usePickingSheetWrite({ notify, refresh, results }) {
     return () => { cancelled = true; };
   }, [results]);
 
+  const ensureSession = useCallback(async () => {
+    if (session) return session;
+    setSessionLoading(true);
+    try {
+      const response = await apiFetch('/api/picking/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          source_type: results?.source_state ? 'order_state' : 'simulation',
+          source: {
+            state: results?.source_state || null,
+            missing_orders: results?.orders_missing || [],
+          },
+          results,
+        }),
+      });
+      const created = await readApiJson(response);
+      setSession(created);
+      setDraftItems(created.requirements.map(item => ({
+        sku: item.sku,
+        quantity: Number(item.actual_qty),
+        plannedQuantity: Number(item.planned_qty),
+        description: item.description || '',
+      })));
+      return created;
+    } finally {
+      setSessionLoading(false);
+    }
+  }, [results, session]);
+
   const generatePreview = useCallback(async (date = targetDate) => {
     setLoading(true);
     setError('');
     setReceipt(null);
     setPreview(null);
     try {
+      const activeSession = await ensureSession();
+      const quantityResponse = await apiFetch(
+        `/api/picking/sessions/${activeSession.session_id}/quantities`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            items: draftItems.map(item => ({ sku: item.sku, quantity: item.quantity })),
+          }),
+        },
+      );
+      const updatedSession = await readApiJson(quantityResponse);
+      setSession(updatedSession);
       const response = await apiFetch('/api/picking/sheet-write/preview', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ target_date: date, items }),
+        body: JSON.stringify({
+          target_date: date,
+          session_id: activeSession.session_id,
+        }),
       });
-      setPreview(await readApiJson(response));
+      const previewData = await readApiJson(response);
+      setPreview(previewData);
+      setSession(current => current ? { ...current, status: 'verified' } : current);
     } catch (requestError) {
-      setError(requestError.message || 'Impossibile generare l’anteprima.');
+      const message = requestError.message || 'Impossibile generare l’anteprima.';
+      setError(message);
+      if (message.includes('non è più aggiornata')) {
+        setSession(current => current ? { ...current, status: 'stale' } : current);
+      }
     } finally {
       setLoading(false);
     }
-  }, [items, targetDate]);
+  }, [draftItems, ensureSession, targetDate]);
 
-  const show = useCallback(() => {
+  const show = useCallback(async () => {
     setOpen(true);
     setReceipt(null);
-    generatePreview(targetDate);
-  }, [generatePreview, targetDate]);
+    setError('');
+    try {
+      await ensureSession();
+    } catch (requestError) {
+      setError(requestError.message || 'Impossibile creare la sessione di prelievo.');
+    }
+  }, [ensureSession]);
 
   const close = () => {
     if (applying) return;
@@ -83,6 +150,16 @@ export function usePickingSheetWrite({ notify, refresh, results }) {
 
   const changeDate = (value) => {
     setTargetDate(value);
+    setPreview(null);
+    setReceipt(null);
+    setError('');
+  };
+
+  const changeQuantity = (sku, value) => {
+    const parsed = value === '' ? '' : Number(value);
+    setDraftItems(current => current.map(item => (
+      item.sku === sku ? { ...item, quantity: parsed } : item
+    )));
     setPreview(null);
     setReceipt(null);
     setError('');
@@ -104,13 +181,18 @@ export function usePickingSheetWrite({ notify, refresh, results }) {
       const data = await readApiJson(response);
       setReceipt(data);
       setPreview(null);
+      setSession(current => current ? { ...current, status: 'recorded' } : current);
       notify(
         `${data.total_quantity} unità registrate in ${data.target_header}.`,
         'success',
       );
       refresh?.();
     } catch (requestError) {
-      setError(requestError.message || 'Registrazione non riuscita.');
+      const message = requestError.message || 'Registrazione non riuscita.';
+      setError(message);
+      if (message.includes('non è più aggiornata')) {
+        setSession(current => current ? { ...current, status: 'stale' } : current);
+      }
     } finally {
       setApplying(false);
     }
@@ -119,6 +201,7 @@ export function usePickingSheetWrite({ notify, refresh, results }) {
   return {
     apply,
     applying,
+    changeQuantity,
     changeDate,
     close,
     dayMapping: status?.day_mapping || {},
@@ -130,6 +213,9 @@ export function usePickingSheetWrite({ notify, refresh, results }) {
     open,
     preview,
     receipt,
+    session,
+    sessionLoading,
+    draftItems,
     sheetName: status?.sheet_name || '',
     show,
     targetDate,

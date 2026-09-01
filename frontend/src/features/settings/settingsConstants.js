@@ -1,8 +1,8 @@
 export const SETTINGS_SECTIONS = [
   { id: 'connection', label: 'Connessione' },
-  { id: 'extension', label: 'Integrazioni' },
   { id: 'stock', label: 'Giacenze' },
   { id: 'orders', label: 'Ordini' },
+  { id: 'extension', label: 'Integrazioni' },
   { id: 'backup', label: 'Backup' },
 ];
 

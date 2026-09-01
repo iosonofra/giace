@@ -9,20 +9,24 @@ export function ExtensionConnectionFields({
   setShowExtensionToken,
   showExtensionToken,
   webappUrl,
+  error = '',
+  embedded = false,
 }) {
   return (
-    <section className="extension-workbench-section" aria-labelledby="extension-step-config">
-      <div className="extension-section-heading">
-        <div>
-          <h3 id="extension-step-config">Configura il collegamento</h3>
-          <p>Usa URL webapp e token per autorizzare la distribuzione installata.</p>
+    <section className={`extension-workbench-section ${embedded ? 'embedded' : ''}`} aria-label="Collegamento alla web app">
+      {!embedded && (
+        <div className="extension-section-heading">
+          <div>
+            <h3>Configura il collegamento</h3>
+            <p>Usa URL webapp e token per autorizzare la distribuzione installata.</p>
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="settings-form-stack">
         <div className="form-group">
-          <label className="settings-label">URL webapp Giac</label>
-          <div className="extension-copy-field">
+          <span id="extension-webapp-url-label" className="settings-label">URL webapp Giac</span>
+          <div className="extension-copy-field" aria-labelledby="extension-webapp-url-label">
             <code>{webappUrl}</code>
             <button type="button" className="btn btn-secondary" onClick={handleCopyExtensionUrl}>
               Copia URL
@@ -49,6 +53,8 @@ export function ExtensionConnectionFields({
               }}
               autoComplete="off"
               spellCheck="false"
+              aria-invalid={Boolean(error)}
+              aria-describedby={error ? 'extension-token-error' : 'extension-token-help'}
             />
             <button
               type="button"
@@ -62,9 +68,10 @@ export function ExtensionConnectionFields({
               <Icons.Eye />
             </button>
           </div>
-          <small className="settings-help">
+          <small id="extension-token-help" className="settings-help">
             Minimo 16 caratteri. Il generatore crea un token casuale da 64 caratteri.
           </small>
+          {error && <div id="extension-token-error" className="settings-inline-error" role="alert">{error}</div>}
         </div>
 
         <div className="extension-token-actions">

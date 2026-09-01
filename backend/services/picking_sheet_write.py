@@ -13,6 +13,14 @@ from backend.models import AppSetting, PickingSheetOperation
 from backend.services.google_sheets import sync_stock_from_google_sheets
 from backend.services.settings_reader import DEFAULT_PICKING_DAY_MAPPING
 from backend.services.stock_calculation_policy import load_stock_calculation_policy
+from backend.services.picking_sessions import (
+    PickingSessionError,
+    mark_session_recorded,
+    mark_session_recording,
+    mark_session_verified,
+    session_write_items,
+    verify_picking_session,
+)
 
 
 class PickingSheetWriteError(ValueError):
@@ -27,6 +35,15 @@ _DAY_KEYS = (
 _WEBAPP_URL = re.compile(
     r"https://script\.google\.com/macros/s/[^/]+/exec"
 )
+_SCRIPT_PROTOCOL_VERSION = "2.0.0"
+
+
+def _require_script_protocol(result: dict) -> None:
+    if result.get("script_version") != _SCRIPT_PROTOCOL_VERSION:
+        raise PickingSheetWriteError(
+            "Apps Script non è aggiornato. Copia il nuovo Code.gs e "
+            "pubblica una nuova versione del deployment."
+        )
 
 
 def _settings(db) -> dict[str, str]:
@@ -214,8 +231,10 @@ def test_write_connection(db, *, request_post=requests.post) -> dict:
         },
         request_post=request_post,
     )
+    _require_script_protocol(result)
     return {
         "status": "success",
+        "script_version": result.get("script_version", ""),
         "sheet_name": result.get("sheet_name", config["sheet_name"]),
         "headers": result.get("headers", []),
         "message": "Collegamento Apps Script verificato in sola lettura.",
@@ -225,7 +244,15 @@ def test_write_connection(db, *, request_post=requests.post) -> dict:
 def preview_sheet_write(db, payload: dict, *, request_post=requests.post) -> dict:
     config = _config(db)
     target_date = _parse_date(payload.get("target_date"))
-    items = _normalize_items(payload.get("items"))
+    session_id = str(payload.get("session_id") or "").strip()
+    try:
+        if session_id:
+            _, session_items = session_write_items(db, session_id)
+            items = _normalize_items(session_items)
+        else:
+            items = _normalize_items(payload.get("items"))
+    except PickingSessionError as error:
+        raise PickingSheetWriteError(str(error)) from error
     day_key = _DAY_KEYS[target_date.weekday()]
     day_label = config["day_mapping"].get(day_key, "")
     if not day_label:
@@ -252,8 +279,17 @@ def preview_sheet_write(db, payload: dict, *, request_post=requests.post) -> dic
         },
         request_post=request_post,
     )
+    _require_script_protocol(result)
+    if not result.get("sheet_revision"):
+        raise PickingSheetWriteError(
+            "Apps Script non ha restituito la revisione del foglio. "
+            "Aggiorna il deployment e riprova."
+        )
     plan = {
         "operation_id": operation_id,
+        "script_version": result.get("script_version", ""),
+        "sheet_revision": result.get("sheet_revision", ""),
+        "session_id": session_id,
         "sheet_name": result.get("sheet_name", config["sheet_name"]),
         "target_date": target_date.isoformat(),
         "day_key": day_key,
@@ -295,6 +331,7 @@ def apply_sheet_write(db, payload: dict, *, request_post=requests.post) -> dict:
         )
 
     operation_id = str(plan.get("operation_id") or "")
+    session_id = str(plan.get("session_id") or "").strip()
     request_hash = hashlib.sha256(_canonical(plan).encode("utf-8")).hexdigest()
     existing = db.get(PickingSheetOperation, operation_id)
     if existing:
@@ -305,6 +342,14 @@ def apply_sheet_write(db, payload: dict, *, request_post=requests.post) -> dict:
         if existing.status == "applied":
             response = json.loads(existing.response_json or "{}")
             return {**response, "idempotent": True}
+
+    if session_id:
+        try:
+            verify_picking_session(db, session_id)
+        except PickingSessionError as error:
+            raise PickingSheetWriteError(str(error)) from error
+
+    if existing:
         if existing.status == "pending":
             created_at = existing.created_at or datetime.now()
             age_seconds = (datetime.now() - created_at).total_seconds()
@@ -342,6 +387,8 @@ def apply_sheet_write(db, payload: dict, *, request_post=requests.post) -> dict:
         )
 
     try:
+        if session_id:
+            mark_session_recording(db, session_id, operation_id)
         result = _call_script(
             config,
             {
@@ -385,6 +432,8 @@ def apply_sheet_write(db, payload: dict, *, request_post=requests.post) -> dict:
         existing.applied_at = datetime.now(timezone.utc).replace(tzinfo=None)
         existing.response_json = json.dumps(response, ensure_ascii=False)
         db.commit()
+        if session_id:
+            mark_session_recorded(db, session_id, response)
         return response
     except Exception as error:
         existing.status = "failed"
@@ -393,6 +442,8 @@ def apply_sheet_write(db, payload: dict, *, request_post=requests.post) -> dict:
             ensure_ascii=False,
         )
         db.commit()
+        if session_id:
+            mark_session_verified(db, session_id)
         raise
     finally:
         _write_lock.release()

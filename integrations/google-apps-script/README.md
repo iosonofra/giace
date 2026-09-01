@@ -1,5 +1,7 @@
 # Giac - scrittura prelievi su Google Sheets
 
+Protocollo corrente: **2.0.0**.
+
 1. Nel foglio Google aprire **Estensioni > Apps Script**.
 2. Copiare il contenuto di `Code.gs` nel file `Codice.gs`.
 3. Aprire **Impostazioni progetto > Proprietà script** e aggiungere
@@ -22,3 +24,7 @@ alle regole **Giacenze escluse dal calcolo** configurate nella web app.
 Per aggiornare uno script già distribuito, sostituire il contenuto di `Codice.gs`,
 salvare e creare una **nuova versione** da **Gestisci deployment > Modifica**,
 mantenendo lo stesso URL `/exec`.
+
+La versione 2.0.0 firma anche la struttura del foglio e aggiorna soltanto le
+celle degli SKU coinvolti. Se righe, SKU, lotti o valori cambiano dopo
+l'anteprima, la registrazione viene interrotta e deve essere rigenerata.

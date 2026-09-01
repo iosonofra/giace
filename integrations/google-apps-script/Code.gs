@@ -8,6 +8,7 @@
 
 const GIAC_OPERATION_HISTORY_LIMIT = 500;
 const GIAC_REQUEST_MAX_AGE_SECONDS = 300;
+const GIAC_SCRIPT_VERSION = '2.0.0';
 
 function setupGiac() {
   const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
@@ -62,6 +63,7 @@ function handleHealth(request, properties) {
   return jsonResponse({
     ok: true,
     action: 'health',
+    script_version: GIAC_SCRIPT_VERSION,
     sheet_name: sheet.getName(),
     headers,
   });
@@ -89,6 +91,7 @@ function handleApply(request, properties) {
       return jsonResponse({
         ok: true,
         action: 'apply',
+        script_version: GIAC_SCRIPT_VERSION,
         idempotent: true,
         updated_cells: 0,
         operation_id: operationId,
@@ -116,6 +119,17 @@ function handleApply(request, properties) {
       });
     }
 
+    if (
+      String(request.script_version || '') !== GIAC_SCRIPT_VERSION
+      || !request.sheet_revision
+      || String(request.sheet_revision) !== String(current.sheet_revision)
+    ) {
+      return jsonResponse({
+        ok: false,
+        error: 'La struttura del foglio è cambiata. Genera una nuova anteprima.',
+      });
+    }
+
     const expectedBySku = new Map(
       (request.items || []).map(item => [normalize(item.sku), item])
     );
@@ -134,23 +148,14 @@ function handleApply(request, properties) {
     }
 
     const sheet = resolveSheet(request.sheet_name, properties);
-    const targetRange = sheet.getRange(
-      2,
-      current.target_column_index,
-      Math.max(1, sheet.getLastRow() - 1),
-      1
-    );
-    const targetValues = targetRange.getValues();
-    for (const item of current.items) {
-      targetValues[item.row - 2][0] = item.new_value;
-    }
-    targetRange.setValues(targetValues);
+    writeCurrentItems(sheet, request, current);
     SpreadsheetApp.flush();
     rememberAppliedOperation(properties, applied, operationId);
 
     return jsonResponse({
       ok: true,
       action: 'apply',
+      script_version: GIAC_SCRIPT_VERSION,
       operation_id: operationId,
       sheet_name: sheet.getName(),
       target_header: current.target_header,
@@ -237,6 +242,14 @@ function buildPreview(request, properties) {
   });
 
   return {
+    script_version: GIAC_SCRIPT_VERSION,
+    sheet_revision: buildSheetRevision({
+      headers,
+      displayValues,
+      skuIndex: skuColumn - 1,
+      lotIndex,
+      target,
+    }),
     sheet_name: sheet.getName(),
     target_header: target.header,
     target_column: columnLetter(target.index + 1),
@@ -246,6 +259,97 @@ function buildPreview(request, properties) {
     skipped,
     can_apply: errors.length === 0 && resultItems.length > 0,
   };
+}
+
+function writeCurrentItems(sheet, request, current) {
+  const headers = readHeaders(sheet);
+  const skuIndex = findHeaderIndex(headers, request.sku_header, true);
+  const excludeReturnLots = Boolean(request.exclude_return_lots);
+  const lotIndex = excludeReturnLots
+    ? findHeaderIndex(headers, request.lot_header, true)
+    : -1;
+  const excludedLotKeywords = normalizeKeywords(request.excluded_lot_keywords);
+  const targetIndex = findHeaderIndex(headers, current.target_header, true);
+
+  if (targetIndex + 1 !== Number(current.target_column_index)) {
+    throw new Error(
+      'La colonna di destinazione è cambiata. Genera una nuova anteprima.'
+    );
+  }
+
+  const lastRow = sheet.getLastRow();
+  const lastColumn = sheet.getLastColumn();
+  const liveRange = lastRow > 1
+    ? sheet.getRange(2, 1, lastRow - 1, lastColumn)
+    : null;
+  const liveDisplayValues = liveRange ? liveRange.getDisplayValues() : [];
+  const liveRawValues = liveRange ? liveRange.getValues() : [];
+  const verifiedWrites = current.items.map(item => {
+    const rowNumber = Number(item.row);
+    if (!Number.isInteger(rowNumber) || rowNumber < 2 || rowNumber > lastRow) {
+      throw new Error(`La riga dello SKU ${item.sku} non è più valida.`);
+    }
+
+    const displayRow = liveDisplayValues[rowNumber - 2];
+    const rawRow = liveRawValues[rowNumber - 2];
+    if (normalize(displayRow[skuIndex]) !== normalize(item.sku)) {
+      throw new Error(
+        `Lo SKU ${item.sku} non si trova più alla riga prevista. Genera una nuova anteprima.`
+      );
+    }
+    if (
+      excludeReturnLots
+      && isExcludedLot(displayRow[lotIndex], excludedLotKeywords)
+    ) {
+      throw new Error(
+        `La riga dello SKU ${item.sku} è ora esclusa dal calcolo. Genera una nuova anteprima.`
+      );
+    }
+
+    if (Number(numericValue(rawRow[targetIndex])) !== Number(item.current_value)) {
+      throw new Error(
+        `Il valore di ${item.sku} è cambiato. Genera una nuova anteprima.`
+      );
+    }
+    return {
+      row: rowNumber,
+      value: Number(item.new_value),
+    };
+  }).sort((left, right) => left.row - right.row);
+
+  // Raggruppa soltanto righe consecutive: non vengono mai riscritte celle
+  // estranee agli SKU del prelievo.
+  const groups = [];
+  verifiedWrites.forEach(write => {
+    const group = groups[groups.length - 1];
+    if (group && write.row === group.startRow + group.values.length) {
+      group.values.push([write.value]);
+    } else {
+      groups.push({ startRow: write.row, values: [[write.value]] });
+    }
+  });
+  groups.forEach(group => {
+    sheet.getRange(
+      group.startRow,
+      targetIndex + 1,
+      group.values.length,
+      1
+    ).setValues(group.values);
+  });
+}
+
+function buildSheetRevision({ headers, displayValues, skuIndex, lotIndex, target }) {
+  const rows = displayValues.map((row, index) => [
+    index + 2,
+    normalize(row[skuIndex]),
+    lotIndex >= 0 ? normalize(row[lotIndex]) : '',
+  ].join('\u001f'));
+  return sha256Hex([
+    GIAC_SCRIPT_VERSION,
+    headers.map(normalize).join('\u001f'),
+    `${target.index + 1}:${normalize(target.header)}`,
+    ...rows,
+  ].join('\u001e'));
 }
 
 function resolveSheet(sheetName, properties) {
@@ -359,6 +463,14 @@ function hmacHex(payload, secret) {
   return Utilities.computeHmacSha256Signature(
     payload,
     secret,
+    Utilities.Charset.UTF_8
+  ).map(byte => ((byte + 256) % 256).toString(16).padStart(2, '0')).join('');
+}
+
+function sha256Hex(value) {
+  return Utilities.computeDigest(
+    Utilities.DigestAlgorithm.SHA_256,
+    value,
     Utilities.Charset.UTF_8
   ).map(byte => ((byte + 256) % 256).toString(16).padStart(2, '0')).join('');
 }

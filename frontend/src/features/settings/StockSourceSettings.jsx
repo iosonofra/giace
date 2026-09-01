@@ -1,4 +1,4 @@
-export function StockSourceSettings({ settings }) {
+export function StockSourceSettings({ settings, embedded = false }) {
   const {
     googleSheetName,
     googleSheetSyncInterval,
@@ -7,15 +7,31 @@ export function StockSourceSettings({ settings }) {
     setGoogleSheetSyncInterval,
     setGoogleSheetUrl,
     setStockSource,
+    stockSettingsErrorField,
+    stockSettingsErrorSection,
     stockSource,
   } = settings;
+  const sourceError = stockSettingsErrorSection === 'source';
+
+  const getErrorProps = fieldId => ({
+    'aria-invalid': sourceError && stockSettingsErrorField === fieldId,
+    'aria-describedby': sourceError && stockSettingsErrorField === fieldId
+      ? 'stock-source-error'
+      : undefined,
+  });
 
   return (
-    <section className="stock-config-section" aria-labelledby="stock-source-title">
-      <div className="stock-section-heading">
-        <h3 id="stock-source-title">Sorgente giacenze</h3>
-        <p>Seleziona il sistema utilizzato per aggiornare le quantità fisiche.</p>
-      </div>
+    <section
+      className="stock-config-section"
+      aria-labelledby={embedded ? undefined : 'stock-source-title'}
+      aria-label={embedded ? 'Configurazione sorgente giacenze' : undefined}
+    >
+      {!embedded && (
+        <div className="stock-section-heading">
+          <h3 id="stock-source-title">Sorgente giacenze</h3>
+          <p>Seleziona il sistema utilizzato per aggiornare le quantità fisiche.</p>
+        </div>
+      )}
       <div className="stock-source-switch" role="radiogroup" aria-label="Sorgente giacenze">
         {[
           ['local_upload', 'Caricamento manuale Excel', 'Carica il file giacenza.xlsx dal computer.'],
@@ -47,6 +63,7 @@ export function StockSourceSettings({ settings }) {
               value={googleSheetUrl}
               onChange={event => setGoogleSheetUrl(event.target.value)}
               required
+              {...getErrorProps('google-sheet-url')}
             />
             <small className="settings-help">
               Il foglio deve essere condiviso con “Chiunque abbia il link può visualizzare”.
@@ -62,6 +79,7 @@ export function StockSourceSettings({ settings }) {
               value={googleSheetName}
               onChange={event => setGoogleSheetName(event.target.value)}
               required
+              {...getErrorProps('google-sheet-name')}
             />
           </div>
           <div className="form-group">
@@ -73,11 +91,13 @@ export function StockSourceSettings({ settings }) {
               type="number"
               className="settings-input"
               min="1"
+              max="1440"
+              inputMode="numeric"
               value={googleSheetSyncInterval}
-              onChange={event => setGoogleSheetSyncInterval(
-                parseInt(event.target.value, 10) || 10,
-              )}
+              onChange={event => setGoogleSheetSyncInterval(event.target.value)}
+              onBlur={() => { if (googleSheetSyncInterval === '') setGoogleSheetSyncInterval(10); }}
               required
+              {...getErrorProps('google-sheet-interval')}
             />
           </div>
         </div>

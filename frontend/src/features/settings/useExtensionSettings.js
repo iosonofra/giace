@@ -17,6 +17,8 @@ export function useExtensionSettings({
   const [testingExtensionConnection, setTestingExtensionConnection] = useState(false);
   const [extensionTestResult, setExtensionTestResult] = useState(null);
   const [extensionBrowserGuide, setExtensionBrowserGuide] = useState('chrome');
+  const [extensionSettingsErrorSection, setExtensionSettingsErrorSection] = useState('');
+  const [lastExtensionTestAt, setLastExtensionTestAt] = useState('');
 
   useEffect(() => {
     if (!currentSettings) return;
@@ -24,6 +26,7 @@ export function useExtensionSettings({
     setExtensionApiToken(token);
     setSavedExtensionApiToken(token);
     setExtensionTestResult(null);
+    setExtensionSettingsErrorSection('');
   }, [currentSettings]);
 
   const status = deriveExtensionStatus({
@@ -67,6 +70,8 @@ export function useExtensionSettings({
   };
 
   const handleTestExtensionConnection = async () => {
+    setExtensionSettingsErrorSection('');
+    setSettingsError(null);
     setTestingExtensionConnection(true);
     setExtensionTestResult(null);
     try {
@@ -87,12 +92,14 @@ export function useExtensionSettings({
             status: 'error',
             message: data.detail || 'Token non valido o API non raggiungibile.',
           });
+      setLastExtensionTestAt(new Date().toISOString());
     } catch (error) {
       console.error(error);
       setExtensionTestResult({
         status: 'error',
         message: "Errore durante la verifica dell'API estensione.",
       });
+      setLastExtensionTestAt(new Date().toISOString());
     } finally {
       setTestingExtensionConnection(false);
     }
@@ -100,18 +107,22 @@ export function useExtensionSettings({
 
   const handleSaveExtensionSettings = async event => {
     event.preventDefault();
+    setExtensionSettingsErrorSection('');
     const cleanToken = extensionApiToken.trim();
     if (!cleanToken) {
+      setExtensionSettingsErrorSection('connection');
       setSettingsError(
         'Il token estensione è obbligatorio. Genera un token sicuro prima di salvare.',
       );
       return;
     }
     if (cleanToken.length < 16) {
+      setExtensionSettingsErrorSection('connection');
       setSettingsError('Il token estensione deve contenere almeno 16 caratteri.');
       return;
     }
     if (cleanToken.length > 256 || !/^[A-Za-z0-9._~-]+$/.test(cleanToken)) {
+      setExtensionSettingsErrorSection('connection');
       setSettingsError(
         'Il token può contenere solo lettere, numeri, punto, trattino e underscore (massimo 256 caratteri).',
       );
@@ -129,6 +140,7 @@ export function useExtensionSettings({
       });
       const data = await response.json();
       if (response.ok) {
+        setExtensionSettingsErrorSection('');
         const savedToken = data.extension_api_token || '';
         setExtensionApiToken(savedToken);
         setSavedExtensionApiToken(savedToken);
@@ -136,11 +148,13 @@ export function useExtensionSettings({
           "Token obbligatorio salvato. Copialo nell'integrazione browser scelta.",
         );
       } else {
+        setExtensionSettingsErrorSection('save');
         setSettingsError(data.detail || 'Errore nel salvataggio del token estensione.');
       }
     } catch (error) {
       console.error(error);
-      setSettingsError('Errore di rete durante il salvataggio del token estensione.');
+      setExtensionSettingsErrorSection('save');
+      setSettingsError('Connessione interrotta durante il salvataggio. Controlla la rete e riprova.');
     } finally {
       setSavingExtensionSettings(false);
     }
@@ -152,11 +166,13 @@ export function useExtensionSettings({
     extensionBrowserGuide,
     extensionDistribution: EXTENSION_DISTRIBUTIONS[extensionBrowserGuide],
     extensionTestResult,
+    extensionSettingsErrorSection,
     handleCopyExtensionToken,
     handleCopyExtensionUrl,
     handleGenerateExtensionToken,
     handleSaveExtensionSettings,
     handleTestExtensionConnection,
+    lastExtensionTestAt,
     savedExtensionApiToken,
     savingExtensionSettings,
     setExtensionApiToken,

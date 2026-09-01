@@ -58,6 +58,31 @@ def test_prestashop_connection(
             timeout=10,
         )
         response.raise_for_status()
+    except requests.Timeout as error:
+        logger.error("Timeout durante il test PrestaShop: %s", error)
+        raise SettingsActionError(
+            "PrestaShop non ha risposto entro 10 secondi. "
+            "Controlla la raggiungibilità del negozio e riprova."
+        ) from error
+    except requests.ConnectionError as error:
+        logger.error("PrestaShop non raggiungibile: %s", error)
+        raise SettingsActionError(
+            "Server PrestaShop non raggiungibile. Controlla URL, rete e certificato HTTPS."
+        ) from error
+    except requests.HTTPError as error:
+        status_code = getattr(error.response, "status_code", None)
+        if status_code in {401, 403}:
+            message = (
+                "Chiave API rifiutata o priva dei permessi necessari. "
+                "Verifica la chiave e abilita la lettura degli stati ordine."
+            )
+        elif status_code == 404:
+            message = "Endpoint Webservice non trovato. Controlla che l’URL termini con /api/."
+        else:
+            status_label = f" {status_code}" if status_code else ""
+            message = f"PrestaShop ha restituito un errore HTTP{status_label}."
+        logger.error("Errore HTTP durante il test PrestaShop: %s", error)
+        raise SettingsActionError(message) from error
     except Exception as error:
         logger.error(
             "Errore durante il test di connessione PrestaShop: %s",

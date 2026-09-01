@@ -18,6 +18,7 @@ from backend.api.orders import router as orders_router
 from backend.api.picking import router as picking_router
 from backend.api.picking_analysis import router as picking_analysis_router
 from backend.api.picking_sheet_write import router as picking_sheet_write_router
+from backend.api.picking_sessions import router as picking_sessions_router
 from backend.api.prestashop import router as prestashop_router
 from backend.api.settings import router as settings_router
 from backend.api.stock import router as stock_router
@@ -43,6 +44,7 @@ API_ROUTERS = (
     picking_router,
     picking_analysis_router,
     picking_sheet_write_router,
+    picking_sessions_router,
     extensions_router,
     extension_packages_router,
     imports_router,

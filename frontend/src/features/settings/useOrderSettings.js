@@ -15,6 +15,7 @@ export function useOrderSettings({
   const [selectedStates, setSelectedStates] = useState([]);
   const [savedSelectedStates, setSavedSelectedStates] = useState([]);
   const [savingStateSettings, setSavingStateSettings] = useState(false);
+  const [orderSettingsError, setOrderSettingsError] = useState('');
   const [searchStateQuery, setSearchStateQuery] = useState('');
   const [showOnlySelectedStates, setShowOnlySelectedStates] = useState(false);
 
@@ -38,6 +39,7 @@ export function useOrderSettings({
   });
 
   const handleToggleState = stateId => {
+    setOrderSettingsError('');
     setSelectedStates(current =>
       current.includes(stateId)
         ? current.filter(id => id !== stateId)
@@ -46,21 +48,31 @@ export function useOrderSettings({
   };
 
   const handleSelectAllStates = () => {
+    setOrderSettingsError('');
     setSelectedStates(orderStates.map(state => state.id));
   };
 
   const handleSelectRecommendedStates = () => {
+    setOrderSettingsError('');
     setSelectedStates(current =>
       Array.from(new Set([...current, ...presentation.recommendedOrderStateIds])),
     );
   };
 
   const handleDeselectAllStates = () => {
+    setOrderSettingsError('');
     setSelectedStates([]);
+  };
+
+  const resetOrderStates = () => {
+    setSelectedStates(savedSelectedStates);
+    setOrderSettingsError('');
+    setSettingsError(null);
   };
 
   const handleSaveOrderStates = async () => {
     setSavingStateSettings(true);
+    setOrderSettingsError('');
     setSettingsError(null);
     try {
       const response = await apiFetch('/api/settings', {
@@ -74,11 +86,13 @@ export function useOrderSettings({
         showActionMsg('Stati ordine salvati con successo.');
         refresh();
       } else {
-        setSettingsError(data.detail || 'Errore nel salvataggio degli stati ordine.');
+        setOrderSettingsError(
+          data.detail || 'Non è stato possibile salvare gli stati ordine. Controlla la connessione e riprova.',
+        );
       }
     } catch (error) {
       console.error(error);
-      setSettingsError('Errore di rete durante il salvataggio degli stati ordine.');
+      setOrderSettingsError('Connessione interrotta durante il salvataggio. Controlla la rete e riprova.');
     } finally {
       setSavingStateSettings(false);
     }
@@ -92,6 +106,8 @@ export function useOrderSettings({
     handleSelectRecommendedStates,
     handleToggleState,
     orderStates,
+    orderSettingsError,
+    resetOrderStates,
     savingStateSettings,
     searchStateQuery,
     selectedStates,

@@ -4,7 +4,11 @@ export function StockCalculationPolicySettings({ settings }) {
     excludedLotKeywords,
     setExcludeReturnLots,
     setExcludedLotKeywords,
+    stockSettingsErrorField,
+    stockSettingsErrorSection,
   } = settings;
+  const keywordsError = stockSettingsErrorSection === 'mapping'
+    && stockSettingsErrorField === 'excluded-lot-keywords';
 
   return (
     <section className="stock-config-section" aria-labelledby="stock-policy-title">
@@ -43,8 +47,10 @@ export function StockCalculationPolicySettings({ settings }) {
             onChange={event => setExcludedLotKeywords(event.target.value)}
             placeholder="RESO, RESI"
             disabled={!excludeReturnLots}
+            aria-invalid={keywordsError}
+            aria-describedby={keywordsError ? 'stock-mapping-error' : 'excluded-lot-keywords-help'}
           />
-          <small className="settings-help">
+          <small id="excluded-lot-keywords-help" className="settings-help">
             Separate da virgola e riconosciute come parole intere, senza
             distinzione tra maiuscole e minuscole.
           </small>

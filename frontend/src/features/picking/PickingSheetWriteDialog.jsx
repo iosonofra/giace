@@ -29,6 +29,14 @@ function SuccessIcon() {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 12.5 3.2 3.2L17.5 8.5" /></svg>;
 }
 
+const SESSION_LABELS = {
+  draft: 'Bozza',
+  verified: 'Verificata',
+  stale: 'Da aggiornare',
+  recording: 'Registrazione',
+  recorded: 'Registrata',
+};
+
 export function PickingSheetWriteDialog({ sheetWrite }) {
   const open = Boolean(sheetWrite?.open);
   const applying = Boolean(sheetWrite?.applying);
@@ -93,6 +101,12 @@ export function PickingSheetWriteDialog({ sheetWrite }) {
     () => (plan?.items || []).filter(item => Number(item.remaining_after) < 0).length,
     [plan?.items],
   );
+  const invalidDraft = (sheetWrite.draftItems || []).some(item => (
+    item.quantity === ''
+    || !Number.isFinite(Number(item.quantity))
+    || Number(item.quantity) < 0
+    || Number(item.quantity) > Number(item.plannedQuantity)
+  ));
 
   if (!presence.shouldRender) return null;
 
@@ -117,6 +131,11 @@ export function PickingSheetWriteDialog({ sheetWrite }) {
             <div className="picking-write-title-line">
               <h2 id="picking-write-title">{receipt ? 'Prelievo registrato' : 'Registra il prelievo'}</h2>
               <span className="picking-beta-badge">Beta</span>
+              {sheetWrite.session?.status && (
+                <span className={`picking-session-badge is-${sheetWrite.session.status}`}>
+                  {SESSION_LABELS[sheetWrite.session.status] || sheetWrite.session.status}
+                </span>
+              )}
             </div>
             <p id="picking-write-description">
               {receipt
@@ -135,9 +154,9 @@ export function PickingSheetWriteDialog({ sheetWrite }) {
             <div className="picking-write-target">
               <span>Destinazione</span>
               <strong>{sheetName}</strong>
-              {targetHeader && <small>Colonna {targetHeader}</small>}
+              <small>{targetHeader ? `Colonna ${targetHeader}` : 'Sessione persistente · bozza'}</small>
             </div>
-            <button type="button" className="btn btn-neutral" onClick={() => sheetWrite.generatePreview()} disabled={sheetWrite.loading || applying}>
+            <button type="button" className="btn btn-neutral" onClick={() => sheetWrite.generatePreview()} disabled={sheetWrite.loading || sheetWrite.sessionLoading || invalidDraft || applying}>
               {sheetWrite.loading ? 'Verifica…' : plan ? 'Aggiorna anteprima' : 'Genera anteprima'}
             </button>
           </div>
@@ -164,6 +183,12 @@ export function PickingSheetWriteDialog({ sheetWrite }) {
                 <div className="picking-write-loading" aria-live="polite">
                   <span className="spinner" aria-hidden="true" />
                   <div><strong>Lettura del foglio in corso</strong><p>Verifico intestazioni, SKU e valori attuali.</p></div>
+                </div>
+              )}
+              {sheetWrite.sessionLoading && !sheetWrite.loading && (
+                <div className="picking-write-loading" aria-live="polite">
+                  <span className="spinner" aria-hidden="true" />
+                  <div><strong>Creazione sessione in corso</strong><p>Salvo il piano di prelievo prima delle modifiche.</p></div>
                 </div>
               )}
               {sheetWrite.error && <div className="picking-alert picking-alert-danger" role="alert">{sheetWrite.error}</div>}
@@ -194,6 +219,50 @@ export function PickingSheetWriteDialog({ sheetWrite }) {
                   <strong>Nessuno SKU può essere registrato.</strong>
                   <span>Correggi gli SKU indicati oppure aggiorna il foglio.</span>
                 </div>
+              )}
+              {!plan && !sheetWrite.loading && !sheetWrite.sessionLoading && sheetWrite.session && (
+                <section className="picking-quantity-editor" aria-labelledby="picking-quantity-title">
+                  <div className="picking-quantity-editor-head">
+                    <div>
+                      <h3 id="picking-quantity-title">Quantità effettive</h3>
+                      <p>Riduci una quantità se il prelievo è parziale; usa 0 per non registrare lo SKU.</p>
+                    </div>
+                    <span>{sheetWrite.draftItems.length} SKU pianificati</span>
+                  </div>
+                  <div className="picking-write-table-wrap">
+                    <table className="custom-table picking-write-table picking-quantity-table">
+                      <thead><tr><th>SKU</th><th className="num-col">Pianificata</th><th className="num-col">Effettiva</th></tr></thead>
+                      <tbody>
+                        {sheetWrite.draftItems.map(item => {
+                          const invalid = item.quantity === ''
+                            || !Number.isFinite(Number(item.quantity))
+                            || Number(item.quantity) < 0
+                            || Number(item.quantity) > Number(item.plannedQuantity);
+                          return (
+                            <tr key={item.sku}>
+                              <td data-label="SKU"><strong>{item.sku}</strong>{item.description && <small>{item.description}</small>}</td>
+                              <td data-label="Pianificata" className="num-col">{quantity(item.plannedQuantity)}</td>
+                              <td data-label="Effettiva" className="num-col">
+                                <input
+                                  className={invalid ? 'is-invalid' : ''}
+                                  type="number"
+                                  min="0"
+                                  max={item.plannedQuantity}
+                                  step="1"
+                                  value={item.quantity}
+                                  onChange={event => sheetWrite.changeQuantity(item.sku, event.target.value)}
+                                  aria-label={`Quantità effettiva ${item.sku}`}
+                                  aria-invalid={invalid}
+                                />
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  {invalidDraft && <p className="picking-quantity-error" role="alert">Ogni quantità deve essere compresa tra 0 e la quantità pianificata.</p>}
+                </section>
               )}
               {plan && (
                 <>
@@ -233,7 +302,7 @@ export function PickingSheetWriteDialog({ sheetWrite }) {
               <div className="picking-write-commit-summary">
                 {plan ? (
                   <><strong>{quantity(sheetWrite.preview.total_quantity)} unità · {sheetWrite.preview.sku_count} SKU</strong><span>{formatDate(sheetWrite.targetDate)} · {sheetName} / {targetHeader}{skipped.length > 0 ? ` · ${skipped.length} ignorati` : ''}</span></>
-                ) : <span>La cronologia delle modifiche resta disponibile in Google Fogli.</span>}
+                ) : <span>{sheetWrite.session ? 'Bozza salvata · verifica l’anteprima prima di registrare.' : 'La cronologia delle modifiche resta disponibile in Google Fogli.'}</span>}
               </div>
               <div className="picking-write-actions">
                 <button type="button" className="btn btn-neutral" onClick={close} disabled={applying}>Annulla</button>
