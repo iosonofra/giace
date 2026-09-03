@@ -35,6 +35,9 @@ export function PickingFileInput({
     <div className="picking-workflow-form">
       <div
         className={`picking-upload-target ${dragOver ? 'drag-over' : ''}`}
+        role="button"
+        tabIndex={0}
+        aria-label="Seleziona uno o più file Excel"
         onDragOver={(event) => {
           event.preventDefault();
           setDragOver(true);
@@ -53,6 +56,11 @@ export function PickingFileInput({
           addFiles(event.dataTransfer.files);
         }}
         onClick={() => fileInputRef.current?.click()}
+        onKeyDown={(event) => {
+          if (event.key !== 'Enter' && event.key !== ' ') return;
+          event.preventDefault();
+          fileInputRef.current?.click();
+        }}
       >
         <svg width="24" height="24" fill="none" stroke="var(--color-primary)" strokeWidth="2" viewBox="0 0 24 24" aria-hidden="true">
           <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -77,7 +85,7 @@ export function PickingFileInput({
       {files.length > 0 && (
         <div className="picking-file-list">
           <span className="picking-list-label">
-            File Selezionati ({files.length})
+            File selezionati ({files.length})
           </span>
           <div className="picking-file-stack">
             {files.map((file, index) => (
@@ -116,7 +124,7 @@ export function PickingFileInput({
       )}
 
       {error && (
-        <div className="picking-alert picking-alert-danger">
+        <div className="picking-alert picking-alert-danger" role="alert">
           <strong>File non elaborato.</strong>
           <span>{error}</span>
         </div>
@@ -136,13 +144,13 @@ export function PickingFileInput({
               Elaborazione in corso...
             </>
           ) : (
-            'Calcola Fabbisogno da File'
+            'Calcola fabbisogno'
           )}
         </button>
 
         {(hasResults || files.length > 0) && (
           <button type="button" className="btn btn-neutral" onClick={onReset}>
-            Nuovo Calcolo
+            Nuovo calcolo
           </button>
         )}
       </div>

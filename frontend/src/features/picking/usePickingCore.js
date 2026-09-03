@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { apiFetch } from '../../api/client';
 
 const ORDER_ID_PATTERN = /\b\d{4,8}\b/g;
@@ -6,6 +6,24 @@ const ORDER_ID_PATTERN = /\b\d{4,8}\b/g;
 function extractOrderIds(rawText) {
   const matches = rawText.match(ORDER_ID_PATTERN) || [];
   return Array.from(new Set(matches.map(Number)));
+}
+
+function getPickingProgressKey(results) {
+  if (!results?.sku_requirements?.length) return null;
+  const signature = JSON.stringify({
+    orders: [...(results.orders_found || [])].map(String).sort(),
+    requirements: results.sku_requirements.map(item => [
+      String(item.sku || ''),
+      Number(item.qty_required || 0),
+      Number(item.qty_stock || 0),
+    ]),
+  });
+  let hash = 2166136261;
+  for (let index = 0; index < signature.length; index += 1) {
+    hash ^= signature.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `giac:picking-progress:${(hash >>> 0).toString(36)}`;
 }
 
 export function usePickingCore({ showActionMsg }) {
@@ -26,11 +44,51 @@ export function usePickingCore({ showActionMsg }) {
   const [pickingCountingMode, setPickingCountingMode] = useState(false);
   const [countedPickingSkus, setCountedPickingSkus] = useState(() => new Set());
   const [syncingSpecificOrders, setSyncingSpecificOrders] = useState(false);
+  const skipProgressPersistRef = useRef(null);
+
+  const pickingProgressKey = useMemo(
+    () => getPickingProgressKey(pickingResults),
+    [pickingResults],
+  );
 
   useEffect(() => {
-    setCountedPickingSkus(new Set());
-    setPickingCountingMode(false);
-  }, [pickingResults]);
+    skipProgressPersistRef.current = pickingProgressKey;
+    if (!pickingProgressKey || typeof window === 'undefined') {
+      setCountedPickingSkus(new Set());
+      setPickingCountingMode(false);
+      return;
+    }
+    try {
+      const validSkus = new Set(
+        (pickingResults?.sku_requirements || []).map(item => String(item.sku)),
+      );
+      const stored = JSON.parse(window.localStorage.getItem(pickingProgressKey) || '[]');
+      const restored = new Set(
+        Array.isArray(stored) ? stored.map(String).filter(sku => validSkus.has(sku)) : [],
+      );
+      setCountedPickingSkus(restored);
+      setPickingCountingMode(restored.size > 0);
+    } catch {
+      setCountedPickingSkus(new Set());
+      setPickingCountingMode(false);
+    }
+  }, [pickingProgressKey, pickingResults]);
+
+  useEffect(() => {
+    if (!pickingProgressKey || typeof window === 'undefined') return;
+    if (skipProgressPersistRef.current === pickingProgressKey) {
+      skipProgressPersistRef.current = null;
+      return;
+    }
+    try {
+      window.localStorage.setItem(
+        pickingProgressKey,
+        JSON.stringify(Array.from(countedPickingSkus)),
+      );
+    } catch {
+      // Il conteggio resta disponibile nella sessione anche se lo storage è bloccato.
+    }
+  }, [countedPickingSkus, pickingProgressKey]);
 
   const detectedPickingOrderCount = useMemo(
     () => new Set(rawPickingText.match(ORDER_ID_PATTERN) || []).size,
@@ -193,11 +251,29 @@ export function usePickingCore({ showActionMsg }) {
 
   const clearCountedPickingSkus = () => setCountedPickingSkus(new Set());
 
+  const resetPickingOperation = useCallback(() => {
+    if (pickingProgressKey && typeof window !== 'undefined') {
+      try {
+        window.localStorage.removeItem(pickingProgressKey);
+      } catch {
+        // Il reset dell'interfaccia prosegue anche se lo storage non è disponibile.
+      }
+    }
+    setRawPickingText('');
+    setSelectedPickingFiles([]);
+    setSelectedPickingStateId('');
+    setPickingFilesAnomalies([]);
+    setPickingFilesSummary([]);
+    setPickingError(null);
+    setPickingResults(null);
+    setPickingViewMode('aggregated');
+    setPickingRequirementFilter('all');
+    setPickingCountingMode(false);
+    setCountedPickingSkus(new Set());
+  }, [pickingProgressKey]);
+
   const togglePickingCountingMode = () => {
-    setPickingCountingMode((current) => {
-      if (current) setCountedPickingSkus(new Set());
-      return !current;
-    });
+    setPickingCountingMode(current => !current);
   };
 
   const handleSyncSpecificOrders = async () => {
@@ -259,6 +335,7 @@ export function usePickingCore({ showActionMsg }) {
     pickingStatesLoading,
     pickingViewMode,
     rawPickingText,
+    resetPickingOperation,
     selectedPickingFiles,
     setPickingError,
     setPickingFilesAnomalies,

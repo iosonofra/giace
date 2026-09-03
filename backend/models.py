@@ -145,6 +145,10 @@ class PickingSheetOperation(Base):
     """
 
     __tablename__ = "picking_sheet_operations"
+    __table_args__ = (
+        Index("ix_picking_sheet_operations_status_applied", "status", "applied_at"),
+        Index("ix_picking_sheet_operations_target_date", "target_date"),
+    )
 
     operation_id = Column(String(64), primary_key=True)
     request_hash = Column(String(64), nullable=False)
@@ -153,6 +157,7 @@ class PickingSheetOperation(Base):
     status = Column(String(20), nullable=False, default="pending")
     sku_count = Column(Integer, nullable=False, default=0)
     total_qty = Column(Float, nullable=False, default=0.0)
+    plan_json = Column(Text, nullable=True)
     response_json = Column(Text, nullable=True)
     created_at = Column(DateTime, default=func.now(), nullable=False)
     applied_at = Column(DateTime, nullable=True)

@@ -21,7 +21,6 @@ export function PickingResultsPanel({
   clearCountedPickingSkus,
   copiedOrderId,
   copyFeedbackKey,
-  countedPickingCount,
   countedPickingSkus,
   filteredAutomaticRemainingOrders,
   formatPickingQty,
@@ -54,6 +53,7 @@ export function PickingResultsPanel({
   syncingSpecificOrders,
   togglePickingCountingMode,
   togglePickingSkuCounted,
+  totalPickingSkus,
   visibleAutomaticRemainingOrders,
   visiblePickingRequirements,
   sheetWrite,
@@ -72,6 +72,7 @@ export function PickingResultsPanel({
         pickingViewMode={pickingViewMode}
         setPickingViewMode={setPickingViewMode}
         togglePickingCountingMode={togglePickingCountingMode}
+        totalPickingSkus={totalPickingSkus}
         sheetWrite={sheetWrite}
       />
 
@@ -100,48 +101,53 @@ export function PickingResultsPanel({
         pickingViewMode={pickingViewMode}
       />
 
-      {pickingViewMode === 'aggregated' ? (
-        <PickingAggregatedView
-          automaticMinResidual={automaticMinResidual}
-          automaticStockAuditBySku={automaticStockAuditBySku}
-          countedPickingCount={countedPickingCount}
-          countedPickingSkus={countedPickingSkus}
-          formatPickingQty={formatPickingQty}
-          getPickingRemainingQty={getPickingRemainingQty}
-          getRequirementMeta={getRequirementMeta}
-          pickingCountingMode={pickingCountingMode}
-          pickingRequirementFilter={pickingRequirementFilter}
-          pickingResults={pickingResults}
-          setPickingRequirementFilter={setPickingRequirementFilter}
-          togglePickingSkuCounted={togglePickingSkuCounted}
-          visiblePickingRequirements={visiblePickingRequirements}
-        />
-      ) : (
-        <PickingOrdersView
-          autoPickingRemainingFilter={autoPickingRemainingFilter}
-          autoPickingRemainingQuery={autoPickingRemainingQuery}
-          autoPickingResultView={autoPickingResultView}
-          automaticRemainingCount={automaticRemainingCount}
-          automaticRemainingOrders={automaticRemainingOrders}
-          automaticUnclassifiedCount={automaticUnclassifiedCount}
-          copiedOrderId={copiedOrderId}
-          copyFeedbackKey={copyFeedbackKey}
-          filteredAutomaticRemainingOrders={filteredAutomaticRemainingOrders}
-          formatPickingQty={formatPickingQty}
-          getOrderPickingMeta={getOrderPickingMeta}
-          getRelativeTimeString={getRelativeTimeString}
-          getStateBadgeClass={getStateBadgeClass}
-          handleCopyOrderId={handleCopyOrderId}
-          hasAutomaticRemainingDetails={hasAutomaticRemainingDetails}
-          pickingResults={pickingResults}
-          setAutoPickingRemainingFilter={setAutoPickingRemainingFilter}
-          setAutoPickingRemainingQuery={setAutoPickingRemainingQuery}
-          setAutoPickingRemainingVisibleLimit={setAutoPickingRemainingVisibleLimit}
-          setAutoPickingResultView={setAutoPickingResultView}
-          sortedPickingOrders={sortedPickingOrders}
-          visibleAutomaticRemainingOrders={visibleAutomaticRemainingOrders}
-        />
-      )}
+      <div
+        id="picking-results-view-panel"
+        role="tabpanel"
+        aria-labelledby={`picking-results-tab-${pickingViewMode}`}
+      >
+        {pickingViewMode === 'aggregated' ? (
+          <PickingAggregatedView
+            automaticMinResidual={automaticMinResidual}
+            automaticStockAuditBySku={automaticStockAuditBySku}
+            countedPickingSkus={countedPickingSkus}
+            formatPickingQty={formatPickingQty}
+            getPickingRemainingQty={getPickingRemainingQty}
+            getRequirementMeta={getRequirementMeta}
+            pickingCountingMode={pickingCountingMode}
+            pickingRequirementFilter={pickingRequirementFilter}
+            pickingResults={pickingResults}
+            setPickingRequirementFilter={setPickingRequirementFilter}
+            togglePickingSkuCounted={togglePickingSkuCounted}
+            visiblePickingRequirements={visiblePickingRequirements}
+          />
+        ) : (
+          <PickingOrdersView
+            autoPickingRemainingFilter={autoPickingRemainingFilter}
+            autoPickingRemainingQuery={autoPickingRemainingQuery}
+            autoPickingResultView={autoPickingResultView}
+            automaticRemainingCount={automaticRemainingCount}
+            automaticRemainingOrders={automaticRemainingOrders}
+            automaticUnclassifiedCount={automaticUnclassifiedCount}
+            copiedOrderId={copiedOrderId}
+            copyFeedbackKey={copyFeedbackKey}
+            filteredAutomaticRemainingOrders={filteredAutomaticRemainingOrders}
+            formatPickingQty={formatPickingQty}
+            getOrderPickingMeta={getOrderPickingMeta}
+            getRelativeTimeString={getRelativeTimeString}
+            getStateBadgeClass={getStateBadgeClass}
+            handleCopyOrderId={handleCopyOrderId}
+            hasAutomaticRemainingDetails={hasAutomaticRemainingDetails}
+            pickingResults={pickingResults}
+            setAutoPickingRemainingFilter={setAutoPickingRemainingFilter}
+            setAutoPickingRemainingQuery={setAutoPickingRemainingQuery}
+            setAutoPickingRemainingVisibleLimit={setAutoPickingRemainingVisibleLimit}
+            setAutoPickingResultView={setAutoPickingResultView}
+            sortedPickingOrders={sortedPickingOrders}
+            visibleAutomaticRemainingOrders={visibleAutomaticRemainingOrders}
+          />
+        )}
+      </div>
       <PickingSheetWriteDialog sheetWrite={sheetWrite} />
     </div>
   );

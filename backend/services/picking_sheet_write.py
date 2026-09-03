@@ -358,6 +358,7 @@ def apply_sheet_write(db, payload: dict, *, request_post=requests.post) -> dict:
                     "Questa registrazione è già in corso."
                 )
         existing.status = "pending"
+        existing.plan_json = existing.plan_json or _canonical(plan)
         existing.response_json = None
         db.commit()
     else:
@@ -372,6 +373,7 @@ def apply_sheet_write(db, payload: dict, *, request_post=requests.post) -> dict:
                 float(item.get("quantity", 0))
                 for item in plan.get("items") or []
             ),
+            plan_json=_canonical(plan),
         )
         db.add(existing)
         db.commit()

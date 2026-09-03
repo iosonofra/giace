@@ -3,8 +3,8 @@ export function createPickingPageModel({
   clipboard,
   core,
   orders,
-    presentation,
-    sheetWrite,
+  presentation,
+  sheetWrite,
   shared,
 }) {
   return {
@@ -24,6 +24,10 @@ export function createPickingPageModel({
     onUploadFiles: core.handleUploadPickingFiles,
     setFileAnomalies: core.setPickingFilesAnomalies,
     setFileSummary: core.setPickingFilesSummary,
+    onNewOperation: () => {
+      core.resetPickingOperation();
+      automatic.resetAutomaticPickingConfiguration();
+    },
     stateInputProps: {
       states: core.pickingOrderStates,
       selectedStateId: core.selectedPickingStateId,
@@ -127,7 +131,7 @@ export function createPickingPageModel({
       setPickingRequirementFilter: (
         core.setPickingRequirementFilter
       ),
-      countedPickingCount: presentation.countedPickingCount,
+      totalPickingSkus: core.pickingResults?.sku_requirements?.length || 0,
       togglePickingSkuCounted: core.togglePickingSkuCounted,
       getRequirementMeta: shared.getRequirementMeta,
       formatPickingQty: shared.formatPickingQty,

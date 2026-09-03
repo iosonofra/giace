@@ -373,6 +373,7 @@ function App() {
     notify: showActionMsg,
     refresh: refreshAppData,
     results: pickingResults,
+    sourceType: pickingCore.pickingInputMode,
   });
   const pickingPageModel = createPickingPageModel({
     automatic: automaticPicking,

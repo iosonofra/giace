@@ -1,3 +1,13 @@
+function OrderReferences({ orderIds, emptyLabel = 'Nessuno' }) {
+  if (!orderIds?.length) return <p>{emptyLabel}</p>;
+  return (
+    <details className="picking-context-details">
+      <summary>Mostra {orderIds.length} ID ordine</summary>
+      <p>{orderIds.join(', ')}</p>
+    </details>
+  );
+}
+
 function AutomaticContext({ formatPickingQty, pickingResults }) {
   const automatic = pickingResults.auto_picking || {};
 
@@ -6,11 +16,10 @@ function AutomaticContext({ formatPickingQty, pickingResults }) {
       <div className="picking-context-card success">
         <div>Ordini proposti</div>
         <strong>{automatic.selected_count || 0} ordini</strong>
-        <p>
-          {pickingResults.orders_found.length > 0
-            ? pickingResults.orders_found.join(', ')
-            : 'Nessun ordine preparabile'}
-        </p>
+        <OrderReferences
+          orderIds={pickingResults.orders_found}
+          emptyLabel="Nessun ordine preparabile"
+        />
       </div>
       <div className={`picking-context-card ${(automatic.skipped_count || 0) > 0 ? 'danger' : 'success'}`}>
         <div>Ordini saltati</div>
@@ -58,14 +67,14 @@ function TextContext({ handleSyncSpecificOrders, pickingResults, syncingSpecific
       <div className="picking-context-card success">
         <div>Riferimenti ordini rilevati</div>
         <strong>{pickingResults.orders_found.length} ordini</strong>
-        <p>{pickingResults.orders_found.length > 0 ? pickingResults.orders_found.join(', ') : 'Nessuno'}</p>
+        <OrderReferences orderIds={pickingResults.orders_found} />
       </div>
       <div className={`picking-context-card ${pickingResults.orders_missing.length > 0 ? 'danger' : ''}`}>
         <div>Ordini non trovati</div>
         <strong>{pickingResults.orders_missing.length} ordini</strong>
         {pickingResults.orders_missing.length > 0 ? (
           <>
-            <p>{pickingResults.orders_missing.join(', ')}</p>
+            <OrderReferences orderIds={pickingResults.orders_missing} />
             <div className="picking-context-action">
               <button
                 type="button"
@@ -93,7 +102,7 @@ function FileContext({ pickingFilesSummary, pickingResults }) {
       <div className="picking-context-card success">
         <div>Riferimenti ordini rilevati</div>
         <strong>{pickingResults.orders_found.length} ordini</strong>
-        <p>{pickingResults.orders_found.length > 0 ? pickingResults.orders_found.join(', ') : 'Nessuno'}</p>
+        <OrderReferences orderIds={pickingResults.orders_found} />
       </div>
       <div className="picking-context-card file">
         <div>File Excel inclusi</div>
@@ -121,11 +130,10 @@ function StateContext({ pickingResults, pickingSourceState }) {
       <div className="picking-context-card success">
         <div>Ordini importati</div>
         <strong>{pickingResults.orders_found.length} ordini</strong>
-        <p>
-          {pickingResults.orders_found.length > 0
-            ? pickingResults.orders_found.join(', ')
-            : 'Nessun ordine nello stato selezionato'}
-        </p>
+        <OrderReferences
+          orderIds={pickingResults.orders_found}
+          emptyLabel="Nessun ordine nello stato selezionato"
+        />
       </div>
       <div className="picking-context-card file">
         <div>Stato ordine selezionato</div>
@@ -153,8 +161,8 @@ export function PickingContextOverview({
   return (
     <>
       {pickingInputMode === 'file' && pickingFilesAnomalies.length > 0 && (
-        <div className="picking-anomaly-panel">
-          <span>Avvisi ed Anomalie File ({pickingFilesAnomalies.length})</span>
+        <div className="picking-anomaly-panel" role="alert">
+          <span>Problemi nei file ({pickingFilesAnomalies.length})</span>
           <div className="picking-anomaly-list">
             {pickingFilesAnomalies.map((anomaly, index) => (
               <div key={index}>

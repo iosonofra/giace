@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { useExitPresence } from '../../components/ui/useExitPresence';
@@ -45,6 +45,7 @@ export function PickingSheetWriteDialog({ sheetWrite }) {
   const closeButtonRef = useRef(null);
   const closeRef = useRef(close);
   const presence = useExitPresence(open, 220);
+  const [copiedOperation, setCopiedOperation] = useState(false);
   closeRef.current = close;
 
   useEffect(() => {
@@ -113,6 +114,21 @@ export function PickingSheetWriteDialog({ sheetWrite }) {
   const receipt = sheetWrite.receipt;
   const sheetName = receipt?.sheet_name || plan?.sheet_name || sheetWrite.sheetName || 'Google Sheets';
   const targetHeader = receipt?.target_header || plan?.target_header || '';
+  const currentStep = receipt ? 3 : plan ? 2 : 1;
+  const copyOperationId = async () => {
+    if (!receipt?.operation_id) return;
+    try {
+      await navigator.clipboard.writeText(receipt.operation_id);
+      setCopiedOperation(true);
+      window.setTimeout(() => setCopiedOperation(false), 1800);
+    } catch {
+      setCopiedOperation(false);
+    }
+  };
+  const openHistory = () => {
+    close?.();
+    window.setTimeout(() => window.dispatchEvent(new CustomEvent('giac:open-picking-history')), 240);
+  };
 
   return createPortal(
     <div className={`modal-overlay picking-write-overlay ${presence.isExiting ? 'is-exiting' : ''}`} role="presentation">
@@ -131,7 +147,7 @@ export function PickingSheetWriteDialog({ sheetWrite }) {
             <div className="picking-write-title-line">
               <h2 id="picking-write-title">{receipt ? 'Prelievo registrato' : 'Registra il prelievo'}</h2>
               <span className="picking-beta-badge">Beta</span>
-              {sheetWrite.session?.status && (
+              {['stale', 'recording'].includes(sheetWrite.session?.status) && (
                 <span className={`picking-session-badge is-${sheetWrite.session.status}`}>
                   {SESSION_LABELS[sheetWrite.session.status] || sheetWrite.session.status}
                 </span>
@@ -148,6 +164,14 @@ export function PickingSheetWriteDialog({ sheetWrite }) {
           </button>
         </header>
 
+        <ol className="picking-write-steps" aria-label="Avanzamento registrazione">
+          {['Quantità', 'Verifica', 'Registrazione'].map((label, index) => {
+            const step = index + 1;
+            const state = step < currentStep ? 'is-complete' : step === currentStep ? 'is-current' : '';
+            return <li key={label} className={state} aria-current={step === currentStep ? 'step' : undefined}><span>{step}</span><strong>{label}</strong></li>;
+          })}
+        </ol>
+
         {!receipt && (
           <div className="picking-write-date-bar">
             <PickingSheetDatePicker value={sheetWrite.targetDate} onChange={sheetWrite.changeDate} dayMapping={sheetWrite.dayMapping} disabled={applying} />
@@ -156,9 +180,6 @@ export function PickingSheetWriteDialog({ sheetWrite }) {
               <strong>{sheetName}</strong>
               <small>{targetHeader ? `Colonna ${targetHeader}` : 'Sessione persistente · bozza'}</small>
             </div>
-            <button type="button" className="btn btn-neutral" onClick={() => sheetWrite.generatePreview()} disabled={sheetWrite.loading || sheetWrite.sessionLoading || invalidDraft || applying}>
-              {sheetWrite.loading ? 'Verifica…' : plan ? 'Aggiorna anteprima' : 'Genera anteprima'}
-            </button>
           </div>
         )}
 
@@ -173,7 +194,7 @@ export function PickingSheetWriteDialog({ sheetWrite }) {
                   <div><dt>Foglio</dt><dd>{sheetName}</dd></div>
                   <div><dt>Colonna</dt><dd>{targetHeader}</dd></div>
                   <div><dt>Celle aggiornate</dt><dd>{receipt.updated_cells}</dd></div>
-                  <div><dt>Operazione</dt><dd>{receipt.operation_id}</dd></div>
+                  <div><dt>Operazione</dt><dd><code>{receipt.operation_id}</code><button type="button" className="picking-copy-operation" onClick={copyOperationId}>{copiedOperation ? 'Copiato' : 'Copia ID'}</button></dd></div>
                 </dl>
               </div>
             </div>
@@ -183,6 +204,12 @@ export function PickingSheetWriteDialog({ sheetWrite }) {
                 <div className="picking-write-loading" aria-live="polite">
                   <span className="spinner" aria-hidden="true" />
                   <div><strong>Lettura del foglio in corso</strong><p>Verifico intestazioni, SKU e valori attuali.</p></div>
+                </div>
+              )}
+              {applying && (
+                <div className="picking-write-applying" role="status" aria-live="polite">
+                  <span className="spinner" aria-hidden="true" />
+                  <div><strong>Registrazione in corso</strong><p>Sto aggiornando {sheetWrite.preview?.sku_count || 0} SKU. Attendi il completamento.</p></div>
                 </div>
               )}
               {sheetWrite.sessionLoading && !sheetWrite.loading && (
@@ -296,17 +323,17 @@ export function PickingSheetWriteDialog({ sheetWrite }) {
 
         <footer className="picking-write-footer">
           {receipt ? (
-            <><span>La cronologia delle modifiche resta disponibile in Google Fogli.</span><button type="button" className="btn btn-primary" onClick={close}>Chiudi</button></>
+            <><span>Operazione salvata anche nello storico della webapp.</span><div className="picking-write-actions"><button type="button" className="btn btn-neutral" onClick={openHistory}>Apri storico</button><button type="button" className="btn btn-primary" onClick={close}>Chiudi</button></div></>
           ) : (
             <>
               <div className="picking-write-commit-summary">
                 {plan ? (
-                  <><strong>{quantity(sheetWrite.preview.total_quantity)} unità · {sheetWrite.preview.sku_count} SKU</strong><span>{formatDate(sheetWrite.targetDate)} · {sheetName} / {targetHeader}{skipped.length > 0 ? ` · ${skipped.length} ignorati` : ''}</span></>
+                  <><strong>{quantity(sheetWrite.preview.total_quantity)} unità · {sheetWrite.preview.sku_count} SKU</strong><span>{formatDate(sheetWrite.targetDate)} · {sheetName} / {targetHeader}{skipped.length > 0 ? ` · ${skipped.length} ignorati` : ''}{negativeResiduals > 0 ? ` · ${negativeResiduals} residui negativi` : ''}</span></>
                 ) : <span>{sheetWrite.session ? 'Bozza salvata · verifica l’anteprima prima di registrare.' : 'La cronologia delle modifiche resta disponibile in Google Fogli.'}</span>}
               </div>
               <div className="picking-write-actions">
                 <button type="button" className="btn btn-neutral" onClick={close} disabled={applying}>Annulla</button>
-                {plan && <button type="button" className="btn btn-primary" onClick={sheetWrite.apply} disabled={!plan.can_apply || applying} aria-busy={applying}>{applying ? 'Registrazione…' : 'Registra prelievo'}</button>}
+                {plan ? <><button type="button" className="btn btn-neutral" onClick={sheetWrite.editDraft} disabled={applying}>Modifica quantità</button><button type="button" className="btn btn-primary" onClick={sheetWrite.apply} disabled={!plan.can_apply || applying} aria-busy={applying}>{applying ? 'Registrazione…' : 'Registra prelievo'}</button></> : <button type="button" className="btn btn-primary" onClick={() => sheetWrite.generatePreview()} disabled={sheetWrite.loading || sheetWrite.sessionLoading || invalidDraft || applying}>{sheetWrite.loading ? 'Verifica in corso…' : 'Verifica prelievo'}</button>}
               </div>
             </>
           )}

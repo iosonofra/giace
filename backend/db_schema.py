@@ -14,6 +14,11 @@ COMPATIBILITY_COLUMNS = (
         "order_id",
         "ALTER TABLE import_anomalies ADD COLUMN order_id INTEGER",
     ),
+    (
+        "picking_sheet_operations",
+        "plan_json",
+        "ALTER TABLE picking_sheet_operations ADD COLUMN plan_json TEXT",
+    ),
 )
 
 COMPATIBILITY_INDEXES = (
@@ -30,6 +35,20 @@ COMPATIBILITY_INDEXES = (
         {"order_id"},
         "CREATE INDEX ix_prestashop_order_lines_order_id "
         "ON prestashop_order_lines (order_id)",
+    ),
+    (
+        "picking_sheet_operations",
+        "ix_picking_sheet_operations_status_applied",
+        {"status", "applied_at"},
+        "CREATE INDEX ix_picking_sheet_operations_status_applied "
+        "ON picking_sheet_operations (status, applied_at)",
+    ),
+    (
+        "picking_sheet_operations",
+        "ix_picking_sheet_operations_target_date",
+        {"target_date"},
+        "CREATE INDEX ix_picking_sheet_operations_target_date "
+        "ON picking_sheet_operations (target_date)",
     ),
 )
 

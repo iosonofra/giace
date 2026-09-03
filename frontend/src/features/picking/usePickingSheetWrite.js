@@ -15,7 +15,7 @@ function todayInRome() {
 }
 
 
-export function usePickingSheetWrite({ notify, refresh, results }) {
+export function usePickingSheetWrite({ notify, refresh, results, sourceType = 'simulation' }) {
   const [status, setStatus] = useState(null);
   const [open, setOpen] = useState(false);
   const [targetDate, setTargetDate] = useState(todayInRome);
@@ -42,7 +42,7 @@ export function usePickingSheetWrite({ notify, refresh, results }) {
     setPreview(null);
     setReceipt(null);
     setDraftItems(items.map(item => ({ ...item, plannedQuantity: item.quantity })));
-  }, [items]);
+  }, [items, sourceType]);
 
   useEffect(() => {
     if (!results) {
@@ -61,15 +61,14 @@ export function usePickingSheetWrite({ notify, refresh, results }) {
     return () => { cancelled = true; };
   }, [results]);
 
-  const ensureSession = useCallback(async () => {
-    if (session) return session;
+  const createSession = useCallback(async () => {
     setSessionLoading(true);
     try {
       const response = await apiFetch('/api/picking/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          source_type: results?.source_state ? 'order_state' : 'simulation',
+          source_type: results?.source_state ? 'order_state' : sourceType,
           source: {
             state: results?.source_state || null,
             missing_orders: results?.orders_missing || [],
@@ -89,7 +88,12 @@ export function usePickingSheetWrite({ notify, refresh, results }) {
     } finally {
       setSessionLoading(false);
     }
-  }, [results, session]);
+  }, [results, sourceType]);
+
+  const ensureSession = useCallback(async () => {
+    if (session && session.status !== 'recorded') return session;
+    return createSession();
+  }, [createSession, session]);
 
   const generatePreview = useCallback(async (date = targetDate) => {
     setLoading(true);
@@ -135,13 +139,19 @@ export function usePickingSheetWrite({ notify, refresh, results }) {
   const show = useCallback(async () => {
     setOpen(true);
     setReceipt(null);
+    setPreview(null);
     setError('');
     try {
-      await ensureSession();
+      if (session?.status === 'recorded') {
+        setSession(null);
+        await createSession();
+      } else {
+        await ensureSession();
+      }
     } catch (requestError) {
       setError(requestError.message || 'Impossibile creare la sessione di prelievo.');
     }
-  }, [ensureSession]);
+  }, [createSession, ensureSession, session?.status]);
 
   const close = () => {
     if (applying) return;
@@ -163,6 +173,14 @@ export function usePickingSheetWrite({ notify, refresh, results }) {
     setPreview(null);
     setReceipt(null);
     setError('');
+  };
+
+  const editDraft = () => {
+    if (applying) return;
+    setPreview(null);
+    setReceipt(null);
+    setError('');
+    setSession(current => current ? { ...current, status: 'draft' } : current);
   };
 
   const apply = async () => {
@@ -216,6 +234,7 @@ export function usePickingSheetWrite({ notify, refresh, results }) {
     session,
     sessionLoading,
     draftItems,
+    editDraft,
     sheetName: status?.sheet_name || '',
     show,
     targetDate,

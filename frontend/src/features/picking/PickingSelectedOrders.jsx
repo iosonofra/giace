@@ -78,18 +78,18 @@ export function PickingSelectedOrders({
                 </span>
               </div>
 
-              <div className="table-container" style={{ margin: 0, border: 'none' }}>
+              <div className="table-container picking-order-table-wrap">
                 <table className="custom-table picking-table picking-order-table">
                   <thead>
                     <tr>
-                      <th>SKU Componente</th>
-                       <th>Descrizione Magazzino</th>
-                       <th className="num-col">Quantità Richiesta</th>
+                      <th>SKU componente</th>
+                       <th>Descrizione magazzino</th>
+                       <th className="num-col">Quantità richiesta</th>
                        <th className="num-col">{pickingResults.mode === 'automatic' ? 'Disponibile prima' : 'Disponibile magazzino'}</th>
                        {pickingResults.mode === 'automatic' && (
                          <th className="num-col">Residuo dopo</th>
                        )}
-                       <th className="status-col">Stato Prelievo</th>
+                       <th className="status-col">Disponibilità</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -102,18 +102,18 @@ export function PickingSelectedOrders({
 
                       return (
                         <tr key={item.sku} className={item.status === 'mancante' ? 'picking-row-critical' : item.status === 'parziale' ? 'picking-row-warning' : ''}>
-                          <td className="picking-sku-cell">{item.sku}</td>
-                          <td className="picking-description-cell">
+                          <td className="picking-sku-cell" data-label="SKU">{item.sku}</td>
+                          <td className="picking-description-cell" data-label="Descrizione">
                             {item.description}
                           </td>
-                          <td className="num-col strong-num">{formatPickingQty(item.qty_required)}</td>
-                          <td className="num-col muted-num">
+                          <td className="num-col strong-num" data-label="Richiesta">{formatPickingQty(item.qty_required)}</td>
+                          <td className="num-col muted-num" data-label="Disponibile">
                             {formatPickingQty(pickingResults.mode === 'automatic' ? item.avail_before : item.qty_stock)}
                           </td>
                           {pickingResults.mode === 'automatic' && (
-                            <td className="num-col strong-num">{formatPickingQty(item.avail_after)}</td>
+                            <td className="num-col strong-num" data-label="Residuo">{formatPickingQty(item.avail_after)}</td>
                           )}
-                          <td className="status-col">
+                          <td className="status-col" data-label="Disponibilità">
                             <span className={`picking-status-chip ${itemMeta.tone}`}>
                               {itemMeta.label}
                             </span>
@@ -128,7 +128,7 @@ export function PickingSelectedOrders({
             );
           })
         ) : (
-          <p style={{ textAlign: 'center', padding: '20px', color: 'var(--text-secondary)' }}>
+          <p className="picking-empty-state">
             Nessun dettaglio per ordine disponibile.
           </p>
         )}
