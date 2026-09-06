@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { apiFetch } from '../../api/client';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { apiFetch, readApiJson } from '../../api/client';
 
 export function useOrdersData({
   active,
@@ -14,44 +14,85 @@ export function useOrdersData({
   const [ordersAvailableStates, setOrdersAvailableStates] = useState([]);
   const [orderStateFilter, setOrderStateFilter] = useState('all');
   const [searchOrder, setSearchOrder] = useState('');
+  const [debouncedSearchOrder, setDebouncedSearchOrder] = useState('');
+  const [onlyMissingAssociations, setOnlyMissingAssociations] = useState(false);
+  const [ordersSortBy, setOrdersSortBy] = useState('date_add');
+  const [ordersSortDirection, setOrdersSortDirection] = useState('desc');
+  const [ordersError, setOrdersError] = useState('');
+  const [ordersRefreshing, setOrdersRefreshing] = useState(false);
+  const [ordersRetryKey, setOrdersRetryKey] = useState(0);
+  const [totalProductLines, setTotalProductLines] = useState(0);
+  const [ordersWithoutAssociations, setOrdersWithoutAssociations] = useState(0);
   const [orderData, setOrderData] = useState([]);
   const [copiedOrderId, setCopiedOrderId] = useState(null);
   const [copyFeedbackKey, setCopyFeedbackKey] = useState(0);
   const copyResetTimeoutRef = useRef(null);
+  const hasLoadedOrdersRef = useRef(false);
+
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      setDebouncedSearchOrder(searchOrder.trim());
+    }, 280);
+    return () => clearTimeout(timeoutId);
+  }, [searchOrder]);
 
   useEffect(() => {
     if (!active) return undefined;
 
-    let cancelled = false;
+    const controller = new AbortController();
     const stateQuery = orderStateFilter === 'all'
       ? ''
       : `&state_id=${encodeURIComponent(orderStateFilter)}`;
+    const searchQuery = debouncedSearchOrder
+      ? `&query=${encodeURIComponent(debouncedSearchOrder)}`
+      : '';
+    const missingQuery = onlyMissingAssociations
+      ? '&missing_association=true'
+      : '';
+    const sortQuery = `&sort_by=${encodeURIComponent(ordersSortBy)}&sort_direction=${encodeURIComponent(ordersSortDirection)}`;
 
-    setTabLoading(true);
-    apiFetch(`/api/orders?page=${ordersPage}&limit=${ordersLimit}${stateQuery}`)
-      .then(response => response.json())
+    if (!hasLoadedOrdersRef.current) setTabLoading(true);
+    else setOrdersRefreshing(true);
+    setOrdersError('');
+    apiFetch(
+      `/api/orders?page=${ordersPage}&limit=${ordersLimit}${stateQuery}${searchQuery}${missingQuery}${sortQuery}`,
+      { signal: controller.signal },
+    )
+      .then(readApiJson)
       .then(data => {
-        if (cancelled) return;
         setOrderData(data.orders || []);
         setTotalOrders(data.total || 0);
         setTotalOrdersPages(data.total_pages || 1);
         setOrdersAvailableStates(data.available_states || []);
+        setTotalProductLines(data.summary?.product_lines || 0);
+        setOrdersWithoutAssociations(data.summary?.without_associations || 0);
+        hasLoadedOrdersRef.current = true;
       })
       .catch(error => {
-        if (!cancelled) console.error(error);
+        if (error.name === 'AbortError') return;
+        console.error(error);
+        setOrdersError(
+          error.message || 'Impossibile caricare gli ordini. Riprova tra poco.',
+        );
       })
       .finally(() => {
-        if (!cancelled) setTabLoading(false);
+        if (!controller.signal.aborted) {
+          setTabLoading(false);
+          setOrdersRefreshing(false);
+        }
       });
 
-    return () => {
-      cancelled = true;
-    };
+    return () => controller.abort();
   }, [
     active,
+    debouncedSearchOrder,
+    onlyMissingAssociations,
     orderStateFilter,
     ordersLimit,
     ordersPage,
+    ordersRetryKey,
+    ordersSortBy,
+    ordersSortDirection,
     refreshKey,
     setTabLoading,
   ]);
@@ -62,21 +103,23 @@ export function useOrdersData({
     }
   }, []);
 
-  const filteredOrders = useMemo(() => orderData.filter(order =>
-    String(order.order_id).includes(searchOrder) ||
-    order.current_state_label.toLowerCase().includes(searchOrder.toLowerCase()) ||
-    order.lines.some(line =>
-      String(line.product_id).includes(searchOrder) ||
-      (line.product_name || '').toLowerCase().includes(searchOrder.toLowerCase())
-    )
-  ), [orderData, searchOrder]);
+  const clearOrderFilters = useCallback(() => {
+    setSearchOrder('');
+    setDebouncedSearchOrder('');
+    setOrderStateFilter('all');
+    setOnlyMissingAssociations(false);
+    setOrdersPage(1);
+  }, []);
 
-  const ordersWithoutAssociations = useMemo(
-    () => filteredOrders.filter(order =>
-      order.lines.some(line => line.has_association === false)
-    ).length,
-    [filteredOrders],
-  );
+  const handleOrdersSort = useCallback((column) => {
+    setOrdersPage(1);
+    if (ordersSortBy === column) {
+      setOrdersSortDirection(current => current === 'asc' ? 'desc' : 'asc');
+      return;
+    }
+    setOrdersSortBy(column);
+    setOrdersSortDirection(column === 'date_add' ? 'desc' : 'asc');
+  }, [ordersSortBy]);
 
   const handleCopyOrderId = orderId => {
     navigator.clipboard.writeText(String(orderId))
@@ -100,18 +143,28 @@ export function useOrdersData({
   return {
     copiedOrderId,
     copyFeedbackKey,
-    filteredOrders,
+    clearOrderFilters,
+    filteredOrders: orderData,
     handleCopyOrderId,
+    handleOrdersSort,
+    onlyMissingAssociations,
     ordersAvailableStates,
     ordersLimit,
     ordersPage,
+    ordersError,
+    ordersRefreshing,
+    ordersSortBy,
+    ordersSortDirection,
     ordersWithoutAssociations,
     orderStateFilter,
     searchOrder,
     setOrderStateFilter,
+    setOnlyMissingAssociations,
     setOrdersLimit,
     setOrdersPage,
     setSearchOrder,
+    retryOrders: () => setOrdersRetryKey(current => current + 1),
+    totalProductLines,
     totalOrders,
     totalOrdersPages,
   };

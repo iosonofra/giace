@@ -74,6 +74,7 @@ export function PickingSheetWriteSettings({ settings, embedded = false }) {
           </span>
           <span className="settings-switch">
             <input
+              id="picking-sheet-write-enabled"
               type="checkbox"
               checked={pickingSheetWriteEnabled}
               onChange={event => setPickingSheetWriteEnabled(event.target.checked)}

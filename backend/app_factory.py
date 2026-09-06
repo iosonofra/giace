@@ -4,6 +4,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend.api.anomalies import router as anomalies_router
@@ -52,6 +53,16 @@ API_ROUTERS = (
     imports_router,
     prestashop_router,
     settings_router,
+)
+
+FRONTEND_PAGE_PATHS = (
+    "/dashboard",
+    "/stock",
+    "/orders",
+    "/picking",
+    "/anomalies",
+    "/associations",
+    "/settings",
 )
 
 
@@ -119,6 +130,19 @@ def create_app(
         else config.frontend_dist
     )
     if static_path.exists():
+        index_path = static_path / "index.html"
+
+        def serve_frontend_page():
+            return FileResponse(index_path)
+
+        for page_path in FRONTEND_PAGE_PATHS:
+            app.add_api_route(
+                page_path,
+                serve_frontend_page,
+                methods=["GET", "HEAD"],
+                include_in_schema=False,
+            )
+
         app.mount(
             "/",
             StaticFiles(directory=static_path, html=True),

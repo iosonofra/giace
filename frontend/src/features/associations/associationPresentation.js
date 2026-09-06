@@ -1,6 +1,6 @@
 export const ASSOCIATION_FILTERS = [
   { id: 'all', label: 'Tutte' },
-  { id: 'available', label: 'Disponibili' },
+  { id: 'available', label: 'Regolare > 5' },
   { id: 'critical', label: 'Bassa ≤ 5' },
   { id: 'unavailable', label: 'Esaurite' },
 ];
@@ -30,7 +30,7 @@ export function associationAvailability(product) {
 
 export function matchesAssociationFilter(product, filter) {
   const quantity = Number(product?.qty_available || 0);
-  if (filter === 'available') return quantity > 0;
+  if (filter === 'available') return quantity > 5;
   if (filter === 'critical') return quantity > 0 && quantity <= 5;
   if (filter === 'unavailable') return quantity <= 0;
   return true;
@@ -41,7 +41,7 @@ export function summarizeAssociations(products) {
     (summary, product) => {
       const quantity = Number(product?.qty_available || 0);
       summary.total += 1;
-      if (quantity > 0) summary.available += 1;
+      if (quantity > 5) summary.available += 1;
       if (quantity > 0 && quantity <= 5) summary.critical += 1;
       if (quantity <= 0) summary.unavailable += 1;
       return summary;

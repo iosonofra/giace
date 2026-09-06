@@ -1,4 +1,6 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+
+import { createGuidedComponent } from './associationEditorModel';
 
 
 export function AssociationGuidedEditor({
@@ -16,24 +18,46 @@ export function AssociationGuidedEditor({
   warehouseSkus,
 }) {
   const previousRowCountRef = useRef(guidedComponents.length);
+  const skuInputRefs = useRef([]);
+  const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(0);
 
   useEffect(() => {
+    if (guidedComponents.length > previousRowCountRef.current) {
+      skuInputRefs.current[guidedComponents.length - 1]?.focus();
+    }
     previousRowCountRef.current = guidedComponents.length;
   }, [guidedComponents.length]);
 
   const addRow = () => {
-    setGuidedComponents(previous => [...previous, { sku: '', qty_required: 1 }]);
+    setGuidedComponents(previous => [...previous, createGuidedComponent()]);
   };
   const removeRow = index => {
     setGuidedComponents(previous => {
       const next = previous.filter((_, currentIndex) => currentIndex !== index);
-      return next.length > 0 ? next : [{ sku: '', qty_required: 1 }];
+      return next.length > 0 ? next : [createGuidedComponent()];
     });
+    setActiveAutocompleteIndex(null);
   };
   const updateRow = (index, field, value) => {
     setGuidedComponents(previous => previous.map((component, currentIndex) => (
       currentIndex === index ? { ...component, [field]: value } : component
     )));
+  };
+  const mergeDuplicateSku = sku => {
+    const target = String(sku || '').trim().toUpperCase();
+    setGuidedComponents(previous => {
+      const matching = previous.filter(component => component.sku.trim().toUpperCase() === target);
+      if (matching.length < 2) return previous;
+      const firstId = matching[0].id;
+      const totalQuantity = matching.reduce(
+        (total, component) => total + Math.max(1, Number(component.qty_required) || 1),
+        0,
+      );
+      return previous
+        .filter(component => component.sku.trim().toUpperCase() !== target || component.id === firstId)
+        .map(component => component.id === firstId ? { ...component, qty_required: totalQuantity } : component);
+    });
+    setActiveAutocompleteIndex(null);
   };
 
   return (
@@ -49,7 +73,7 @@ export function AssociationGuidedEditor({
       <div className="guided-rows-list">
         {guidedComponents.map((component, index) => {
           const query = component.sku || '';
-          const suggestions = query.length >= 1
+          const suggestions = activeAutocompleteIndex === index && query.length >= 1
             ? warehouseSkus.filter(item => (
               item.sku.toLowerCase().includes(query.toLowerCase())
               || item.description.toLowerCase().includes(query.toLowerCase())
@@ -68,7 +92,7 @@ export function AssociationGuidedEditor({
 
           return (
             <div
-              key={index}
+              key={component.id}
               className={`guided-row association-component-row ${rowTone} ${
                 guidedComponents.length > previousRowCountRef.current
                 && index >= previousRowCountRef.current
@@ -81,6 +105,7 @@ export function AssociationGuidedEditor({
                 <label htmlFor={`association-sku-${index}`}>SKU componente</label>
                 <div className="association-sku-input-wrap">
                   <input
+                    ref={element => { skuInputRefs.current[index] = element; }}
                     id={`association-sku-${index}`}
                     type="text"
                     className="settings-input sku-input"
@@ -89,8 +114,32 @@ export function AssociationGuidedEditor({
                     onChange={event => {
                       updateRow(index, 'sku', event.target.value);
                       setActiveAutocompleteIndex(index);
+                      setActiveSuggestionIndex(0);
                     }}
-                    onFocus={() => setActiveAutocompleteIndex(index)}
+                    onFocus={() => {
+                      setActiveAutocompleteIndex(index);
+                      setActiveSuggestionIndex(0);
+                    }}
+                    role="combobox"
+                    aria-autocomplete="list"
+                    aria-expanded={activeAutocompleteIndex === index && suggestions.length > 0}
+                    aria-controls={`association-sku-options-${component.id}`}
+                    aria-activedescendant={activeAutocompleteIndex === index && suggestions[activeSuggestionIndex] ? `association-sku-option-${component.id}-${activeSuggestionIndex}` : undefined}
+                    onKeyDown={event => {
+                      if (event.key === 'ArrowDown' && suggestions.length) {
+                        event.preventDefault();
+                        setActiveSuggestionIndex(current => (current + 1) % suggestions.length);
+                      } else if (event.key === 'ArrowUp' && suggestions.length) {
+                        event.preventDefault();
+                        setActiveSuggestionIndex(current => (current - 1 + suggestions.length) % suggestions.length);
+                      } else if (event.key === 'Enter' && suggestions[activeSuggestionIndex]) {
+                        event.preventDefault();
+                        updateRow(index, 'sku', suggestions[activeSuggestionIndex].sku);
+                        setActiveAutocompleteIndex(null);
+                      } else if (event.key === 'Escape') {
+                        setActiveAutocompleteIndex(null);
+                      }
+                    }}
                     onBlur={() => {
                       setTimeout(() => {
                         setActiveAutocompleteIndex(previous => (
@@ -101,11 +150,16 @@ export function AssociationGuidedEditor({
                     autoComplete="off"
                   />
                   {activeAutocompleteIndex === index && suggestions.length > 0 && (
-                    <ul className="autocomplete-dropdown">
-                      {suggestions.map(item => (
+                    <ul id={`association-sku-options-${component.id}`} className="autocomplete-dropdown" role="listbox">
+                      {suggestions.map((item, suggestionIndex) => (
                         <li
                           key={item.sku}
-                          onClick={() => {
+                          id={`association-sku-option-${component.id}-${suggestionIndex}`}
+                          role="option"
+                          aria-selected={suggestionIndex === activeSuggestionIndex}
+                          className={suggestionIndex === activeSuggestionIndex ? 'active' : ''}
+                          onMouseDown={event => {
+                            event.preventDefault();
                             updateRow(index, 'sku', item.sku);
                             setActiveAutocompleteIndex(null);
                           }}
@@ -119,11 +173,16 @@ export function AssociationGuidedEditor({
                       ))}
                     </ul>
                   )}
+                  {activeAutocompleteIndex === index && query.trim() && suggestions.length === 0 && (
+                    <div className="association-autocomplete-empty" role="status">
+                      Nessuna SKU trovata nella giacenza corrente.
+                    </div>
+                  )}
                 </div>
                 {query.trim() && (
                   <div className={`association-sku-feedback ${rowTone}`}>
                     {isDuplicate ? (
-                      <>SKU già presente in un’altra riga: al salvataggio le quantità saranno sommate.</>
+                      <><span>SKU già presente in un’altra riga.</span><button type="button" onClick={() => mergeDuplicateSku(component.sku)}>Unisci quantità</button></>
                     ) : skuMeta ? (
                       <>
                         <strong>{skuMeta.description || 'SKU presente in magazzino'}</strong>
@@ -157,11 +216,10 @@ export function AssociationGuidedEditor({
                     min="1"
                     step="1"
                     value={component.qty_required}
-                    onChange={event => updateRow(
-                      index,
-                      'qty_required',
-                      parseInt(event.target.value, 10) || 1,
-                    )}
+                    onChange={event => updateRow(index, 'qty_required', event.target.value === '' ? '' : Math.min(999, Math.max(1, parseInt(event.target.value, 10) || 1)))}
+                    onBlur={() => {
+                      if (component.qty_required === '') updateRow(index, 'qty_required', 1);
+                    }}
                   />
                   <button
                     type="button"
@@ -207,7 +265,7 @@ export function AssociationGuidedEditor({
           </div>
           <div>
             {configuredComponents.map((component, index) => (
-              <span key={`${component.sku}-${index}`}>
+              <span key={component.id || `${component.sku}-${index}`}>
                 {formatPickingQty(component.qty_required)} × {component.sku}
               </span>
             ))}

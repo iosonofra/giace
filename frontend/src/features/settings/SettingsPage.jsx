@@ -6,7 +6,23 @@ import { ExtensionSettings } from './ExtensionSettings';
 import { OrderSettings } from './OrderSettings';
 import { StockSettings } from './StockSettings';
 import { SettingsPreflightPanel } from './SettingsPreflightPanel';
-import { deriveSettingsPreflight, SETTINGS_SEARCH_TERMS } from './settingsPreflight';
+import { deriveSettingsPreflight } from './settingsPreflight';
+import { searchSettings } from './settingsSearch';
+
+function focusSettingsElement(fieldId) {
+  let element = document.getElementById(fieldId);
+  if (!element) return false;
+  if (element.matches(':disabled')) {
+    element = element.closest('.settings-linear-section')?.querySelector('h3') || element;
+  }
+  if (!element.matches('input, select, textarea, button, [tabindex]')) {
+    element.setAttribute('tabindex', '-1');
+  }
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  element.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'center' });
+  element.focus({ preventScroll: true });
+  return true;
+}
 
 export function SettingsPage({ settings }) {
   const {
@@ -52,15 +68,11 @@ export function SettingsPage({ settings }) {
   }), [connectionSettingsDirty, extensionTokenDirty, orderStatesDirty, stockSettingsDirty]);
   const hasUnsavedChanges = Object.values(dirtySections).some(Boolean);
   const preflight = useMemo(() => deriveSettingsPreflight(settings), [settings]);
-  const filteredSections = useMemo(() => {
-    const query = settingsQuery.trim().toLocaleLowerCase('it');
-    if (!query) return settingsSections;
-    return settingsSections.filter(section => (
-      `${section.label} ${SETTINGS_SEARCH_TERMS[section.id] || ''}`
-        .toLocaleLowerCase('it')
-        .includes(query)
-    ));
-  }, [settingsQuery, settingsSections]);
+  const settingsSearchResults = useMemo(
+    () => searchSettings(settingsQuery),
+    [settingsQuery],
+  );
+  const searchActive = Boolean(settingsQuery.trim());
   const hasContextualError = Boolean(
     (settingsSection === 'connection' && connectionSettingsErrorSection)
     || (settingsSection === 'extension' && extensionSettingsErrorSection)
@@ -136,7 +148,17 @@ export function SettingsPage({ settings }) {
     setSettingsFocusTarget(fieldId || '');
     changeSection(sectionId);
     if (!fieldId) return;
-    window.setTimeout(() => document.getElementById(fieldId)?.focus(), 80);
+    if (sectionId !== 'stock') {
+      window.setTimeout(() => {
+        focusSettingsElement(fieldId);
+        setSettingsFocusTarget('');
+      }, 80);
+    }
+  };
+
+  const openSearchResult = result => {
+    setSettingsQuery('');
+    openPreflightFinding(result.section, result.target);
   };
 
   const copySectionLink = async () => {
@@ -155,7 +177,7 @@ export function SettingsPage({ settings }) {
     if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
     if (!gridNavigation && ['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
     event.preventDefault();
-    const navigationSections = filteredSections.length > 0 ? filteredSections : settingsSections;
+    const navigationSections = settingsSections;
     const currentIndex = Math.max(0, navigationSections.findIndex(section => section.id === settingsSection));
     let nextIndex = currentIndex;
     if (event.key === 'Home') nextIndex = 0;
@@ -178,13 +200,49 @@ export function SettingsPage({ settings }) {
           <div><strong>Impostazioni</strong><button type="button" onClick={copySectionLink}>{linkCopied ? 'Copiato' : 'Copia link'}</button></div>
           <span>Configura la web app per area.</span>
         </div>
-        <div className="settings-category-search">
+        <div className={`settings-category-search ${searchActive ? 'has-query' : ''}`}>
           <label className="sr-only" htmlFor="settings-search">Cerca nelle impostazioni</label>
           <span aria-hidden="true">⌕</span>
-          <input id="settings-search" type="search" value={settingsQuery} onChange={event => setSettingsQuery(event.target.value)} placeholder="Cerca impostazioni" />
+          <input
+            id="settings-search"
+            type="search"
+            value={settingsQuery}
+            onChange={event => setSettingsQuery(event.target.value)}
+            onKeyDown={event => {
+              if (event.key === 'Escape') setSettingsQuery('');
+              if (event.key === 'ArrowDown' && settingsSearchResults.length > 0) {
+                event.preventDefault();
+                document.querySelector('.settings-search-result')?.focus();
+              }
+            }}
+            placeholder="Cerca una voce"
+            autoComplete="off"
+            aria-controls="settings-search-results"
+          />
         </div>
-        <div className="settings-category-list" role="tablist" aria-orientation={gridNavigation ? 'horizontal' : 'vertical'}>
-          {filteredSections.map(section => {
+        {searchActive && (
+          <div id="settings-search-results" className="settings-search-results" aria-label="Risultati impostazioni">
+            {settingsSearchResults.map(result => (
+              <button
+                key={`${result.section}-${result.target}-${result.label}`}
+                type="button"
+                className="settings-search-result"
+                onClick={() => openSearchResult(result)}
+              >
+                <strong>{result.label}</strong>
+                <small>{result.sectionLabel}</small>
+              </button>
+            ))}
+            {settingsSearchResults.length === 0 && (
+              <div className="settings-category-empty">
+                <span>Nessuna impostazione trovata.</span>
+                <button type="button" onClick={() => setSettingsQuery('')}>Azzera ricerca</button>
+              </div>
+            )}
+          </div>
+        )}
+        {!searchActive && <div className="settings-category-list" role="tablist" aria-orientation={gridNavigation ? 'horizontal' : 'vertical'}>
+          {settingsSections.map(section => {
             const summary = summaries[section.id];
             const active = settingsSection === section.id;
             return (
@@ -208,13 +266,7 @@ export function SettingsPage({ settings }) {
               </button>
             );
           })}
-        </div>
-        {filteredSections.length === 0 && (
-          <div className="settings-category-empty">
-            <span>Nessuna voce trovata.</span>
-            <button type="button" onClick={() => setSettingsQuery('')}>Azzera ricerca</button>
-          </div>
-        )}
+        </div>}
         {hasUnsavedChanges && (
           <p className="settings-category-draft-note">
             Le modifiche restano disponibili passando da una sezione all’altra.

@@ -50,6 +50,10 @@ def get_orders(
     page: int = 1,
     limit: int = 50,
     state_id: Optional[int] = None,
+    query: Optional[str] = None,
+    missing_association: bool = False,
+    sort_by: str = "date_add",
+    sort_direction: str = "desc",
     db: Session = Depends(get_db)
 ):
     return list_orders(
@@ -57,6 +61,10 @@ def get_orders(
         page=page,
         limit=limit,
         state_id=state_id,
+        query=query,
+        missing_association=missing_association,
+        sort_by=sort_by,
+        sort_direction=sort_direction,
     )
 
 

@@ -13,6 +13,7 @@ import { ToastStack } from './components/ui/ToastStack';
 import { AppHeader } from './features/app/AppHeader';
 import { AppOverlays } from './features/app/AppOverlays';
 import { AppSidebar } from './features/app/AppSidebar';
+import { createAppTabUrl, readAppTab } from './features/app/appRoutes';
 import {
   formatDate,
   getOrderStateBadgeClass,
@@ -80,9 +81,7 @@ function DeferredPageFallback() {
 
 
 function App() {
-  const [activeTab, setActiveTab] = useState(() => (
-    new URLSearchParams(window.location.search).has('settings') ? 'settings' : 'stock'
-  ));
+  const [activeTab, setActiveTab] = useState(readAppTab);
   const [, setTimeTick] = useState(Date.now());
   const [tabLoading, setTabLoading] = useState(true);
   const [toasts, setToasts] = useState([]);
@@ -165,8 +164,10 @@ function App() {
     syncingGoogleSheets,
   } = settingsData;
 
-  const handleNavigate = useCallback((nextTab) => {
+  const handleNavigate = useCallback((nextTab, { updateHistory = true } = {}) => {
     if (nextTab === activeTab) return;
+    const nextUrl = createAppTabUrl(nextTab);
+    if (!nextUrl) return;
     const needsForegroundData = [
       'anomalies',
       'associations',
@@ -179,8 +180,19 @@ function App() {
       && !(nextTab === 'settings' && settingsReady),
     );
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    if (updateHistory) {
+      window.history.pushState(window.history.state, '', nextUrl);
+    }
     setActiveTab(nextTab);
   }, [activeTab, settingsReady]);
+
+  useEffect(() => {
+    const syncTabFromHistory = () => {
+      handleNavigate(readAppTab(), { updateHistory: false });
+    };
+    window.addEventListener('popstate', syncTabFromHistory);
+    return () => window.removeEventListener('popstate', syncTabFromHistory);
+  }, [handleNavigate]);
 
   const syncActions = useSyncActions({
     refresh: refreshAppData,
@@ -270,11 +282,6 @@ function App() {
 
   const {
     setIsAssociationModalOpen,
-    setEditingProductId,
-    setIsNewAssociation,
-    setAssociationModalMode,
-    setGuidedComponents,
-    setRawAssociationText,
   } = associationEditor;
 
   const ordersState = useOrdersData({
@@ -332,12 +339,7 @@ function App() {
 
   const handleResolveMissingAssociation = (productId) => {
     handleNavigate('associations');
-    setEditingProductId(productId);
-    setIsNewAssociation(true);
-    setAssociationModalMode('guided');
-    setGuidedComponents([{ sku: '', qty_required: 1 }]);
-    setRawAssociationText('');
-    setIsAssociationModalOpen(true);
+    associationEditor.openNewAssociation(productId);
   };
 
   const {

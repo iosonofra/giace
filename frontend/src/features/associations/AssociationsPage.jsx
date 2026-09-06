@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { useExitPresence } from '../../components/ui/useExitPresence';
 import {
@@ -20,7 +20,7 @@ function SortLabel({
     <button
       type="button"
       className={`association-sort-button ${active ? 'active' : ''}`}
-      aria-pressed={active}
+      aria-label={`${children}, ordinamento ${active ? (direction === 'asc' ? 'crescente' : 'decrescente') : 'non attivo'}`}
       onClick={() => onSort(field)}
     >
       {children}
@@ -28,6 +28,49 @@ function SortLabel({
         {active ? (direction === 'asc' ? '↑' : '↓') : '↕'}
       </span>
     </button>
+  );
+}
+
+function ProductIdentity({ association, highlightText, searchProduct }) {
+  return (
+    <div className="association-product-identity-cell">
+      <strong>{highlightText(association.product_name || `Prodotto ${association.product_id}`, searchProduct)}</strong>
+      <span>
+        ID {highlightText(association.product_id, searchProduct)}
+        {association.product_reference && <> · Rif. {highlightText(association.product_reference, searchProduct)}</>}
+      </span>
+    </div>
+  );
+}
+
+function ComponentList({ components, expanded, highlightText, onToggle, searchProduct }) {
+  const visibleComponents = expanded ? components : components.slice(0, 4);
+  const remaining = components.length - visibleComponents.length;
+  return (
+    <div className="association-component-list">
+      {visibleComponents.map(component => (
+        <span key={`${component.sku}-${component.quantity}`}>
+          <code>{highlightText(component.sku, searchProduct)}</code><b>×{component.quantity}</b>
+        </span>
+      ))}
+      {(remaining > 0 || expanded && components.length > 4) && (
+        <button type="button" className="association-components-toggle" onClick={onToggle} aria-expanded={expanded}>
+          {expanded ? 'Mostra meno' : `+${remaining} altri`}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function AssociationMobileCard({ association, expanded, handleDeleteAssociation, handleOpenEditAssociation, highlightText, Icons, onToggle, searchProduct }) {
+  const availability = associationAvailability(association);
+  const components = parseAssociationComponents(association.components_str);
+  return (
+    <article className={`association-mobile-card ${availability.tone}`}>
+      <header><ProductIdentity association={association} highlightText={highlightText} searchProduct={searchProduct} /><div className={`association-availability ${availability.tone}`}><strong>{availability.quantity}</strong><span><b>{availability.label}</b><small>kit disponibili</small></span></div></header>
+      <section><span className="association-mobile-label">Componenti del kit</span><ComponentList components={components} expanded={expanded} highlightText={highlightText} onToggle={onToggle} searchProduct={searchProduct} /></section>
+      <footer><div>{association.limiting_sku ? <><span className="association-mobile-label">SKU limitante</span><code>{association.limiting_sku}</code></> : <span className="association-no-limit">Nessuna SKU limitante</span>}</div><div className="association-row-actions"><button className="btn btn-neutral btn-sm" onClick={() => handleOpenEditAssociation(association.product_id)} type="button"><Icons.Edit /> Modifica</button><button className="association-delete-action" onClick={() => handleDeleteAssociation(association.product_id)} aria-label={`Elimina associazione ${association.product_id}`} type="button"><Icons.Delete /></button></div></footer>
+    </article>
   );
 }
 
@@ -39,6 +82,12 @@ function AssociationImportDialog({
   onConfirm,
 }) {
   const presence = useExitPresence(file);
+  const modalRef = useRef(null);
+  useEffect(() => {
+    if (!file) return undefined;
+    const timeoutId = setTimeout(() => modalRef.current?.querySelector('button')?.focus(), 0);
+    return () => clearTimeout(timeoutId);
+  }, [file]);
   if (!presence.shouldRender) return null;
 
   const renderedFile = presence.renderedValue;
@@ -46,21 +95,41 @@ function AssociationImportDialog({
     <>
       <div
         className={`modal-overlay ${presence.isExiting ? 'is-exiting' : ''}`}
-        onClick={onCancel}
       />
       <div
+        ref={modalRef}
         className={`custom-modal association-import-modal ${
           presence.isExiting ? 'is-exiting' : ''
         }`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="association-import-title"
+        aria-describedby="association-import-description"
+        onKeyDown={event => {
+          if (event.key === 'Escape' && !loading) {
+            event.preventDefault();
+            event.stopPropagation();
+            onCancel();
+          } else if (event.key === 'Tab') {
+            const focusable = Array.from(modalRef.current?.querySelectorAll('button:not([disabled])') || []);
+            if (!focusable.length) return;
+            const first = focusable[0];
+            const last = focusable[focusable.length - 1];
+            if (event.shiftKey && document.activeElement === first) {
+              event.preventDefault();
+              last.focus();
+            } else if (!event.shiftKey && document.activeElement === last) {
+              event.preventDefault();
+              first.focus();
+            }
+          }
+        }}
         onTransitionEnd={presence.completeExit}
       >
-        <div className="association-import-icon" aria-hidden="true">⇧</div>
-        <span className="association-editor-eyebrow">Importazione associazioni</span>
+        <button type="button" className="modal-close association-import-close" onClick={onCancel} disabled={loading} aria-label="Chiudi importazione">×</button>
+        <div className="association-import-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M12 16V4m0 0L7 9m5-5 5 5M5 20h14" /></svg></div>
         <h3 id="association-import-title">Sostituire le associazioni attuali?</h3>
-        <p>
+        <p id="association-import-description">
           Il file <strong>{renderedFile.name}</strong> diventerà la nuova sorgente attiva.
           Prima dell’importazione verranno validate tutte le righe e le quantità.
         </p>
@@ -69,7 +138,7 @@ function AssociationImportDialog({
           resterà invariato.
         </div>
         <div className="association-import-actions">
-          <button type="button" className="btn btn-neutral" onClick={onCancel}>
+          <button type="button" className="btn btn-neutral" onClick={onCancel} disabled={loading}>
             Annulla
           </button>
           <button
@@ -91,7 +160,10 @@ function AssociationImportDialog({
 export function AssociationsPage({ associations }) {
   const {
     associationSummary,
+    associationsError,
+    associationsRefreshing,
     availabilityFilter,
+    clearAssociationFilters,
     handleDeleteAssociation,
     handleFileUpload,
     handleOpenEditAssociation,
@@ -105,6 +177,7 @@ export function AssociationsPage({ associations }) {
     productsLimit,
     productsPage,
     productSort,
+    retryAssociations,
     searchProduct,
     setAvailabilityFilter,
     setProductsLimit,
@@ -117,6 +190,7 @@ export function AssociationsPage({ associations }) {
   } = associations;
   const fileInputRef = useRef(null);
   const [pendingImportFile, setPendingImportFile] = useState(null);
+  const [expandedProducts, setExpandedProducts] = useState(() => new Set());
 
   const cancelImport = () => {
     setPendingImportFile(null);
@@ -126,26 +200,34 @@ export function AssociationsPage({ associations }) {
   const confirmImport = async () => {
     if (!pendingImportFile) return;
     const selectedFile = pendingImportFile;
-    setPendingImportFile(null);
-    await handleFileUpload(
+    const succeeded = await handleFileUpload(
       { target: { files: [selectedFile] } },
       'associations',
     );
-    if (fileInputRef.current) fileInputRef.current.value = '';
+    if (succeeded) cancelImport();
+  };
+
+  const toggleExpandedProduct = productId => {
+    setExpandedProducts(current => {
+      const next = new Set(current);
+      if (next.has(productId)) next.delete(productId);
+      else next.add(productId);
+      return next;
+    });
   };
 
   const summaryItems = [
-    { label: 'Associazioni', value: associationSummary.total, tone: 'neutral' },
-    { label: 'Disponibili', value: associationSummary.available, tone: 'success' },
-    { label: 'Disponibilità bassa', value: associationSummary.critical, tone: 'warning' },
-    { label: 'Esaurite', value: associationSummary.unavailable, tone: 'danger' },
+    { filter: 'all', label: 'Prodotti associati', value: associationSummary.total, tone: 'neutral' },
+    { filter: 'available', label: 'Disponibilità regolare', value: associationSummary.available, tone: 'success' },
+    { filter: 'critical', label: 'Disponibilità bassa', value: associationSummary.critical, tone: 'warning' },
+    { filter: 'unavailable', label: 'Esauriti', value: associationSummary.unavailable, tone: 'danger' },
   ];
+  const filtersActive = Boolean(searchProduct || availabilityFilter !== 'all');
 
   return (
     <section className="associations-workbench">
       <div className="associations-command-bar">
         <div>
-          <span className="associations-kicker">Catalogo kit</span>
           <h2>Associazioni prodotto-componenti</h2>
           <p>Controlla composizione, disponibilità risultante e collo di bottiglia di ogni kit.</p>
         </div>
@@ -187,10 +269,10 @@ export function AssociationsPage({ associations }) {
 
       <div className="associations-summary-strip" aria-label="Riepilogo associazioni">
         {summaryItems.map(item => (
-          <div key={item.label} className={`association-summary-item ${item.tone}`}>
+          <button key={item.label} type="button" className={`association-summary-item ${item.tone} ${availabilityFilter === item.filter ? 'active' : ''}`} aria-pressed={availabilityFilter === item.filter} onClick={() => setAvailabilityFilter(item.filter)}>
             <span>{item.label}</span>
             <strong>{item.value}</strong>
-          </div>
+          </button>
         ))}
       </div>
 
@@ -203,7 +285,7 @@ export function AssociationsPage({ associations }) {
           <input
             type="search"
             className="search-input"
-            placeholder="Cerca Product ID, componente o SKU limitante"
+            placeholder="Cerca prodotto, riferimento, ID o componente"
             value={searchProduct}
             onChange={event => setSearchProduct(event.target.value)}
           />
@@ -221,10 +303,13 @@ export function AssociationsPage({ associations }) {
             </button>
           ))}
         </div>
+        {filtersActive && <button type="button" className="association-clear-filters" onClick={clearAssociationFilters}>Azzera filtri</button>}
         <span className="association-result-count">
-          {sortedProducts.length} di {productData.length}
+          {associationsRefreshing ? 'Aggiornamento…' : `${sortedProducts.length} di ${productData.length}`}
         </span>
       </div>
+
+      {associationsError && <div className="associations-error-banner" role="alert"><div><strong>Associazioni non aggiornate</strong><span>{associationsError}</span></div><button type="button" className="btn btn-neutral btn-sm" onClick={retryAssociations}>Riprova</button></div>}
 
       <div className="associations-table-shell">
         {tabLoading ? (
@@ -233,20 +318,21 @@ export function AssociationsPage({ associations }) {
           <>
             <div className="table-container associations-table-scroll">
               <table className="custom-table associations-table">
+                <caption className="sr-only">Prodotti associati, componenti del kit e disponibilità risultante</caption>
                 <thead>
                   <tr>
-                    <th>
+                    <th aria-sort={productSort.field === 'product_name' ? (productSort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}>
                       <SortLabel
                         activeField={productSort.field}
                         direction={productSort.direction}
-                        field="product_id"
+                        field="product_name"
                         onSort={handleSortProduct}
                       >
                         Prodotto
                       </SortLabel>
                     </th>
                     <th>Componenti del kit</th>
-                    <th>
+                    <th aria-sort={productSort.field === 'qty_available' ? (productSort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}>
                       <SortLabel
                         activeField={productSort.field}
                         direction={productSort.direction}
@@ -256,7 +342,7 @@ export function AssociationsPage({ associations }) {
                         Disponibilità finale
                       </SortLabel>
                     </th>
-                    <th>
+                    <th aria-sort={productSort.field === 'limiting_sku' ? (productSort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}>
                       <SortLabel
                         activeField={productSort.field}
                         direction={productSort.direction}
@@ -275,39 +361,24 @@ export function AssociationsPage({ associations }) {
                     const components = parseAssociationComponents(
                       association.components_str,
                     );
-                    const visibleComponents = components.slice(0, 4);
+                    const isExpanded = expandedProducts.has(association.product_id);
                     return (
                       <tr
                         key={association.product_id}
                         className={`association-row ${availability.tone}`}
                       >
                         <td>
-                          <span className="association-product-label">Prodotto PrestaShop</span>
-                          <strong className="association-product-id">
-                            {highlightText(association.product_id, searchProduct)}
-                          </strong>
+                          <ProductIdentity association={association} highlightText={highlightText} searchProduct={searchProduct} />
                         </td>
                         <td>
-                          <div className="association-component-list">
-                            {visibleComponents.map(component => (
-                              <span key={`${component.sku}-${component.quantity}`}>
-                                <code>{highlightText(component.sku, searchProduct)}</code>
-                                <b>×{component.quantity}</b>
-                              </span>
-                            ))}
-                            {components.length > visibleComponents.length && (
-                              <span className="association-components-more">
-                                +{components.length - visibleComponents.length} altri
-                              </span>
-                            )}
-                          </div>
+                          <ComponentList components={components} expanded={isExpanded} highlightText={highlightText} onToggle={() => toggleExpandedProduct(association.product_id)} searchProduct={searchProduct} />
                         </td>
                         <td>
                           <div className={`association-availability ${availability.tone}`}>
                             <strong>{availability.quantity}</strong>
                             <span>
                               <b>{availability.label}</b>
-                              <small>kit vendibili</small>
+                              <small>kit disponibili</small>
                             </span>
                           </div>
                         </td>
@@ -349,6 +420,11 @@ export function AssociationsPage({ associations }) {
                 </tbody>
               </table>
             </div>
+            <div className="associations-mobile-list">
+              {paginatedProducts.map(association => (
+                <AssociationMobileCard key={association.product_id} association={association} expanded={expandedProducts.has(association.product_id)} handleDeleteAssociation={handleDeleteAssociation} handleOpenEditAssociation={handleOpenEditAssociation} highlightText={highlightText} Icons={Icons} onToggle={() => toggleExpandedProduct(association.product_id)} searchProduct={searchProduct} />
+              ))}
+            </div>
             <Pagination
               currentPage={productsPage}
               totalPages={totalProductsPages}
@@ -363,7 +439,6 @@ export function AssociationsPage({ associations }) {
           </>
         ) : (
           <div className="associations-empty-state">
-            <div aria-hidden="true">⇄</div>
             <strong>
               {productData.length ? 'Nessuna associazione corrisponde ai filtri' : 'Nessuna associazione configurata'}
             </strong>
@@ -372,6 +447,16 @@ export function AssociationsPage({ associations }) {
                 ? 'Modifica la ricerca o seleziona un altro stato di disponibilità.'
                 : 'Crea manualmente la prima associazione oppure importa un file Excel.'}
             </p>
+            <div className="associations-empty-actions">
+              {productData.length ? (
+                <button type="button" className="btn btn-neutral" onClick={clearAssociationFilters}>Azzera filtri</button>
+              ) : (
+                <>
+                  <button type="button" className="btn btn-primary" onClick={() => handleOpenEditAssociation(null)}><Icons.Plus /> Nuova associazione</button>
+                  <button type="button" className="btn btn-neutral" onClick={() => fileInputRef.current?.click()}><Icons.Upload /> Importa Excel</button>
+                </>
+              )}
+            </div>
           </div>
         )}
       </div>

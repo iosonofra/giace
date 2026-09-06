@@ -114,7 +114,27 @@ export function StockSettings({ settings, focusTarget = '', onFocusTargetHandled
     if (!focusTarget) return undefined;
     if (focusTarget.startsWith('picking-sheet-')) setActiveSection('writeback');
     const focusTimer = window.setTimeout(() => {
-      document.getElementById(focusTarget)?.focus();
+      let element = document.getElementById(focusTarget);
+      if (!element && focusTarget.startsWith('google-sheet-')) {
+        element = document.getElementById('stock-source-title');
+      }
+      if (!element && focusTarget.startsWith('picking-sheet-')) {
+        element = document.getElementById('picking-sheet-write-enabled')
+          || document.getElementById('stock-settings-trigger-writeback');
+      }
+      if (element?.matches(':disabled')) {
+        element = focusTarget === 'excluded-lot-keywords'
+          ? document.getElementById('exclude-return-lots')
+          : element.closest('.settings-linear-section')?.querySelector('h3') || element;
+      }
+      if (element) {
+        if (!element.matches('input, select, textarea, button, [tabindex]')) {
+          element.setAttribute('tabindex', '-1');
+        }
+        const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        element.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'center' });
+        element.focus({ preventScroll: true });
+      }
       onFocusTargetHandled?.();
     }, 100);
     return () => window.clearTimeout(focusTimer);

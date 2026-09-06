@@ -24,21 +24,8 @@ export function AppOverlays({
       <StockOrdersDrawer stock={stockUi} />
 
       <AssociationEditorModal
-        isAssociationModalOpen={associationEditor.isAssociationModalOpen}
-        setIsAssociationModalOpen={associationEditor.setIsAssociationModalOpen}
+        {...associationEditor}
         stockData={stockData}
-        guidedComponents={associationEditor.guidedComponents}
-        setGuidedComponents={associationEditor.setGuidedComponents}
-        rawAssociationText={associationEditor.rawAssociationText}
-        setRawAssociationText={associationEditor.setRawAssociationText}
-        editingProductId={associationEditor.editingProductId}
-        setEditingProductId={associationEditor.setEditingProductId}
-        isNewAssociation={associationEditor.isNewAssociation}
-        associationModalMode={associationEditor.associationModalMode}
-        setAssociationModalMode={associationEditor.setAssociationModalMode}
-        activeAutocompleteIndex={associationEditor.activeAutocompleteIndex}
-        setActiveAutocompleteIndex={associationEditor.setActiveAutocompleteIndex}
-        handleSaveAssociation={associationEditor.handleSaveAssociation}
         formatPickingQty={formatPickingQty}
         plusIcon={<Icons.Plus />}
       />

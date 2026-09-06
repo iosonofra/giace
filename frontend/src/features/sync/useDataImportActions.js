@@ -28,17 +28,20 @@ export function useDataImportActions({
           `${prefix} con successo! Record: ${data.records_imported}, Anomalie: ${data.anomalies_found}`,
         );
         refresh();
+        return true;
       } else {
         showActionMsg(
           `${useLocal ? "Errore nell'importazione" : 'Errore caricamento'}: ${data.detail}`,
           'danger',
         );
+        return false;
       }
     } catch (error) {
       showActionMsg(
         `${useLocal ? 'Errore' : 'Errore caricamento'}: ${error.message}`,
         'danger',
       );
+      return false;
     } finally {
       setSyncingStock(false);
       setLoading(false);
@@ -48,7 +51,8 @@ export function useDataImportActions({
   const handleLocalImport = fileType => importData({ fileType, useLocal: true });
   const handleFileUpload = async (event, fileType) => {
     const file = event.target.files?.[0];
-    if (file) await importData({ file, fileType, useLocal: false });
+    if (file) return importData({ file, fileType, useLocal: false });
+    return false;
   };
 
   return { handleFileUpload, handleLocalImport };

@@ -1,3 +1,14 @@
+let guidedComponentSequence = 0;
+
+export function createGuidedComponent(component = {}) {
+  guidedComponentSequence += 1;
+  return {
+    id: component.id || `association-component-${guidedComponentSequence}`,
+    sku: component.sku || '',
+    qty_required: component.qty_required ?? 1,
+  };
+}
+
 export function buildWarehouseSkuIndex(stockData) {
   const skuMap = new Map();
   stockData.forEach(item => {
@@ -31,11 +42,12 @@ export function deriveGuidedAssociation(components) {
     component.sku.trim().toUpperCase()
   ));
 
+  const duplicateSkuKeys = new Set(
+    configuredSkuKeys.filter((sku, index) => configuredSkuKeys.indexOf(sku) !== index),
+  );
   return {
     configuredComponents,
-    duplicateSkuKeys: new Set(
-      configuredSkuKeys.filter((sku, index) => configuredSkuKeys.indexOf(sku) !== index),
-    ),
+    duplicateSkuKeys,
     totalUnits: configuredComponents.reduce(
       (total, component) => total + Number(component.qty_required || 0),
       0,
@@ -47,7 +59,9 @@ export function guidedAssociationToRaw(components) {
   return components
     .filter(component => component.sku.trim())
     .map(component => (
-      Array(Number(component.qty_required) || 0).fill(component.sku.trim()).join(',')
+      Array(Math.min(999, Math.max(0, Number(component.qty_required) || 0)))
+        .fill(component.sku.trim())
+        .join(',')
     ))
     .filter(Boolean)
     .join(',');
@@ -63,8 +77,7 @@ export function rawAssociationToGuided(rawText) {
       counts[sku] = (counts[sku] || 0) + 1;
     });
   const components = Object.entries(counts).map(([sku, qty]) => ({
-    qty_required: qty,
-    sku,
+    ...createGuidedComponent({ qty_required: Math.min(qty, 999), sku }),
   }));
-  return components.length > 0 ? components : [{ qty_required: 1, sku: '' }];
+  return components.length > 0 ? components : [createGuidedComponent()];
 }

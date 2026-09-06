@@ -1,91 +1,155 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 
-import { apiFetch } from '../../api/client';
+import { apiFetch, readApiJson } from '../../api/client';
+import {
+  createGuidedComponent,
+  rawAssociationToGuided,
+} from './associationEditorModel';
 
 
-const EMPTY_COMPONENT = { sku: '', qty_required: 1 };
+function normalizedComponents(components) {
+  return components
+    .filter(component => String(component.sku || '').trim())
+    .map(component => ({
+      sku: String(component.sku).trim().toUpperCase(),
+      qty_required: Math.max(1, Number(component.qty_required) || 1),
+    }))
+    .sort((left, right) => left.sku.localeCompare(right.sku));
+}
+
+function editorSignature(productId, components) {
+  return JSON.stringify({
+    productId: String(productId || '').trim(),
+    components: normalizedComponents(components),
+  });
+}
 
 
 export function useAssociationEditor({ notify, refresh }) {
   const [isAssociationModalOpen, setIsAssociationModalOpen] = useState(false);
   const [editingProductId, setEditingProductId] = useState('');
+  const [editingProductMetadata, setEditingProductMetadata] = useState(null);
   const [isNewAssociation, setIsNewAssociation] = useState(false);
   const [associationModalMode, setAssociationModalMode] = useState('guided');
-  const [guidedComponents, setGuidedComponents] = useState([EMPTY_COMPONENT]);
+  const [guidedComponents, setGuidedComponents] = useState([createGuidedComponent()]);
   const [rawAssociationText, setRawAssociationText] = useState('');
   const [activeAutocompleteIndex, setActiveAutocompleteIndex] = useState(null);
+  const [associationEditorBaseline, setAssociationEditorBaseline] = useState(
+    editorSignature('', []),
+  );
+  const [associationEditorError, setAssociationEditorError] = useState('');
+  const [associationEditorLoading, setAssociationEditorLoading] = useState(false);
+  const [associationEditorSaving, setAssociationEditorSaving] = useState(false);
+  const [showAssociationDiscardConfirm, setShowAssociationDiscardConfirm] = useState(false);
 
-  const closeAssociationEditor = () => setIsAssociationModalOpen(false);
+  const currentComponents = useMemo(
+    () => associationModalMode === 'guided'
+      ? guidedComponents
+      : rawAssociationToGuided(rawAssociationText),
+    [associationModalMode, guidedComponents, rawAssociationText],
+  );
+  const associationEditorDirty = useMemo(
+    () => editorSignature(editingProductId, currentComponents) !== associationEditorBaseline,
+    [associationEditorBaseline, currentComponents, editingProductId],
+  );
+
+  const closeAssociationEditor = () => {
+    setIsAssociationModalOpen(false);
+    setShowAssociationDiscardConfirm(false);
+    setAssociationEditorError('');
+    setActiveAutocompleteIndex(null);
+  };
+
+  const requestCloseAssociationEditor = () => {
+    if (associationEditorSaving) return;
+    if (associationEditorDirty) {
+      setShowAssociationDiscardConfirm(true);
+      return;
+    }
+    closeAssociationEditor();
+  };
+
+  const openNewAssociation = (productId = '') => {
+    const normalizedProductId = String(productId || '');
+    const emptyComponents = [createGuidedComponent()];
+    setShowAssociationDiscardConfirm(false);
+    setAssociationEditorError('');
+    setAssociationModalMode('guided');
+    setActiveAutocompleteIndex(null);
+    setIsNewAssociation(true);
+    setEditingProductId(normalizedProductId);
+    setEditingProductMetadata(null);
+    setGuidedComponents(emptyComponents);
+    setRawAssociationText('');
+    setAssociationEditorBaseline(editorSignature(normalizedProductId, emptyComponents));
+    setIsAssociationModalOpen(true);
+  };
 
   const handleOpenEditAssociation = async (productId = null) => {
     if (!productId) {
-      setIsNewAssociation(true);
-      setEditingProductId('');
-      setAssociationModalMode('guided');
-      setGuidedComponents([EMPTY_COMPONENT]);
-      setRawAssociationText('');
-      setActiveAutocompleteIndex(null);
-      setIsAssociationModalOpen(true);
+      openNewAssociation();
       return;
     }
+    setShowAssociationDiscardConfirm(false);
+    setAssociationEditorError('');
+    setAssociationModalMode('guided');
+    setActiveAutocompleteIndex(null);
+    setIsAssociationModalOpen(true);
 
     setIsNewAssociation(false);
     setEditingProductId(String(productId));
-    setAssociationModalMode('guided');
+    setEditingProductMetadata(null);
+    setGuidedComponents([]);
+    setRawAssociationText('');
+    setAssociationEditorBaseline(editorSignature(productId, []));
+    setAssociationEditorLoading(true);
     try {
-      const response = await apiFetch(`/api/associations/${productId}`);
-      const data = await response.json();
-      if (!response.ok) {
-        notify(`Errore nel caricamento dell'associazione: ${data.detail}`, 'danger');
-        return;
-      }
+      const [data, metadataResult] = await Promise.all([
+        apiFetch(`/api/associations/${productId}`).then(readApiJson),
+        apiFetch(`/api/product-catalog/search?query=${encodeURIComponent(productId)}&limit=8`)
+          .then(readApiJson)
+          .catch(() => ({ products: [] })),
+      ]);
       const components = data.components?.length > 0
-        ? data.components.map(component => ({
-            sku: component.sku,
-            qty_required: component.qty_required,
-          }))
-        : [EMPTY_COMPONENT];
+        ? data.components.map(component => createGuidedComponent(component))
+        : [createGuidedComponent()];
       setGuidedComponents(components);
+      setEditingProductMetadata(
+        metadataResult.products?.find(product => String(product.product_id) === String(productId)) || null,
+      );
       setRawAssociationText(
         components
           .filter(component => component.sku.trim())
-          .map(component => Array(component.qty_required).fill(component.sku).join(','))
+          .map(component => Array(Math.min(999, component.qty_required)).fill(component.sku).join(','))
           .filter(Boolean)
-          .join(',')
+          .join(','),
       );
-      setActiveAutocompleteIndex(null);
-      setIsAssociationModalOpen(true);
+      setAssociationEditorBaseline(editorSignature(productId, components));
     } catch (error) {
-      notify(`Errore di connessione: ${error.message}`, 'danger');
+      setAssociationEditorError(
+        `Impossibile caricare l'associazione. ${error.message}`,
+      );
+    } finally {
+      setAssociationEditorLoading(false);
     }
   };
 
   const handleSaveAssociation = async event => {
     event?.preventDefault();
+    if (associationEditorSaving) return;
     if (!editingProductId || Number.isNaN(Number(editingProductId))) {
-      notify('Il Product ID deve essere un numero valido.', 'danger');
+      setAssociationEditorError('Seleziona un prodotto PrestaShop oppure inserisci un Product ID valido.');
       return;
     }
 
-    let components;
-    if (associationModalMode === 'guided') {
-      components = guidedComponents.filter(component => component.sku.trim());
-    } else {
-      const counts = {};
-      rawAssociationText.split(',').map(value => value.trim()).filter(Boolean).forEach(sku => {
-        counts[sku] = (counts[sku] || 0) + 1;
-      });
-      components = Object.entries(counts).map(([sku, quantity]) => ({
-        sku,
-        qty_required: quantity,
-      }));
-    }
-
+    const components = normalizedComponents(currentComponents);
     if (components.length === 0) {
-      notify('Inserisci almeno un componente SKU valido.', 'danger');
+      setAssociationEditorError('Inserisci almeno un componente SKU prima di salvare.');
       return;
     }
 
+    setAssociationEditorError('');
+    setAssociationEditorSaving(true);
     try {
       const response = await apiFetch('/api/associations', {
         method: 'POST',
@@ -95,36 +159,48 @@ export function useAssociationEditor({ notify, refresh }) {
           components,
         }),
       });
-      const data = await response.json();
-      if (!response.ok) {
-        notify(`Errore nel salvataggio: ${data.detail}`, 'danger');
-        return;
-      }
+      await readApiJson(response);
       notify('Associazione salvata con successo!');
+      setAssociationEditorBaseline(editorSignature(editingProductId, components));
       closeAssociationEditor();
       refresh();
     } catch (error) {
-      notify(`Errore: ${error.message}`, 'danger');
+      setAssociationEditorError(`Salvataggio non riuscito. ${error.message}`);
+      notify(`Errore nel salvataggio: ${error.message}`, 'danger');
+    } finally {
+      setAssociationEditorSaving(false);
     }
   };
 
   return {
-    isAssociationModalOpen,
-    setIsAssociationModalOpen,
-    closeAssociationEditor,
-    editingProductId,
-    setEditingProductId,
-    isNewAssociation,
-    setIsNewAssociation,
-    associationModalMode,
-    setAssociationModalMode,
-    guidedComponents,
-    setGuidedComponents,
-    rawAssociationText,
-    setRawAssociationText,
     activeAutocompleteIndex,
-    setActiveAutocompleteIndex,
+    associationEditorDirty,
+    associationEditorError,
+    associationEditorLoading,
+    associationEditorSaving,
+    associationModalMode,
+    closeAssociationEditor,
+    confirmCloseAssociationEditor: closeAssociationEditor,
+    editingProductId,
+    editingProductMetadata,
+    guidedComponents,
     handleOpenEditAssociation,
     handleSaveAssociation,
+    isAssociationModalOpen,
+    isNewAssociation,
+    openNewAssociation,
+    rawAssociationText,
+    requestCloseAssociationEditor,
+    setActiveAutocompleteIndex,
+    setAssociationEditorError,
+    setAssociationModalMode,
+    setEditingProductId,
+    setEditingProductMetadata,
+    setGuidedComponents,
+    setIsAssociationModalOpen,
+    setIsNewAssociation,
+    setRawAssociationText,
+    setShowAssociationDiscardConfirm,
+    showAssociationDiscardConfirm,
   };
 }

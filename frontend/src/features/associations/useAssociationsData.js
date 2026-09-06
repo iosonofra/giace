@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { apiFetch } from '../../api/client';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { apiFetch, readApiJson } from '../../api/client';
 import {
   matchesAssociationFilter,
   summarizeAssociations,
@@ -17,34 +17,46 @@ export function useAssociationsData({
   const [searchProduct, setSearchProduct] = useState('');
   const [availabilityFilter, setAvailabilityFilter] = useState('all');
   const [productSort, setProductSort] = useState({
-    field: 'product_id',
+    field: 'product_name',
     direction: 'asc',
   });
   const [productData, setProductData] = useState([]);
+  const [associationsError, setAssociationsError] = useState('');
+  const [associationsRetryKey, setAssociationsRetryKey] = useState(0);
+  const [associationsRefreshing, setAssociationsRefreshing] = useState(false);
+  const hasLoadedAssociationsRef = useRef(false);
   const [associationToDelete, setAssociationToDelete] = useState(null);
   const [showDeleteAssociationConfirm, setShowDeleteAssociationConfirm] = useState(false);
 
   useEffect(() => {
     if (!active) return undefined;
 
-    let cancelled = false;
-    setTabLoading(true);
-    apiFetch('/api/products')
-      .then(response => response.json())
+    const controller = new AbortController();
+    if (!hasLoadedAssociationsRef.current) setTabLoading(true);
+    else setAssociationsRefreshing(true);
+    setAssociationsError('');
+    apiFetch('/api/products', { signal: controller.signal })
+      .then(readApiJson)
       .then(data => {
-        if (!cancelled) setProductData(data || []);
+        setProductData(data || []);
+        hasLoadedAssociationsRef.current = true;
       })
       .catch(error => {
-        if (!cancelled) console.error(error);
+        if (error.name === 'AbortError') return;
+        console.error(error);
+        setAssociationsError(
+          error.message || 'Impossibile caricare le associazioni.',
+        );
       })
       .finally(() => {
-        if (!cancelled) setTabLoading(false);
+        if (!controller.signal.aborted) {
+          setTabLoading(false);
+          setAssociationsRefreshing(false);
+        }
       });
 
-    return () => {
-      cancelled = true;
-    };
-  }, [active, refreshKey, setTabLoading]);
+    return () => controller.abort();
+  }, [active, associationsRetryKey, refreshKey, setTabLoading]);
 
   useEffect(() => {
     setProductsPage(1);
@@ -56,6 +68,8 @@ export function useAssociationsData({
       const matchesSearch = (
         !normalizedSearch
         || String(product.product_id).includes(normalizedSearch)
+        || String(product.product_name || '').toLowerCase().includes(normalizedSearch)
+        || String(product.product_reference || '').toLowerCase().includes(normalizedSearch)
         || product.components_str.toLowerCase().includes(normalizedSearch)
         || (
           product.limiting_sku
@@ -73,6 +87,10 @@ export function useAssociationsData({
 
       if (valueA === null || valueA === undefined) valueA = '';
       if (valueB === null || valueB === undefined) valueB = '';
+      if (productSort.field === 'product_name') {
+        valueA = valueA || `ZZZ ${a.product_id}`;
+        valueB = valueB || `ZZZ ${b.product_id}`;
+      }
 
       if (typeof valueA === 'number' && typeof valueB === 'number') {
         return productSort.direction === 'asc' ? valueA - valueB : valueB - valueA;
@@ -117,6 +135,12 @@ export function useAssociationsData({
     setShowDeleteAssociationConfirm(true);
   };
 
+  const clearAssociationFilters = () => {
+    setSearchProduct('');
+    setAvailabilityFilter('all');
+    setProductsPage(1);
+  };
+
   const cancelDeleteAssociation = () => {
     setShowDeleteAssociationConfirm(false);
     setAssociationToDelete(null);
@@ -152,8 +176,11 @@ export function useAssociationsData({
   return {
     associationToDelete,
     associationSummary,
+    associationsError,
+    associationsRefreshing,
     availabilityFilter,
     cancelDeleteAssociation,
+    clearAssociationFilters,
     executeDeleteAssociation,
     handleDeleteAssociation,
     handleSortProduct,
@@ -162,6 +189,7 @@ export function useAssociationsData({
     productsLimit,
     productsPage,
     productSort,
+    retryAssociations: () => setAssociationsRetryKey(current => current + 1),
     searchProduct,
     setAssociationToDelete,
     setAvailabilityFilter,

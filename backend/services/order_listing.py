@@ -1,6 +1,6 @@
 from collections import defaultdict
 
-from sqlalchemy import desc, func
+from sqlalchemy import String, and_, asc, case, cast, desc, func, or_
 
 from backend.models import (
     ImportBatch,
@@ -17,18 +17,116 @@ def list_orders(
     page: int = 1,
     limit: int = 50,
     state_id: int | None = None,
+    query: str | None = None,
+    missing_association: bool = False,
+    sort_by: str = "date_add",
+    sort_direction: str = "desc",
 ) -> dict:
     available_states = list_available_order_states(db)
+    active_batch = (
+        db.query(ImportBatch)
+        .filter(
+            ImportBatch.file_type == "associations",
+            ImportBatch.is_active.is_(True),
+        )
+        .first()
+    )
+    active_batch_id = active_batch.id if active_batch else None
     orders_query = db.query(PrestashopOrder)
     if state_id is not None:
         orders_query = orders_query.filter(
             PrestashopOrder.current_state == state_id
         )
 
-    total_orders = orders_query.count()
+    normalized_query = (query or "").strip()
+    if normalized_query:
+        search_pattern = f"%{normalized_query}%"
+        matching_line = (
+            db.query(PrestashopOrderLine.id)
+            .filter(
+                PrestashopOrderLine.order_id == PrestashopOrder.order_id,
+                or_(
+                    cast(PrestashopOrderLine.product_id, String).ilike(search_pattern),
+                    PrestashopOrderLine.product_reference.ilike(search_pattern),
+                    PrestashopOrderLine.product_name.ilike(search_pattern),
+                ),
+            )
+            .correlate(PrestashopOrder)
+            .exists()
+        )
+        predicates = [
+            cast(PrestashopOrder.order_id, String).ilike(search_pattern),
+            PrestashopOrder.current_state_label.ilike(search_pattern),
+            cast(PrestashopOrder.current_state, String).ilike(search_pattern),
+            matching_line,
+        ]
+        if active_batch_id is not None:
+            matching_component = (
+                db.query(ProductComponent.id)
+                .join(
+                    PrestashopOrderLine,
+                    PrestashopOrderLine.product_id == ProductComponent.product_id,
+                )
+                .filter(
+                    PrestashopOrderLine.order_id == PrestashopOrder.order_id,
+                    ProductComponent.import_batch_id == active_batch_id,
+                    ProductComponent.sku.ilike(search_pattern),
+                )
+                .correlate(PrestashopOrder)
+                .exists()
+            )
+            predicates.append(matching_component)
+        orders_query = orders_query.filter(or_(*predicates))
+
+    missing_line = _missing_association_expression(db, active_batch_id)
+    if missing_association:
+        orders_query = orders_query.filter(missing_line)
+
+    component_join = and_(
+        ProductComponent.product_id == PrestashopOrderLine.product_id,
+        ProductComponent.import_batch_id == active_batch_id,
+    )
+    total_orders, total_product_lines, orders_without_associations = (
+        orders_query
+        .with_entities(
+            func.count(func.distinct(PrestashopOrder.order_id)),
+            func.count(func.distinct(PrestashopOrderLine.id)),
+            func.count(
+                func.distinct(
+                    case(
+                        (
+                            ProductComponent.id.is_(None),
+                            PrestashopOrder.order_id,
+                        ),
+                        else_=None,
+                    )
+                )
+            ),
+        )
+        .outerjoin(
+            PrestashopOrderLine,
+            PrestashopOrderLine.order_id == PrestashopOrder.order_id,
+        )
+        .outerjoin(ProductComponent, component_join)
+        .one()
+    )
+    total_orders = int(total_orders or 0)
+    total_product_lines = int(total_product_lines or 0)
+    orders_without_associations = int(orders_without_associations or 0)
+
+    sort_columns = {
+        "order_id": PrestashopOrder.order_id,
+        "state": PrestashopOrder.current_state_label,
+        "date_add": PrestashopOrder.date_add,
+    }
+    sort_column = sort_columns.get(sort_by, PrestashopOrder.date_add)
+    sort_function = asc if sort_direction == "asc" else desc
     orders = (
         orders_query
-        .order_by(desc(PrestashopOrder.date_add))
+        .order_by(
+            sort_function(sort_column),
+            desc(PrestashopOrder.order_id),
+        )
         .offset((page - 1) * limit)
         .limit(limit)
         .all()
@@ -36,6 +134,7 @@ def list_orders(
     lines_by_order, components_by_product = _load_order_details(
         db,
         orders,
+        active_batch_id=active_batch_id,
     )
 
     return {
@@ -56,7 +155,32 @@ def list_orders(
             else 1
         ),
         "available_states": available_states,
+        "summary": {
+            "product_lines": total_product_lines,
+            "without_associations": orders_without_associations,
+        },
     }
+
+
+def _missing_association_expression(db, active_batch_id):
+    component_exists = (
+        db.query(ProductComponent.id)
+        .filter(
+            ProductComponent.product_id == PrestashopOrderLine.product_id,
+            ProductComponent.import_batch_id == active_batch_id,
+        )
+        .correlate(PrestashopOrderLine)
+        .exists()
+    )
+    return (
+        db.query(PrestashopOrderLine.id)
+        .filter(
+            PrestashopOrderLine.order_id == PrestashopOrder.order_id,
+            ~component_exists,
+        )
+        .correlate(PrestashopOrder)
+        .exists()
+    )
 
 
 def list_available_order_states(db) -> list[dict]:
@@ -116,7 +240,7 @@ def list_enabled_order_states(
     ]
 
 
-def _load_order_details(db, orders):
+def _load_order_details(db, orders, *, active_batch_id=None):
     order_ids = [order.order_id for order in orders]
     if not order_ids:
         return {}, {}
@@ -134,15 +258,7 @@ def _load_order_details(db, orders):
     for line in lines:
         lines_by_order[line.order_id].append(line)
 
-    active_batch = (
-        db.query(ImportBatch)
-        .filter(
-            ImportBatch.file_type == "associations",
-            ImportBatch.is_active.is_(True),
-        )
-        .first()
-    )
-    if not active_batch or not lines:
+    if active_batch_id is None or not lines:
         return lines_by_order, {}
 
     product_ids = {
@@ -152,7 +268,7 @@ def _load_order_details(db, orders):
     components = (
         db.query(ProductComponent)
         .filter(
-            ProductComponent.import_batch_id == active_batch.id,
+            ProductComponent.import_batch_id == active_batch_id,
             ProductComponent.product_id.in_(product_ids),
         )
         .order_by(

@@ -13,9 +13,25 @@ from backend.services.association_management import (
     read_association,
     save_product_association,
 )
+from backend.services.product_metadata import search_local_product_metadata
 
 
 router = APIRouter(tags=["associations"])
+
+
+@router.get("/api/product-catalog/search")
+def search_product_catalog(
+    query: str,
+    limit: int = 8,
+    db: Session = Depends(get_db),
+):
+    return {
+        "products": search_local_product_metadata(
+            db,
+            query,
+            limit=max(1, min(limit, 20)),
+        )
+    }
 
 
 @router.get("/api/associations/export")

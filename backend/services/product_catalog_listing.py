@@ -3,7 +3,10 @@ from backend.models import (
     ImportBatch,
     ProductAvailability,
     ProductComponent,
+    PrestashopOrderLine,
+    PrestashopProductCache,
 )
+from sqlalchemy import select
 
 
 def list_products(db) -> list[dict]:
@@ -24,15 +27,47 @@ def list_products(db) -> list[dict]:
         .order_by(CalcRun.completed_at.desc())
         .first()
     )
-    components = (
-        db.query(ProductComponent)
+    latest_name = (
+        select(PrestashopOrderLine.product_name)
+        .where(
+            PrestashopOrderLine.product_id == ProductComponent.product_id,
+            PrestashopOrderLine.product_name.isnot(None),
+            PrestashopOrderLine.product_name != "",
+        )
+        .order_by(PrestashopOrderLine.id.desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+    latest_reference = (
+        select(PrestashopOrderLine.product_reference)
+        .where(
+            PrestashopOrderLine.product_id == ProductComponent.product_id,
+            PrestashopOrderLine.product_reference.isnot(None),
+            PrestashopOrderLine.product_reference != "",
+        )
+        .order_by(PrestashopOrderLine.id.desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+    component_rows = (
+        db.query(
+            ProductComponent,
+            PrestashopProductCache.product_name,
+            PrestashopProductCache.product_reference,
+            latest_name.label("order_product_name"),
+            latest_reference.label("order_product_reference"),
+        )
+        .outerjoin(
+            PrestashopProductCache,
+            PrestashopProductCache.product_id == ProductComponent.product_id,
+        )
         .filter(
             ProductComponent.import_batch_id
             == associations_batch.id,
         )
         .all()
     )
-    components_by_product = _group_components(components)
+    components_by_product, metadata_by_product = _group_components(component_rows)
     availabilities = _load_availabilities(
         db,
         latest_run,
@@ -44,19 +79,30 @@ def list_products(db) -> list[dict]:
             product_id,
             product_components,
             availabilities.get(product_id),
+            metadata_by_product.get(product_id, {}),
         )
         for product_id, product_components
         in components_by_product.items()
     ]
 
 
-def _group_components(components) -> dict:
+def _group_components(component_rows) -> tuple[dict, dict]:
     grouped = {}
-    for component in components:
+    metadata = {}
+    for row in component_rows:
+        component = row[0]
         grouped.setdefault(component.product_id, []).append(
             component
         )
-    return grouped
+        metadata.setdefault(component.product_id, {
+            "product_name": row.product_name or row.order_product_name or "",
+            "product_reference": (
+                row.product_reference
+                or row.order_product_reference
+                or ""
+            ),
+        })
+    return grouped, metadata
 
 
 def _load_availabilities(
@@ -83,6 +129,7 @@ def _serialize_product(
     product_id,
     components,
     availability,
+    metadata,
 ) -> dict:
     components_str = ", ".join(
         f"{component.sku} (x{component.qty_required})"
@@ -95,6 +142,8 @@ def _serialize_product(
     )
     return {
         "product_id": product_id,
+        "product_name": metadata.get("product_name", ""),
+        "product_reference": metadata.get("product_reference", ""),
         "components_str": components_str,
         "qty_available": (
             availability.qty_available

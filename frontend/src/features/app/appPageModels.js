@@ -36,34 +36,17 @@ export function createAppPageModels({
       syncingOrders: runtime.syncingOrders,
     },
     associationsUi: {
-      associationSummary: associations.associationSummary,
-      availabilityFilter: associations.availabilityFilter,
-      handleDeleteAssociation: (
-        associations.handleDeleteAssociation
-      ),
+      ...associations,
       handleOpenEditAssociation: (
         associationEditor.handleOpenEditAssociation
       ),
-      handleSortProduct: associations.handleSortProduct,
       handleFileUpload: syncActions.handleFileUpload,
       highlightText: shared.highlightText,
       Icons: shared.Icons,
-      paginatedProducts: associations.paginatedProducts,
       Pagination: shared.Pagination,
-      productData: associations.productData,
-      productsLimit: associations.productsLimit,
-      productsPage: associations.productsPage,
-      productSort: associations.productSort,
-      searchProduct: associations.searchProduct,
-      setProductsPage: associations.setProductsPage,
-      setProductsLimit: associations.setProductsLimit,
-      setAvailabilityFilter: associations.setAvailabilityFilter,
-      setSearchProduct: associations.setSearchProduct,
-      sortedProducts: associations.sortedProducts,
       TableSkeleton: shared.TableSkeleton,
       tabLoading: runtime.tabLoading,
       loading: appData.loading,
-      totalProductsPages: associations.totalProductsPages,
     },
     anomaliesUi: {
       anomaliesLimit: anomalies.anomaliesLimit,
@@ -108,33 +91,19 @@ export function createAppPageModels({
       tabLoading: runtime.tabLoading,
     },
     ordersUi: {
-      copiedOrderId: orders.copiedOrderId,
-      copyFeedbackKey: orders.copyFeedbackKey,
-      filteredOrders: orders.filteredOrders,
+      ...orders,
       formatDate: shared.formatDate,
       getOrderStateBadgeClass: (
         shared.getOrderStateBadgeClass
       ),
-      handleCopyOrderId: orders.handleCopyOrderId,
+      handleResolveMissingAssociation: (
+        runtime.handleResolveMissingAssociation
+      ),
       highlightText: shared.highlightText,
       loading: appData.loading,
-      ordersAvailableStates: orders.ordersAvailableStates,
-      ordersLimit: orders.ordersLimit,
-      ordersPage: orders.ordersPage,
-      ordersWithoutAssociations: (
-        orders.ordersWithoutAssociations
-      ),
-      orderStateFilter: orders.orderStateFilter,
       Pagination: shared.Pagination,
-      searchOrder: orders.searchOrder,
-      setOrderStateFilter: orders.setOrderStateFilter,
-      setOrdersLimit: orders.setOrdersLimit,
-      setOrdersPage: orders.setOrdersPage,
-      setSearchOrder: orders.setSearchOrder,
       TableSkeleton: shared.TableSkeleton,
       tabLoading: runtime.tabLoading,
-      totalOrders: orders.totalOrders,
-      totalOrdersPages: orders.totalOrdersPages,
     },
     stockUi: {
       ...stock,
