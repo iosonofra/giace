@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 class SettingsResponse(BaseModel):
     included_state_ids: list[int]
+    gaer_state_ids: list[int]
     prestashop_url: str
     prestashop_admin_url: str
     prestashop_api_key: str
@@ -35,6 +36,7 @@ class SettingsResponse(BaseModel):
 
 class SettingsUpdatePayload(BaseModel):
     included_state_ids: Any = None
+    gaer_state_ids: Any = None
     prestashop_url: Any = None
     prestashop_admin_url: Any = None
     prestashop_api_key: Any = None

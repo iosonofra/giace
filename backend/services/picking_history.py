@@ -4,6 +4,7 @@ from datetime import date
 from sqlalchemy import func, or_
 
 from backend.models import PickingSession, PickingSheetOperation
+from backend.services.datetime_serialization import utc_iso
 
 
 class PickingHistoryError(ValueError):
@@ -16,10 +17,6 @@ def _loads(value, fallback):
     except (TypeError, ValueError):
         return fallback
     return parsed
-
-
-def _iso(value):
-    return value.isoformat() if value else None
 
 
 def _date_filter(value, label):
@@ -50,8 +47,8 @@ def _summary(operation, session=None):
         "total_quantity": operation.total_qty,
         "source_type": session.source_type if session else "legacy",
         "orders_count": len(orders),
-        "created_at": _iso(operation.created_at),
-        "applied_at": _iso(operation.applied_at),
+        "created_at": utc_iso(operation.created_at),
+        "applied_at": utc_iso(operation.applied_at),
         "has_details": bool(plan.get("items") or (session and session.requirements_json)),
         "error": error_message,
     }

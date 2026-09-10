@@ -11,6 +11,7 @@ from backend.models import (
     SkuCommitment,
     WarehouseStock,
 )
+from backend.services.datetime_serialization import utc_iso
 
 
 def get_dashboard_metrics(db) -> dict:
@@ -42,17 +43,17 @@ def get_dashboard_metrics(db) -> dict:
             zero_availability_products
         ),
         "anomalies_count": anomalies_count,
-        "latest_import_warehouse": _iso_z(
+        "latest_import_warehouse": utc_iso(
             warehouse_batch.imported_at
             if warehouse_batch
             else None
         ),
-        "latest_import_associations": _iso_z(
+        "latest_import_associations": utc_iso(
             associations_batch.imported_at
             if associations_batch
             else None
         ),
-        "latest_calculation_run": _iso_z(
+        "latest_calculation_run": utc_iso(
             latest_run.completed_at
             if latest_run
             else None
@@ -182,7 +183,3 @@ def _load_latest_calculation_metrics(db):
     if not row:
         return None, 0, 0
     return row[0], row[1], row[2]
-
-
-def _iso_z(value):
-    return value.isoformat() + "Z" if value else None

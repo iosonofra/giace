@@ -10,6 +10,7 @@ function OrderReferences({ orderIds, emptyLabel = 'Nessuno' }) {
 
 function AutomaticContext({ formatPickingQty, pickingResults }) {
   const automatic = pickingResults.auto_picking || {};
+  const isGaer = pickingResults.mode === 'gaer';
 
   return (
     <>
@@ -27,14 +28,18 @@ function AutomaticContext({ formatPickingQty, pickingResults }) {
         <p>{automatic.evaluated_count || 0} ordini valutati su {automatic.candidate_count || 0}</p>
       </div>
       <div className="picking-context-card file">
-        <div>Criterio</div>
+        <div>{isGaer ? 'Sorgente disponibilità' : 'Criterio'}</div>
         <strong>
-          {automatic.selection_strategy === 'maximize_orders'
+          {isGaer
+            ? 'File Gaer per EAN13'
+            : automatic.selection_strategy === 'maximize_orders'
             ? 'Massimizza ordini'
             : (automatic.strict_chronology ? 'Coda rigida' : 'Salto intelligente')}
         </strong>
         <p>
-          Richiesta: {automatic.requested_limit || 0} ordini
+          {isGaer
+            ? `${pickingResults.gaer?.file_ean_count || 0} EAN · ${formatPickingQty(pickingResults.gaer?.file_units || 0)} unità · ${(pickingResults.gaer?.states || []).map(state => state.name).join(', ')}`
+            : `Richiesta: ${automatic.requested_limit || 0} ordini`}
           {Number(automatic.min_sku_residual || 0) > 0
             ? ` | Scorta min: ${automatic.min_sku_residual}`
             : ''}
@@ -160,7 +165,7 @@ export function PickingContextOverview({
 }) {
   return (
     <>
-      {pickingInputMode === 'file' && pickingFilesAnomalies.length > 0 && (
+      {['file', 'gaer'].includes(pickingInputMode) && pickingFilesAnomalies.length > 0 && (
         <div className="picking-anomaly-panel" role="alert">
           <span>Problemi nei file ({pickingFilesAnomalies.length})</span>
           <div className="picking-anomaly-list">
@@ -173,8 +178,8 @@ export function PickingContextOverview({
         </div>
       )}
 
-      <div className={`picking-context-grid ${pickingResults.mode === 'automatic' ? 'auto' : ''}`}>
-        {pickingResults.mode === 'automatic' ? (
+      <div className={`picking-context-grid ${['automatic', 'gaer'].includes(pickingResults.mode) ? 'auto' : ''}`}>
+        {['automatic', 'gaer'].includes(pickingResults.mode) ? (
           <AutomaticContext
             formatPickingQty={formatPickingQty}
             pickingResults={pickingResults}

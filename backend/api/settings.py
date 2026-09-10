@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 
 TRANSFERABLE_SETTING_FIELDS = {
     "included_state_ids",
+    "gaer_state_ids",
     "prestashop_url",
     "prestashop_admin_url",
     "prestashop_mock_mode",

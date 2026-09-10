@@ -9,15 +9,18 @@ export function PickingSelectedOrders({
   getStateBadgeClass,
   formatPickingQty,
 }) {
+  const sequentialMode = ['automatic', 'gaer'].includes(pickingResults.mode);
+  const gaerMode = pickingResults.mode === 'gaer';
+
   return (
     <>
-      {pickingResults.mode === 'automatic' && (
+      {sequentialMode && (
           <div className="picking-split-head success">
             <div>
               <span>Ordini proposti</span>
               <strong>{sortedPickingOrders.length} preparabili</strong>
             </div>
-            <span>Disponibili con la giacenza attuale</span>
+            <span>{gaerMode ? 'Disponibili nel file Gaer' : 'Disponibili con la giacenza attuale'}</span>
           </div>
         )}
 
@@ -46,7 +49,7 @@ export function PickingSelectedOrders({
                       <span key={copyFeedbackKey} className="picking-order-copied">Copiato</span>
                     )}
                     <span>{ord.customer_name}</span>
-                    {pickingResults.mode === 'automatic' && (
+                    {sequentialMode && (
                       <span className="picking-order-sequence">
                         Proposta #{ord.selection_position || orderIndex + 1}
                         {ord.chronological_position ? ` · Coda #${ord.chronological_position}` : ''}
@@ -82,11 +85,12 @@ export function PickingSelectedOrders({
                 <table className="custom-table picking-table picking-order-table">
                   <thead>
                     <tr>
-                      <th>SKU componente</th>
-                       <th>Descrizione magazzino</th>
+                      <th>{gaerMode ? 'EAN13' : 'SKU componente'}</th>
+                       {gaerMode && <th>Articolo</th>}
+                       <th>{gaerMode ? 'Prodotto ordine' : 'Descrizione magazzino'}</th>
                        <th className="num-col">Quantità richiesta</th>
-                       <th className="num-col">{pickingResults.mode === 'automatic' ? 'Disponibile prima' : 'Disponibile magazzino'}</th>
-                       {pickingResults.mode === 'automatic' && (
+                       <th className="num-col">{sequentialMode ? 'Disponibile prima' : 'Disponibile magazzino'}</th>
+                       {sequentialMode && (
                          <th className="num-col">Residuo dopo</th>
                        )}
                        <th className="status-col">Disponibilità</th>
@@ -102,15 +106,24 @@ export function PickingSelectedOrders({
 
                       return (
                         <tr key={item.sku} className={item.status === 'mancante' ? 'picking-row-critical' : item.status === 'parziale' ? 'picking-row-warning' : ''}>
-                          <td className="picking-sku-cell" data-label="SKU">{item.sku}</td>
+                          <td className="picking-sku-cell" data-label={gaerMode ? 'EAN13' : 'SKU'}>{item.sku}</td>
+                          {gaerMode && (
+                            <td className="picking-article-cell" data-label="Articolo">{item.article || '—'}</td>
+                          )}
                           <td className="picking-description-cell" data-label="Descrizione">
-                            {item.description}
+                            <span>{item.description}</span>
+                            {gaerMode && (
+                              <small className="picking-product-references">
+                                <span><strong>SKU prodotto</strong> {item.product_reference || '—'}</span>
+                                <span><strong>SKU fornitore</strong> {item.supplier_reference || '—'}</span>
+                              </small>
+                            )}
                           </td>
                           <td className="num-col strong-num" data-label="Richiesta">{formatPickingQty(item.qty_required)}</td>
                           <td className="num-col muted-num" data-label="Disponibile">
-                            {formatPickingQty(pickingResults.mode === 'automatic' ? item.avail_before : item.qty_stock)}
+                            {formatPickingQty(sequentialMode ? item.avail_before : item.qty_stock)}
                           </td>
-                          {pickingResults.mode === 'automatic' && (
+                          {sequentialMode && (
                             <td className="num-col strong-num" data-label="Residuo">{formatPickingQty(item.avail_after)}</td>
                           )}
                           <td className="status-col" data-label="Disponibilità">

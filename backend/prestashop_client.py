@@ -167,6 +167,46 @@ class PrestaShopClient:
 
         return self.product_resource.get_reference(product_id)
 
+    def get_product_ean_map(
+        self,
+        product_pairs: list[tuple[int, int]],
+    ) -> dict[tuple[int, int], str]:
+        normalized_pairs = sorted({
+            (int(product_id), int(attribute_id or 0))
+            for product_id, attribute_id in product_pairs
+            if int(product_id) > 0
+        })
+        if not normalized_pairs:
+            return {}
+        if self.mock_mode:
+            return {
+                (int(product_id), int(attribute_id or 0)): f"{int(product_id):013d}"[-13:]
+                for product_id, attribute_id in normalized_pairs
+            }
+        return self.product_resource.get_ean_map(normalized_pairs)
+
+    def get_product_identifier_map(
+        self,
+        product_pairs: list[tuple[int, int]],
+    ) -> dict[tuple[int, int], dict[str, str]]:
+        normalized_pairs = sorted({
+            (int(product_id), int(attribute_id or 0))
+            for product_id, attribute_id in product_pairs
+            if int(product_id) > 0
+        })
+        if not normalized_pairs:
+            return {}
+        if self.mock_mode:
+            return {
+                pair: {
+                    "ean": f"{pair[0]:013d}"[-13:],
+                    "product_reference": f"REF-{pair[0]}",
+                    "supplier_reference": f"SUP-{pair[0]}",
+                }
+                for pair in normalized_pairs
+            }
+        return self.product_resource.get_identifier_map(normalized_pairs)
+
     def get_products_details(self, product_ids: List[int]) -> Dict[int, Dict[str, str]]:
         """Recupera nome e riferimento di più prodotti con richieste batch."""
         normalized_ids = sorted({int(product_id) for product_id in product_ids if int(product_id) > 0})

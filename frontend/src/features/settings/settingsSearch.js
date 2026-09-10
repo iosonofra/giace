@@ -23,6 +23,7 @@ export const SETTINGS_SEARCH_ITEMS = Object.freeze([
 
   { section: 'orders', sectionLabel: 'Ordini', label: 'Sincronizzazione ordini PrestaShop', target: 'orders-sync-title', keywords: 'scarica aggiorna cache importazione' },
   { section: 'orders', sectionLabel: 'Ordini', label: 'Stati che scalano la disponibilità', target: 'order-states-search', keywords: 'inclusi impegnata filtro stato ordine' },
+  { section: 'orders', sectionLabel: 'Ordini', label: 'Stati predefiniti Gaer', target: 'orders-gaer-states-title', keywords: 'ean esportazione ddt prelievo disponibilita temporanea' },
 
   { section: 'extension', sectionLabel: 'Integrazioni', label: 'Estensione Chrome', target: 'extension-browser-chrome', keywords: 'browser pacchetto download installazione' },
   { section: 'extension', sectionLabel: 'Integrazioni', label: 'Estensione Firefox', target: 'extension-browser-firefox', keywords: 'browser xpi firma addons download installazione' },

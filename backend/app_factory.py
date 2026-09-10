@@ -14,6 +14,7 @@ from backend.api.extension_packages import (
     router as extension_packages_router,
 )
 from backend.api.extensions import router as extensions_router
+from backend.api.gaer import router as gaer_router
 from backend.api.imports import router as imports_router
 from backend.api.orders import router as orders_router
 from backend.api.picking import router as picking_router
@@ -51,6 +52,7 @@ API_ROUTERS = (
     extensions_router,
     extension_packages_router,
     imports_router,
+    gaer_router,
     prestashop_router,
     settings_router,
 )

@@ -9,6 +9,7 @@ from backend.models import (
     PrestashopOrder,
     PrestashopOrderLine,
 )
+from backend.services.datetime_serialization import utc_iso
 
 
 class PickingSessionError(ValueError):
@@ -135,8 +136,8 @@ def serialize_picking_session(session, *, include_details=True):
         "status": session.status,
         "source_type": session.source_type,
         "sheet_operation_id": session.sheet_operation_id,
-        "created_at": session.created_at.isoformat() if session.created_at else None,
-        "updated_at": session.updated_at.isoformat() if session.updated_at else None,
+        "created_at": utc_iso(session.created_at),
+        "updated_at": utc_iso(session.updated_at),
     }
     if include_details:
         result.update({

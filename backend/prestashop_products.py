@@ -6,6 +6,12 @@ from typing import Any, Optional
 logger = logging.getLogger(__name__)
 
 
+def _as_list(value):
+    if isinstance(value, dict):
+        return [value]
+    return value if isinstance(value, list) else []
+
+
 class PrestaShopProductResource:
     def __init__(
         self,
@@ -95,3 +101,71 @@ class PrestaShopProductResource:
                 }
 
         return products
+
+    def get_ean_map(
+        self,
+        product_pairs: list[tuple[int, int]],
+    ) -> dict[tuple[int, int], str]:
+        return {
+            key: metadata["ean"]
+            for key, metadata in self.get_identifier_map(product_pairs).items()
+        }
+
+    def get_identifier_map(
+        self,
+        product_pairs: list[tuple[int, int]],
+    ) -> dict[tuple[int, int], dict[str, str]]:
+        """Load EAN and product/supplier references in bounded batches."""
+        product_ids = sorted({int(product_id) for product_id, _ in product_pairs})
+        combination_ids = sorted({
+            int(attribute_id)
+            for _, attribute_id in product_pairs
+            if int(attribute_id or 0) > 0
+        })
+        result = {}
+        for offset in range(0, len(product_ids), 50):
+            chunk = product_ids[offset:offset + 50]
+            response = self._request_get(
+                f"{self._base_url}products",
+                params={
+                    "display": "[id,ean13,reference,supplier_reference]",
+                    "filter[id]": f"[{'|'.join(map(str, chunk))}]",
+                    "output_format": "JSON",
+                    "ws_key": self._api_key,
+                },
+                timeout=15,
+            )
+            response.raise_for_status()
+            for product in _as_list(response.json().get("products", [])):
+                if not isinstance(product, dict) or not product.get("id"):
+                    continue
+                result[(int(product["id"]), 0)] = {
+                    "ean": str(product.get("ean13") or "").strip(),
+                    "product_reference": str(product.get("reference") or "").strip(),
+                    "supplier_reference": str(product.get("supplier_reference") or "").strip(),
+                }
+
+        for offset in range(0, len(combination_ids), 50):
+            chunk = combination_ids[offset:offset + 50]
+            response = self._request_get(
+                f"{self._base_url}combinations",
+                params={
+                    "display": "[id,id_product,ean13,reference,supplier_reference]",
+                    "filter[id]": f"[{'|'.join(map(str, chunk))}]",
+                    "output_format": "JSON",
+                    "ws_key": self._api_key,
+                },
+                timeout=15,
+            )
+            response.raise_for_status()
+            for combination in _as_list(response.json().get("combinations", [])):
+                if not isinstance(combination, dict):
+                    continue
+                if not combination.get("id") or not combination.get("id_product"):
+                    continue
+                result[(int(combination["id_product"]), int(combination["id"]))] = {
+                    "ean": str(combination.get("ean13") or "").strip(),
+                    "product_reference": str(combination.get("reference") or "").strip(),
+                    "supplier_reference": str(combination.get("supplier_reference") or "").strip(),
+                }
+        return result

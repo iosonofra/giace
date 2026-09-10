@@ -10416,6 +10416,7 @@ body.light-theme .picking-alert-danger {
   height: 100%;
   border-radius: inherit;
   background: var(--color-success);
+  transform: scaleX(var(--picking-count-progress, 0));
   transform-origin: left center;
   transition: transform var(--motion-base) var(--motion-ease-standard);
 }
@@ -11266,6 +11267,40 @@ body.light-theme .picking-skipped-empty {
   color: var(--text-secondary);
 }
 
+.picking-description-cell > span {
+  display: block;
+  overflow: hidden;
+  color: var(--text-primary);
+  text-overflow: ellipsis;
+}
+
+.picking-article-cell {
+  color: var(--text-primary);
+  font-weight: var(--weight-semibold);
+  white-space: nowrap;
+}
+
+.picking-product-references {
+  display: flex;
+  gap: var(--space-sm);
+  min-width: 0;
+  margin-top: var(--space-2xs);
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  line-height: 1.35;
+  white-space: normal;
+}
+
+.picking-product-references span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.picking-product-references strong {
+  color: var(--text-secondary);
+  font-weight: var(--weight-semibold);
+}
+
 .strong-num {
   color: var(--text-primary);
   font-weight: var(--weight-semibold);
@@ -11840,6 +11875,7 @@ body.light-theme .picking-order-age {
   }
 
   .picking-results-panel .picking-table .picking-sku-cell,
+  .picking-results-panel .picking-table .picking-article-cell,
   .picking-results-panel .picking-table .picking-description-cell,
   .picking-results-panel .picking-table .status-col {
     grid-column: 1 / -1;
@@ -17877,6 +17913,256 @@ body.light-theme .associated-product-stock-group-row th {
 
 .associated-product-mobile-list {
   display: none;
+}
+
+/* Gaer picking keeps its temporary EAN stock visually separate from warehouse stock. */
+.gaer-workflow {
+  gap: 14px;
+}
+
+.gaer-intro-card,
+.gaer-config-card,
+.gaer-mapping-card {
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-primary) 3%, var(--bg-card));
+}
+
+.gaer-intro-card {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+}
+
+.gaer-intro-card h3,
+.gaer-mapping-card h3 {
+  margin: 3px 0 4px;
+  color: var(--text-primary);
+  font-size: var(--text-lg);
+}
+
+.gaer-intro-card p,
+.gaer-mapping-card p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.gaer-config-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.8fr) minmax(360px, 1.2fr);
+  gap: 12px;
+}
+
+.gaer-config-card {
+  min-width: 0;
+  padding: 16px;
+  background: var(--bg-card);
+}
+
+.gaer-card-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.gaer-card-heading > span {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 32%, var(--border-color));
+  border-radius: 7px;
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 8%, var(--bg-card));
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+}
+
+.gaer-card-heading div {
+  display: grid;
+  gap: 2px;
+}
+
+.gaer-card-heading small,
+.gaer-file-picker span {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+.gaer-file-picker {
+  display: grid;
+  gap: 4px;
+  min-height: 92px;
+  padding: 18px;
+  place-content: center;
+  text-align: center;
+  border: 1px dashed color-mix(in srgb, var(--color-primary) 35%, var(--border-color));
+  border-radius: 9px;
+  cursor: pointer;
+  transition: border-color 160ms ease, background-color 160ms ease;
+}
+
+.gaer-file-picker:hover,
+.gaer-file-picker:focus-within,
+.gaer-file-picker.has-file {
+  border-color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 6%, transparent);
+}
+
+.gaer-file-picker input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+.gaer-file-picker strong {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-weight: var(--weight-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gaer-state-list,
+.gaer-settings-state-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  max-height: 210px;
+  overflow: auto;
+  padding: 2px;
+}
+
+.gaer-state-list label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.gaer-state-list label.is-selected {
+  border-color: color-mix(in srgb, var(--color-primary) 55%, var(--border-color));
+  background: color-mix(in srgb, var(--color-primary) 7%, var(--bg-card));
+}
+
+.gaer-state-list label span {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gaer-state-list label small {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+.gaer-inline-state {
+  display: flex;
+  min-height: 90px;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  color: var(--text-secondary);
+}
+
+.gaer-inline-state.is-error {
+  flex-direction: column;
+  color: var(--color-danger);
+}
+
+.gaer-mapping-card {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.8fr) minmax(380px, 1.2fr);
+  align-items: end;
+  gap: 18px;
+  padding: 16px 18px;
+  border-color: color-mix(in srgb, var(--color-warning) 35%, var(--border-color));
+  background: color-mix(in srgb, var(--color-warning) 6%, var(--bg-card));
+}
+
+.gaer-mapping-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.gaer-mapping-fields label {
+  display: grid;
+  gap: 6px;
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+
+.gaer-mapping-fields select {
+  min-width: 0;
+  min-height: 42px;
+  padding: 0 36px 0 11px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--text-primary);
+  background: var(--bg-card);
+}
+
+.gaer-settings-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.gaer-settings-copy {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.gaer-settings-copy > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.gaer-settings-copy span {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.gaer-settings-quick-actions {
+  display: flex;
+  gap: 6px;
+}
+
+@media (max-width: 760px) {
+  .gaer-config-grid,
+  .gaer-mapping-card,
+  .gaer-mapping-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .gaer-state-list,
+  .gaer-settings-state-list {
+    grid-template-columns: 1fr;
+  }
+
+  .gaer-intro-card,
+  .gaer-settings-copy {
+    align-items: stretch;
+    flex-direction: column;
+  }
 }
 
 @media (max-width: 760px) {

@@ -27,7 +27,11 @@ export function PickingOrdersView({
   sortedPickingOrders,
   visibleAutomaticRemainingOrders,
 }) {
-  const automaticMode = pickingResults.mode === 'automatic';
+  const automaticMode = ['automatic', 'gaer'].includes(pickingResults.mode);
+  const gaerMode = pickingResults.mode === 'gaer';
+  const activeResultView = gaerMode && autoPickingResultView === 'remaining'
+    ? 'selected'
+    : autoPickingResultView;
 
   return (
     <div className={automaticMode ? 'picking-automatic-split' : ''}>
@@ -39,9 +43,9 @@ export function PickingOrdersView({
         >
           <button
             type="button"
-            className={autoPickingResultView === 'selected' ? 'active success' : ''}
+            className={activeResultView === 'selected' ? 'active success' : ''}
             role="tab"
-            aria-selected={autoPickingResultView === 'selected'}
+            aria-selected={activeResultView === 'selected'}
             onClick={() => setAutoPickingResultView('selected')}
           >
             <span>Proposti</span>
@@ -49,15 +53,15 @@ export function PickingOrdersView({
           </button>
           <button
             type="button"
-            className={autoPickingResultView === 'skipped' ? 'active danger' : ''}
+            className={activeResultView === 'skipped' ? 'active danger' : ''}
             role="tab"
-            aria-selected={autoPickingResultView === 'skipped'}
+            aria-selected={activeResultView === 'skipped'}
             onClick={() => setAutoPickingResultView('skipped')}
           >
             <span>Saltati</span>
             <strong>{pickingResults.skipped_orders?.length || 0}</strong>
           </button>
-          <button
+          {!gaerMode && <button
             type="button"
             className={autoPickingResultView === 'remaining' ? 'active warning' : ''}
             role="tab"
@@ -66,11 +70,11 @@ export function PickingOrdersView({
           >
             <span>Fuori proposta</span>
             <strong>{automaticRemainingCount}</strong>
-          </button>
+          </button>}
         </div>
       )}
 
-      {(!automaticMode || autoPickingResultView === 'selected') && (
+      {(!automaticMode || activeResultView === 'selected') && (
         <PickingSelectedOrders
           pickingResults={pickingResults}
           sortedPickingOrders={sortedPickingOrders}
@@ -84,7 +88,7 @@ export function PickingOrdersView({
         />
       )}
 
-      {automaticMode && autoPickingResultView === 'skipped' && (
+      {automaticMode && activeResultView === 'skipped' && (
         <AutomaticSkippedOrders
           pickingResults={pickingResults}
           handleCopyOrderId={handleCopyOrderId}
@@ -96,7 +100,7 @@ export function PickingOrdersView({
         />
       )}
 
-      {automaticMode && autoPickingResultView === 'remaining' && (
+      {automaticMode && !gaerMode && activeResultView === 'remaining' && (
         <AutomaticRemainingOrders
           automaticRemainingCount={automaticRemainingCount}
           hasAutomaticRemainingDetails={hasAutomaticRemainingDetails}

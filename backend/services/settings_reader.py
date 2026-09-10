@@ -75,6 +75,9 @@ def read_settings(
         "included_state_ids": json.loads(
             settings.get("included_state_ids", "[12]")
         ),
+        "gaer_state_ids": json.loads(
+            settings.get("gaer_state_ids", "[]")
+        ),
         "prestashop_url": settings.get(
             "prestashop_url",
             environment.get("PRESTASHOP_URL", ""),

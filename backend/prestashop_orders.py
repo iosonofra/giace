@@ -326,6 +326,10 @@ class PrestaShopOrderResource:
                 else 0
             ),
             "product_reference": line.get("product_reference", ""),
+            "product_supplier_reference": line.get(
+                "product_supplier_reference",
+                "",
+            ),
             "product_name": (
                 self._clean_name(line.get("product_name")) or ""
             ),

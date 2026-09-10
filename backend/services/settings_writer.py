@@ -179,11 +179,13 @@ def write_settings(
         request_get,
     )
 
-    state_ids = payload.get("included_state_ids")
-    if state_ids is not None:
+    for state_key in ("included_state_ids", "gaer_state_ids"):
+        state_ids = payload.get(state_key)
+        if state_ids is None:
+            continue
         if not isinstance(state_ids, list):
             raise SettingsValidationError(
-                "Formato non valido. 'included_state_ids' deve essere "
+                f"Formato non valido. '{state_key}' deve essere "
                 "una lista di interi."
             )
         try:
@@ -192,7 +194,9 @@ def write_settings(
             raise SettingsValidationError(
                 "Tutti gli ID degli stati devono essere numeri interi."
             ) from error
-        _upsert(db, "included_state_ids", json.dumps(parsed_ids))
+        if len(parsed_ids) > 50 or any(state_id <= 0 for state_id in parsed_ids):
+            raise SettingsValidationError("Gli ID degli stati devono essere positivi (massimo 50).")
+        _upsert(db, state_key, json.dumps(list(dict.fromkeys(parsed_ids))))
 
     string_fields = {
         "prestashop_url": "L'URL deve essere una stringa.",

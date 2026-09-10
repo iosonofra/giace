@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { PickingAutomaticPlanner } from './PickingAutomaticPlanner';
 import { PickingFileInput } from './PickingFileInput';
 import { PickingHistoryDialog } from './PickingHistoryDialog';
+import { PickingGaerInput } from './PickingGaerInput';
 import { PickingResultsPanel } from './PickingResultsPanel';
 import { PickingStateInput } from './PickingStateInput';
 import { PickingTextInput } from './PickingTextInput';
@@ -26,6 +27,7 @@ export function PickingPage({
   setFileSummary,
   onNewOperation,
   stateInputProps,
+  gaerInputProps,
   automaticPlannerProps,
   resultsProps,
   LoadingSkeleton,
@@ -34,11 +36,12 @@ export function PickingPage({
   const [resultSourceMode, setResultSourceMode] = useState(inputMode);
   const inputModeRef = useRef(inputMode);
   inputModeRef.current = inputMode;
-  const inputModes = ['text', 'file', 'state', 'automatic'];
+  const inputModes = ['text', 'file', 'state', 'gaer', 'automatic'];
   const inputModeLabels = {
     text: 'ID incollati',
     file: 'File Excel',
     state: 'Stato ordine',
+    gaer: 'Gaer',
     automatic: 'Proposta automatica',
   };
 
@@ -76,7 +79,7 @@ export function PickingPage({
         <div className="picking-section-head">
           <div>
             <h2 className="widget-title">Pianificazione prelievo</h2>
-            <p>Inserisci gli ordini da testo, Excel, stato PrestaShop o proposta automatica.</p>
+            <p>Inserisci gli ordini da testo, Excel, stato PrestaShop, disponibilità Gaer o proposta automatica.</p>
           </div>
           <PickingHistoryDialog />
         </div>
@@ -87,7 +90,7 @@ export function PickingPage({
               <span>Origine del calcolo</span>
               <strong>{inputModeLabels[resultSourceMode]}</strong>
               <small>
-                {results.orders_found?.length || 0} ordini · {results.sku_requirements?.length || 0} SKU
+                {results.orders_found?.length || 0} ordini · {results.sku_requirements?.length || 0} {results.mode === 'gaer' ? 'EAN' : 'SKU'}
               </small>
             </div>
             <div className="picking-source-actions">
@@ -164,6 +167,18 @@ export function PickingPage({
             Stato ordine
           </button>
           <button
+            id="picking-mode-tab-gaer"
+            type="button"
+            className={`picking-mode-btn ${inputMode === 'gaer' ? 'active' : ''}`}
+            role="tab"
+            aria-selected={inputMode === 'gaer'}
+            aria-controls="picking-mode-panel"
+            tabIndex={inputMode === 'gaer' ? 0 : -1}
+            onClick={() => selectMode('gaer')}
+          >
+            Gaer
+          </button>
+          <button
             id="picking-mode-tab-automatic"
             type="button"
             className={`picking-mode-btn ${inputMode === 'automatic' ? 'active' : ''}`}
@@ -217,6 +232,8 @@ export function PickingPage({
             />
           ) : inputMode === 'state' ? (
             <PickingStateInput {...stateInputProps} />
+          ) : inputMode === 'gaer' ? (
+            <PickingGaerInput {...gaerInputProps} />
           ) : (
             <PickingAutomaticPlanner {...automaticPlannerProps} />
           )}

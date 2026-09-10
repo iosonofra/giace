@@ -78,7 +78,7 @@ export function derivePickingPresentation({
     return true;
   });
 
-  const sortedPickingOrders = results?.mode === 'automatic'
+  const sortedPickingOrders = ['automatic', 'gaer'].includes(results?.mode)
     ? pickingOrders
     : [...pickingOrders].sort((first, second) => {
       const firstMeta = getOrderPickingMeta(first);
@@ -106,6 +106,24 @@ export function derivePickingPresentation({
 }
 
 function addAutomaticHeader(lines, results, remainingCount, simulationSummary, includeUnits) {
+  if (results.mode === 'gaer') {
+    const gaer = results.gaer || {};
+    lines.push(
+      'Modalità: Gaer per EAN13',
+      `File: ${gaer.filename || 'non disponibile'}`,
+      `Stati ordine: ${(gaer.states || []).map(state => state.name).join(', ') || 'non disponibili'}`,
+      `EAN disponibili nel file: ${gaer.file_ean_count || 0}`,
+      `Ordini preparabili: ${results.selected_orders?.length || 0}`,
+      `Ordini saltati: ${results.skipped_orders?.length || 0}`,
+    );
+    if (includeUnits) {
+      lines.push(
+        `Unità da prelevare: ${formatPickingQty(simulationSummary.selected_units)}`,
+        `EAN coinvolti: ${simulationSummary.selected_distinct_skus || 0}`,
+      );
+    }
+    return;
+  }
   const entries = [
     `Modalità automatica: ${getAutomaticModeLabel(results)}`,
     `Scorta minima SKU: ${results.auto_picking?.min_sku_residual || 0}`,
@@ -138,31 +156,38 @@ export function buildPickingClipboardText(results, viewMode, now = new Date()) {
     const lines = [
       '=== LISTA PRELIEVO (AGGREGATA) ===',
       `Data: ${now.toLocaleString('it-IT')}`,
-      `Ordini trovati nel database: ${(results.orders_found || []).join(', ')}`,
+      results.mode === 'gaer'
+        ? `Ordini proposti: ${(results.orders_found || []).join(', ') || 'nessuno'}`
+        : `Ordini trovati nel database: ${(results.orders_found || []).join(', ')}`,
     ];
-    if (results.mode === 'automatic') addAutomaticHeader(lines, results, remainingCount, simulationSummary, true);
+    if (['automatic', 'gaer'].includes(results.mode)) addAutomaticHeader(lines, results, remainingCount, simulationSummary, true);
     lines.push(
-      results.orders_missing?.length > 0
-        ? `Ordini non trovati: ${results.orders_missing.join(', ')}`
-        : 'Tutti gli ordini sono stati trovati nel database.',
+      results.mode === 'gaer'
+        ? 'Gli ordini non preparabili sono stati saltati senza consumare disponibilità.'
+        : results.orders_missing?.length > 0
+          ? `Ordini non trovati: ${results.orders_missing.join(', ')}`
+          : 'Tutti gli ordini sono stati trovati nel database.',
       '',
-      'SKU | DESCRIZIONE | RICHIESTO | DISPONIBILE | STATO',
+      results.mode === 'gaer'
+        ? 'EAN | ARTICOLO | DESCRIZIONE | RICHIESTO | DISPONIBILE | STATO'
+        : 'SKU | DESCRIZIONE | RICHIESTO | DISPONIBILE | STATO',
       '-------------------------------------------------------',
     );
     requirements.forEach((requirement) => {
       const difference = requirement.qty_stock - requirement.qty_required;
       const status = difference >= 0 ? 'Disponibile' : `Mancano ${Math.abs(difference)}`;
-      const residual = results.mode === 'automatic'
+      const residual = ['automatic', 'gaer'].includes(results.mode)
         ? ` | Residuo simulato: ${formatPickingQty(getPickingRemainingQty(requirement))}`
         : '';
-      lines.push(`${requirement.sku} | ${requirement.description} | Richiesto: ${formatPickingQty(requirement.qty_required)} | Stock: ${formatPickingQty(requirement.qty_stock)}${residual} | ${status}`);
+      const article = results.mode === 'gaer' ? ` | ${requirement.article || '—'}` : '';
+      lines.push(`${requirement.sku}${article} | ${requirement.description} | Richiesto: ${formatPickingQty(requirement.qty_required)} | Stock: ${formatPickingQty(requirement.qty_stock)}${residual} | ${status}`);
     });
     return lines.join('\n');
   }
 
   if (!results.order_requirements) return '';
   const lines = ['=== DETTAGLIO PRELIEVO PER ORDINE ===', `Data: ${now.toLocaleString('it-IT')}`, ''];
-  if (results.mode === 'automatic') {
+  if (['automatic', 'gaer'].includes(results.mode)) {
     addAutomaticHeader(lines, results, remainingCount, simulationSummary, false);
     lines.push('');
   }
@@ -171,7 +196,7 @@ export function buildPickingClipboardText(results, viewMode, now = new Date()) {
     const orderDate = order.date_add ? ` - Data: ${new Date(order.date_add).toLocaleString('it-IT')}` : '';
     const orderAge = order.date_add ? ` - Eta: ${getRelativeTimeString(order.date_add)}` : '';
     const orderState = order.current_state_label ? ` - Stato: ${order.current_state_label}` : '';
-    const queueMeta = results.mode === 'automatic'
+    const queueMeta = ['automatic', 'gaer'].includes(results.mode)
       ? ` - Proposta: ${order.selection_position || orderIndex + 1}${order.chronological_position ? ` - Posizione cronologica: ${order.chronological_position}` : ''}`
       : '';
     lines.push(`Ordine: ${order.order_id} - Cliente: ${order.customer_name}${queueMeta}${orderDate}${orderAge}${orderState}`);
@@ -180,10 +205,11 @@ export function buildPickingClipboardText(results, viewMode, now = new Date()) {
       let status = `Mancante (Richiesto: ${requirement.qty_required})`;
       if (requirement.status === 'disponibile') status = `Disponibile (Residuo: ${requirement.avail_after})`;
       else if (requirement.status === 'parziale') status = `Parziale (Coperti ${requirement.qty_fulfilled} di ${requirement.qty_required})`;
-      const stock = results.mode === 'automatic'
+      const stock = ['automatic', 'gaer'].includes(results.mode)
         ? ` | Prima: ${formatPickingQty(requirement.avail_before)} | Dopo: ${formatPickingQty(requirement.avail_after)}`
         : ` | Stock: ${formatPickingQty(requirement.qty_stock)}`;
-      lines.push(`- SKU: ${requirement.sku} | ${requirement.description} | Richiesto: ${formatPickingQty(requirement.qty_required)}${stock} | ${status}`);
+      const article = results.mode === 'gaer' ? ` | Articolo: ${requirement.article || '—'}` : '';
+      lines.push(`- ${results.mode === 'gaer' ? 'EAN' : 'SKU'}: ${requirement.sku}${article} | ${requirement.description} | Richiesto: ${formatPickingQty(requirement.qty_required)}${stock} | ${status}`);
     });
     lines.push('');
   });

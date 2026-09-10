@@ -38,6 +38,7 @@ export function SettingsPage({ settings }) {
     lastConnectionTestAt,
     orderSettingsError,
     orderStatesDirty,
+    gaerStatesDirty,
     prestashopStatusLabel,
     prestashopStatusTone,
     prestashopMockMode,
@@ -63,9 +64,9 @@ export function SettingsPage({ settings }) {
     connection: Boolean(connectionSettingsDirty),
     extension: Boolean(extensionTokenDirty),
     stock: Boolean(stockSettingsDirty),
-    orders: Boolean(orderStatesDirty),
+    orders: Boolean(orderStatesDirty || gaerStatesDirty),
     backup: false,
-  }), [connectionSettingsDirty, extensionTokenDirty, orderStatesDirty, stockSettingsDirty]);
+  }), [connectionSettingsDirty, extensionTokenDirty, gaerStatesDirty, orderStatesDirty, stockSettingsDirty]);
   const hasUnsavedChanges = Object.values(dirtySections).some(Boolean);
   const preflight = useMemo(() => deriveSettingsPreflight(settings), [settings]);
   const settingsSearchResults = useMemo(
@@ -124,8 +125,8 @@ export function SettingsPage({ settings }) {
       tone: stockSettingsDirty ? 'warning' : googleSheetLastError ? 'danger' : stockSource === 'google_sheets' && googleSheetLastSync ? 'success' : 'neutral',
     },
     orders: {
-      value: orderStatesDirty ? 'Modifiche da salvare' : `${selectedStates.length} stati inclusi`,
-      tone: orderStatesDirty ? 'warning' : 'success',
+      value: orderStatesDirty || gaerStatesDirty ? 'Modifiche da salvare' : `${selectedStates.length} stati inclusi`,
+      tone: orderStatesDirty || gaerStatesDirty ? 'warning' : 'success',
     },
     extension: {
       value: extensionTokenDirty

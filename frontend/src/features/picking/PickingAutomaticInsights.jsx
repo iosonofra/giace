@@ -43,13 +43,15 @@ function ExcludedOrdersSection({
   );
 }
 
-function SimulationSummary({ formatPickingQty, summary }) {
+function SimulationSummary({ formatPickingQty, isGaer, summary }) {
   return (
     <section className="picking-simulation-summary" aria-label="Riepilogo scalatura giacenze">
       <div className="picking-simulation-head">
         <div>
           <span>Impatto della simulazione</span>
-          <strong>La giacenza viene scalata in sequenza solo per gli ordini proposti</strong>
+          <strong>{isGaer
+            ? 'La disponibilità del file viene scalata solo per gli ordini completamente preparabili'
+            : 'La giacenza viene scalata in sequenza solo per gli ordini proposti'}</strong>
         </div>
         <span className="badge badge-neutral">Nessuna prenotazione reale</span>
       </div>
@@ -59,11 +61,11 @@ function SimulationSummary({ formatPickingQty, summary }) {
           <strong>{formatPickingQty(summary.selected_units)}</strong>
         </div>
         <div className="picking-decision-item">
-          <span>SKU coinvolte</span>
+          <span>{isGaer ? 'EAN coinvolti' : 'SKU coinvolte'}</span>
           <strong>{summary.selected_distinct_skus || 0}</strong>
         </div>
         <div className="picking-decision-item">
-          <span>Stock iniziale sulle SKU usate</span>
+          <span>{isGaer ? 'Disponibilità iniziale sugli EAN usati' : 'Stock iniziale sulle SKU usate'}</span>
           <strong>{formatPickingQty(summary.initial_units_on_touched_skus)}</strong>
         </div>
         <div className="picking-decision-item warning">
@@ -142,8 +144,8 @@ function SkippedOrdersSummary({
               </div>
               {order.missing_items?.length > 0 ? (
                 <div className="picking-skip-missing-list">
-                  {order.missing_items.map(item => (
-                    <span key={item.sku} className="picking-skip-missing-chip">
+                  {order.missing_items.map((item, itemIndex) => (
+                    <span key={`${item.sku}-${itemIndex}`} className="picking-skip-missing-chip">
                       <strong>{item.sku}</strong>
                       <span>
                         {item.violation_type === 'protected_residual'
@@ -190,7 +192,8 @@ export function PickingAutomaticInsights({
   pickingResults,
   pickingViewMode,
 }) {
-  if (pickingResults.mode !== 'automatic') return null;
+  if (!['automatic', 'gaer'].includes(pickingResults.mode)) return null;
+  const isGaer = pickingResults.mode === 'gaer';
 
   return (
     <>
@@ -213,8 +216,15 @@ export function PickingAutomaticInsights({
       />
       <SimulationSummary
         formatPickingQty={formatPickingQty}
+        isGaer={isGaer}
         summary={automaticSimulationSummary}
       />
+      {isGaer && pickingResults.gaer?.file_warnings?.length > 0 && (
+        <div className="picking-alert picking-alert-warning" role="status">
+          <strong>{pickingResults.gaer.file_warnings.length} righe del file ignorate.</strong>
+          <span>Le righe valide sono state comunque elaborate.</span>
+        </div>
+      )}
       {pickingViewMode === 'aggregated' && (
         <SkippedOrdersSummary
           copiedOrderId={copiedOrderId}

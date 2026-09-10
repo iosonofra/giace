@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from backend.database import get_db
 from backend.models import ImportAnomaly, PrestashopOrder, PrestashopOrderLine
+from backend.services.datetime_serialization import utc_iso
 
 
 router = APIRouter(tags=["anomalies"])
@@ -65,7 +66,7 @@ def get_anomalies(db: Session = Depends(get_db)):
             "current_state_label": (order.current_state_label or f"Stato {order.current_state}") if order else "",
             "anomaly_type": anomaly.anomaly_type,
             "message": anomaly.message,
-            "created_at": anomaly.created_at.isoformat() + "Z" if anomaly.created_at else None
+            "created_at": utc_iso(anomaly.created_at)
         })
     return result
 

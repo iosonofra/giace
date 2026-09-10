@@ -2,6 +2,7 @@ export function PickingResultsHeader({
   clearCountedPickingSkus,
   countedPickingSkus,
   handleCopyPickingList,
+  handleExportGaer,
   pickingCopyState,
   pickingCountingMode,
   pickingLoading,
@@ -10,7 +11,11 @@ export function PickingResultsHeader({
   togglePickingCountingMode,
   totalPickingSkus,
   sheetWrite,
+  resultMode,
+  gaerExporting,
+  gaerExportError,
 }) {
+  const itemLabel = resultMode === 'gaer' ? 'EAN' : 'SKU';
   const counted = countedPickingSkus.size;
   const progress = totalPickingSkus > 0
     ? Math.min(100, Math.round((counted / totalPickingSkus) * 100))
@@ -60,7 +65,7 @@ export function PickingResultsHeader({
               tabIndex={pickingViewMode === 'aggregated' ? 0 : -1}
               onClick={() => setPickingViewMode('aggregated')}
             >
-              Per SKU
+              Per {itemLabel}
             </button>
             <button
               id="picking-results-tab-by_order"
@@ -96,6 +101,18 @@ export function PickingResultsHeader({
               Registra su Sheets <span className="badge">Beta</span>
             </button>
           )}
+          {resultMode === 'gaer' && (
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={handleExportGaer}
+              disabled={gaerExporting || totalPickingSkus === 0}
+              aria-busy={gaerExporting}
+              title={totalPickingSkus === 0 ? 'Nessun ordine proposto da esportare' : undefined}
+            >
+              {gaerExporting ? 'Esportazione…' : 'Esporta file Gaer'}
+            </button>
+          )}
           <details className="picking-more-actions">
             <summary className="btn btn-neutral">Altre azioni</summary>
             <div className="picking-more-actions-menu">
@@ -115,21 +132,26 @@ export function PickingResultsHeader({
           </details>
         </div>
       </div>
+      {gaerExportError && (
+        <div className="info-box info-box-danger" role="alert">
+          {gaerExportError}
+        </div>
+      )}
       {pickingViewMode === 'aggregated' && (pickingCountingMode || counted > 0) && (
         <div className="picking-counting-progress" aria-live="polite">
           <div className="picking-counting-progress-copy">
             <strong>{counted === totalPickingSkus && totalPickingSkus > 0 ? 'Conteggio completato' : 'Conteggio in corso'}</strong>
-            <span>{counted} di {totalPickingSkus} SKU verificati</span>
+            <span>{counted} di {totalPickingSkus} {itemLabel} verificati</span>
           </div>
           <div
             className="picking-counting-progress-track"
             role="progressbar"
-            aria-label="Avanzamento conteggio"
+            aria-label={`Avanzamento conteggio ${itemLabel}`}
             aria-valuemin="0"
             aria-valuemax={totalPickingSkus}
             aria-valuenow={counted}
           >
-            <span style={{ transform: `scaleX(${progress / 100})` }} />
+            <span style={{ '--picking-count-progress': progress / 100 }} />
           </div>
         </div>
       )}

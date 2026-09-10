@@ -24,6 +24,7 @@ def _default_values(environment: Mapping[str, str]) -> dict[str, str]:
 
     return {
         "included_state_ids": _default_state_ids(environment),
+        "gaer_state_ids": "[]",
         "prestashop_url": environment.get("PRESTASHOP_URL", ""),
         "prestashop_admin_url": "",
         "prestashop_api_key": environment.get("PRESTASHOP_API_KEY", ""),

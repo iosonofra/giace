@@ -12,11 +12,14 @@ export function PickingAggregatedView({
   togglePickingSkuCounted,
   visiblePickingRequirements,
 }) {
+  const sequentialMode = ['automatic', 'gaer'].includes(pickingResults.mode);
+  const gaerMode = pickingResults.mode === 'gaer';
+
   return (
     <>
       <div className="picking-table-controls">
         <span className="picking-filter-label">Mostra:</span>
-        <div className="picking-filter-group" aria-label="Filtro SKU prelievo">
+        <div className="picking-filter-group" aria-label={`Filtro ${gaerMode ? 'EAN' : 'SKU'} prelievo`}>
           <button
             type="button"
             className={pickingRequirementFilter === 'missing' ? 'active' : ''}
@@ -50,15 +53,16 @@ export function PickingAggregatedView({
             <thead>
               <tr>
                 {pickingCountingMode && <th className="picking-count-col"><span className="sr-only">Conteggio</span></th>}
-                <th>SKU componente</th>
-                <th>Descrizione magazzino</th>
+                <th>{gaerMode ? 'EAN13' : 'SKU componente'}</th>
+                {gaerMode && <th>Articolo</th>}
+                <th>{gaerMode ? 'Prodotto Gaer' : 'Descrizione magazzino'}</th>
                 <th className="num-col">
-                  {pickingResults.mode === 'automatic' ? 'Da prelevare' : 'Quantità richiesta'}
+                  {sequentialMode ? 'Da prelevare' : 'Quantità richiesta'}
                 </th>
                 <th className="num-col">
-                  {pickingResults.mode === 'automatic' ? 'Stock iniziale' : 'Disponibile magazzino'}
+                  {gaerMode ? 'Disponibilità file' : sequentialMode ? 'Stock iniziale' : 'Disponibile magazzino'}
                 </th>
-                {pickingResults.mode === 'automatic' && (
+                {sequentialMode && (
                   <>
                     <th className="num-col">Residuo simulato</th>
                     <th className="num-col">Utilizzo</th>
@@ -109,15 +113,26 @@ export function PickingAggregatedView({
                         </button>
                       </td>
                     )}
-                    <td className="picking-sku-cell" data-label="SKU">{requirement.sku}</td>
-                    <td className="picking-description-cell" data-label="Descrizione">{requirement.description}</td>
-                    <td className="num-col strong-num" data-label={pickingResults.mode === 'automatic' ? 'Da prelevare' : 'Richiesta'}>
+                    <td className="picking-sku-cell" data-label={gaerMode ? 'EAN13' : 'SKU'}>{requirement.sku}</td>
+                    {gaerMode && (
+                      <td className="picking-article-cell" data-label="Articolo">{requirement.article || '—'}</td>
+                    )}
+                    <td className="picking-description-cell" data-label="Descrizione">
+                      <span>{requirement.description}</span>
+                      {gaerMode && (
+                        <small className="picking-product-references">
+                          <span><strong>SKU prodotto</strong> {requirement.product_reference || '—'}</span>
+                          <span><strong>SKU fornitore</strong> {requirement.supplier_reference || '—'}</span>
+                        </small>
+                      )}
+                    </td>
+                    <td className="num-col strong-num" data-label={sequentialMode ? 'Da prelevare' : 'Richiesta'}>
                       {formatPickingQty(requirement.qty_required)}
                     </td>
-                    <td className="num-col muted-num" data-label={pickingResults.mode === 'automatic' ? 'Stock iniziale' : 'Disponibile'}>
+                    <td className="num-col muted-num" data-label={gaerMode ? 'Disponibilità file' : sequentialMode ? 'Stock iniziale' : 'Disponibile'}>
                       {formatPickingQty(requirement.qty_stock)}
                     </td>
-                    {pickingResults.mode === 'automatic' && (
+                    {sequentialMode && (
                       <>
                         <td className="num-col strong-num" data-label="Residuo">
                           {formatPickingQty(remainingQty)}
@@ -131,7 +146,7 @@ export function PickingAggregatedView({
                       <span className={`picking-status-chip ${isCounted ? 'counted' : meta.tone}`}>
                         {isCounted
                           ? 'Contata'
-                          : pickingResults.mode === 'automatic'
+                          : sequentialMode
                             ? `Residuo ${formatPickingQty(remainingQty)}`
                             : meta.label}
                       </span>

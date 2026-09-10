@@ -49,6 +49,26 @@ export function createPickingPageModel({
         core.setPickingError(null);
       },
     },
+    gaerInputProps: {
+      file: core.gaerFile,
+      states: core.gaerStates,
+      selectedStateIds: core.selectedGaerStateIds,
+      statesLoading: core.gaerStatesLoading,
+      statesError: core.gaerStatesError,
+      columns: core.gaerColumns,
+      mappingRequired: core.gaerMappingRequired,
+      eanColumn: core.gaerEanColumn,
+      quantityColumn: core.gaerQuantityColumn,
+      error: core.pickingError,
+      loading: core.pickingLoading,
+      onFileChange: core.selectGaerFile,
+      onStateToggle: core.toggleGaerState,
+      onReloadStates: core.loadGaerStates,
+      onSubmit: core.handleAnalyzeGaer,
+      setEanColumn: core.setGaerEanColumn,
+      setQuantityColumn: core.setGaerQuantityColumn,
+      onReset: core.resetPickingOperation,
+    },
     LoadingSkeleton: shared.TableSkeleton,
     automaticPlannerProps: {
       onSubmit: automatic.handleGenerateAutomaticPicking,
@@ -102,6 +122,9 @@ export function createPickingPageModel({
       clearCountedPickingSkus: core.clearCountedPickingSkus,
       pickingCopyState: clipboard.pickingCopyState,
       handleCopyPickingList: clipboard.handleCopyPickingList,
+      handleExportGaer: core.handleExportGaer,
+      gaerExporting: core.gaerExporting,
+      gaerExportError: core.gaerExportError,
       pickingInputMode: core.pickingInputMode,
       pickingFilesAnomalies: core.pickingFilesAnomalies,
       pickingFilesSummary: core.pickingFilesSummary,
@@ -177,7 +200,10 @@ export function createPickingPageModel({
       setAutoPickingRemainingVisibleLimit: (
         automatic.setAutoPickingRemainingVisibleLimit
       ),
-      sheetWrite,
+      sheetWrite: {
+        ...sheetWrite,
+        enabled: sheetWrite.enabled && core.pickingResults?.mode !== 'gaer',
+      },
     },
   };
 }

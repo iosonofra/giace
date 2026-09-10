@@ -1,12 +1,16 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from backend.models import CalcRun, ImportAnomaly
+
+
+def _utc_naive_now():
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def start_calculation_run(
     db,
     *,
-    now_factory=datetime.now,
+    now_factory=_utc_naive_now,
 ):
     run = CalcRun(
         status="running",
@@ -32,7 +36,7 @@ def complete_calculation_run(
     db,
     run,
     *,
-    now_factory=datetime.now,
+    now_factory=_utc_naive_now,
 ) -> int:
     run.status = "completed"
     run.completed_at = now_factory()
@@ -45,7 +49,7 @@ def fail_calculation_run(
     run,
     error: Exception,
     *,
-    now_factory=datetime.now,
+    now_factory=_utc_naive_now,
 ) -> None:
     db.rollback()
     run.status = "failed"

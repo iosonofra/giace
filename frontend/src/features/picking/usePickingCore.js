@@ -11,6 +11,7 @@ function extractOrderIds(rawText) {
 function getPickingProgressKey(results) {
   if (!results?.sku_requirements?.length) return null;
   const signature = JSON.stringify({
+    mode: results.mode || 'standard',
     orders: [...(results.orders_found || [])].map(String).sort(),
     requirements: results.sku_requirements.map(item => [
       String(item.sku || ''),
@@ -40,6 +41,18 @@ export function usePickingCore({ showActionMsg }) {
   const [pickingFilesAnomalies, setPickingFilesAnomalies] = useState([]);
   const [pickingFilesSummary, setPickingFilesSummary] = useState([]);
   const [pickingViewMode, setPickingViewMode] = useState('aggregated');
+  const [gaerFile, setGaerFile] = useState(null);
+  const [gaerStates, setGaerStates] = useState([]);
+  const [selectedGaerStateIds, setSelectedGaerStateIds] = useState([]);
+  const [gaerStatesLoading, setGaerStatesLoading] = useState(false);
+  const [gaerStatesError, setGaerStatesError] = useState('');
+  const [gaerColumns, setGaerColumns] = useState([]);
+  const [gaerMappingRequired, setGaerMappingRequired] = useState(false);
+  const [gaerEanColumn, setGaerEanColumn] = useState('');
+  const [gaerQuantityColumn, setGaerQuantityColumn] = useState('');
+  const [gaerHeaderRow, setGaerHeaderRow] = useState(null);
+  const [gaerExporting, setGaerExporting] = useState(false);
+  const [gaerExportError, setGaerExportError] = useState('');
   const [pickingRequirementFilter, setPickingRequirementFilter] = useState('all');
   const [pickingCountingMode, setPickingCountingMode] = useState(false);
   const [countedPickingSkus, setCountedPickingSkus] = useState(() => new Set());
@@ -125,6 +138,167 @@ export function usePickingCore({ showActionMsg }) {
     if (pickingInputMode !== 'state' || pickingOrderStates.length > 0) return;
     loadPickingOrderStates();
   }, [loadPickingOrderStates, pickingInputMode, pickingOrderStates.length]);
+
+  const loadGaerStates = useCallback(async () => {
+    setGaerStatesLoading(true);
+    setGaerStatesError('');
+    try {
+      const response = await apiFetch('/api/gaer/states');
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || 'Stati Gaer non disponibili.');
+      setGaerStates(data.states || []);
+      setSelectedGaerStateIds(current => (
+        current.length > 0 ? current : (data.selected_state_ids || []).map(Number)
+      ));
+    } catch (loadError) {
+      setGaerStatesError(loadError.message || 'Stati Gaer non disponibili.');
+    } finally {
+      setGaerStatesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (pickingInputMode !== 'gaer' || gaerStates.length > 0) return;
+    loadGaerStates();
+  }, [gaerStates.length, loadGaerStates, pickingInputMode]);
+
+  const selectGaerFile = (file) => {
+    setGaerFile(file);
+    setGaerColumns([]);
+    setGaerMappingRequired(false);
+    setGaerEanColumn('');
+    setGaerQuantityColumn('');
+    setGaerHeaderRow(null);
+    setGaerExportError('');
+    setPickingError(null);
+  };
+
+  const toggleGaerState = (stateId) => {
+    setSelectedGaerStateIds(current => (
+      current.includes(stateId)
+        ? current.filter(id => id !== stateId)
+        : [...current, stateId]
+    ));
+    setPickingResults(null);
+    setPickingError(null);
+  };
+
+  const handleAnalyzeGaer = async (event) => {
+    event?.preventDefault();
+    if (!gaerFile || selectedGaerStateIds.length === 0) {
+      setPickingError('Seleziona il file Gaer e almeno uno stato ordine.');
+      return;
+    }
+    setPickingLoading(true);
+    setPickingError(null);
+    setGaerExportError('');
+    const formData = new FormData();
+    formData.append('file', gaerFile);
+    formData.append('state_ids', JSON.stringify(selectedGaerStateIds));
+    if (gaerEanColumn) formData.append('ean_column', gaerEanColumn);
+    if (gaerQuantityColumn) formData.append('quantity_column', gaerQuantityColumn);
+    if (gaerHeaderRow) formData.append('header_row', String(gaerHeaderRow));
+    try {
+      const response = await apiFetch('/api/gaer/analyze', { method: 'POST', body: formData });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || 'Analisi Gaer non riuscita.');
+      if (data.mapping_required) {
+        setGaerColumns(data.columns || []);
+        setGaerMappingRequired(true);
+        setGaerHeaderRow(data.header_row || null);
+        setGaerEanColumn(data.suggested_mapping?.ean || '');
+        setGaerQuantityColumn(data.suggested_mapping?.quantity || '');
+        return;
+      }
+      setGaerMappingRequired(false);
+      setPickingResults(data);
+      setPickingViewMode('by_order');
+      setPickingRequirementFilter('all');
+      setPickingFilesAnomalies((data.gaer?.file_warnings || []).map(item => ({
+        record_key: item.ean || `Riga ${item.row}`,
+        message: item.message,
+      })));
+      setPickingFilesSummary([{
+        filename: data.gaer?.filename || gaerFile.name,
+        rows_count: data.gaer?.parsed_rows || 0,
+      }]);
+    } catch (analysisError) {
+      setPickingError(analysisError.message || 'Analisi Gaer non riuscita.');
+    } finally {
+      setPickingLoading(false);
+    }
+  };
+
+  const handleExportGaer = async () => {
+    if (!gaerFile || pickingResults?.mode !== 'gaer') return;
+
+    const allocations = {};
+    for (const order of pickingResults.order_requirements || []) {
+      const orderId = Number(order.order_id);
+      if (!Number.isInteger(orderId) || orderId <= 0) continue;
+      for (const item of order.items || []) {
+        const ean = String(item.ean || item.sku || '').trim();
+        const quantity = Number(item.qty_required || 0);
+        if (!Number.isInteger(quantity) || quantity <= 0) {
+          setGaerExportError(
+            `La quantità proposta per l'EAN ${ean || 'non identificato'} non è intera.`,
+          );
+          return;
+        }
+        if (!allocations[ean]) allocations[ean] = [];
+        for (let unit = 0; unit < quantity; unit += 1) {
+          allocations[ean].push(orderId);
+        }
+      }
+    }
+
+    const gaerMetadata = pickingResults.gaer || {};
+    const mapping = gaerMetadata.mapping || {};
+    if (
+      Object.keys(allocations).length === 0
+      || !mapping.ean
+      || !mapping.quantity
+      || !gaerMetadata.header_row
+    ) {
+      setGaerExportError('I dati dell’analisi Gaer non sono completi. Ripeti il calcolo.');
+      return;
+    }
+
+    setGaerExporting(true);
+    setGaerExportError('');
+    const formData = new FormData();
+    formData.append('file', gaerFile);
+    formData.append('allocations', JSON.stringify(allocations));
+    formData.append('ean_column', mapping.ean);
+    formData.append('quantity_column', mapping.quantity);
+    formData.append('header_row', String(gaerMetadata.header_row));
+    if (gaerMetadata.sheet_name) formData.append('sheet_name', gaerMetadata.sheet_name);
+
+    try {
+      const response = await apiFetch('/api/gaer/export', {
+        method: 'POST',
+        body: formData,
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.detail || 'Esportazione del file Gaer non riuscita.');
+      }
+      const blob = await response.blob();
+      const downloadUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = gaerFile.name;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 0);
+      showActionMsg('File Gaer esportato con gli ID degli ordini proposti.');
+    } catch (exportError) {
+      setGaerExportError(exportError.message || 'Esportazione del file Gaer non riuscita.');
+    } finally {
+      setGaerExporting(false);
+    }
+  };
 
   const handleCalculatePicking = async (event) => {
     event?.preventDefault();
@@ -262,6 +436,15 @@ export function usePickingCore({ showActionMsg }) {
     setRawPickingText('');
     setSelectedPickingFiles([]);
     setSelectedPickingStateId('');
+    setGaerFile(null);
+    setSelectedGaerStateIds([]);
+    setGaerColumns([]);
+    setGaerMappingRequired(false);
+    setGaerEanColumn('');
+    setGaerQuantityColumn('');
+    setGaerHeaderRow(null);
+    setGaerExportError('');
+    setGaerExporting(false);
     setPickingFilesAnomalies([]);
     setPickingFilesSummary([]);
     setPickingError(null);
@@ -320,6 +503,8 @@ export function usePickingCore({ showActionMsg }) {
     detectedPickingOrderCount,
     handleCalculatePicking,
     handleCalculatePickingState,
+    handleAnalyzeGaer,
+    handleExportGaer,
     handleSyncSpecificOrders,
     handleUploadPickingFiles,
     pickingCountingMode,
@@ -334,6 +519,22 @@ export function usePickingCore({ showActionMsg }) {
     pickingStatesError,
     pickingStatesLoading,
     pickingViewMode,
+    gaerFile,
+    gaerStates,
+    selectedGaerStateIds,
+    gaerStatesLoading,
+    gaerStatesError,
+    gaerColumns,
+    gaerMappingRequired,
+    gaerExporting,
+    gaerExportError,
+    gaerEanColumn,
+    gaerQuantityColumn,
+    loadGaerStates,
+    selectGaerFile,
+    toggleGaerState,
+    setGaerEanColumn,
+    setGaerQuantityColumn,
     rawPickingText,
     resetPickingOperation,
     selectedPickingFiles,

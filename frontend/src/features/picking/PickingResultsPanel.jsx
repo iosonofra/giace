@@ -31,6 +31,7 @@ export function PickingResultsPanel({
   getStateBadgeClass,
   handleCopyOrderId,
   handleCopyPickingList,
+  handleExportGaer,
   handleSyncSpecificOrders,
   hasAutomaticRemainingDetails,
   pickingCopyState,
@@ -57,6 +58,8 @@ export function PickingResultsPanel({
   visibleAutomaticRemainingOrders,
   visiblePickingRequirements,
   sheetWrite,
+  gaerExporting,
+  gaerExportError,
 }) {
   if (!pickingResults) return null;
 
@@ -66,6 +69,7 @@ export function PickingResultsPanel({
         clearCountedPickingSkus={clearCountedPickingSkus}
         countedPickingSkus={countedPickingSkus}
         handleCopyPickingList={handleCopyPickingList}
+        handleExportGaer={handleExportGaer}
         pickingCopyState={pickingCopyState}
         pickingCountingMode={pickingCountingMode}
         pickingLoading={pickingLoading}
@@ -74,6 +78,9 @@ export function PickingResultsPanel({
         togglePickingCountingMode={togglePickingCountingMode}
         totalPickingSkus={totalPickingSkus}
         sheetWrite={sheetWrite}
+        resultMode={pickingResults.mode}
+        gaerExporting={gaerExporting}
+        gaerExportError={gaerExportError}
       />
 
       <PickingContextOverview

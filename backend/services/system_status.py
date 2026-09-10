@@ -8,6 +8,7 @@ from backend.models import (
     ImportBatch,
     PrestashopOrder,
 )
+from backend.services.datetime_serialization import utc_iso
 
 
 def get_system_status(
@@ -34,7 +35,7 @@ def get_system_status(
         )
         .first()
     )
-    last_orders_data_sync = _iso_z(
+    last_orders_data_sync = utc_iso(
         order_stats[0] if order_stats else None
     )
     orders_count = (
@@ -85,7 +86,7 @@ def get_system_status(
         "latest_calculation": (
             {
                 "id": latest_calculation.id,
-                "completed_at": _iso_z(
+                "completed_at": utc_iso(
                     latest_calculation.completed_at
                 ),
                 "status": latest_calculation.status,
@@ -164,16 +165,8 @@ def _serialize_batch(
         result["sheet_name"] = batch.sheet_name
     result.update(
         {
-            "imported_at": _iso_z(batch.imported_at),
+            "imported_at": utc_iso(batch.imported_at),
             "record_count": batch.record_count,
         }
     )
     return result
-
-
-def _iso_z(value):
-    return (
-        value.isoformat() + "Z"
-        if value
-        else None
-    )
