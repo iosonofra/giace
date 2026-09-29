@@ -1,6 +1,6 @@
 # Giac - scrittura prelievi su Google Sheets
 
-Protocollo corrente: **2.0.0**.
+Protocollo corrente: **2.2.0**.
 
 1. Nel foglio Google aprire **Estensioni > Apps Script**.
 2. Copiare il contenuto di `Code.gs` nel file `Codice.gs`.
@@ -25,6 +25,16 @@ Per aggiornare uno script già distribuito, sostituire il contenuto di `Codice.g
 salvare e creare una **nuova versione** da **Gestisci deployment > Modifica**,
 mantenendo lo stesso URL `/exec`.
 
-La versione 2.0.0 firma anche la struttura del foglio e aggiorna soltanto le
+La versione 2.2.0 firma la struttura del foglio e aggiorna soltanto le
 celle degli SKU coinvolti. Se righe, SKU, lotti o valori cambiano dopo
 l'anteprima, la registrazione viene interrotta e deve essere rigenerata.
+Durante la conferma riutilizza una sola fotografia del foglio e registra lo
+stato dell'operazione. Se la risposta HTTP viene interrotta dopo la scrittura,
+il backend può quindi recuperare la ricevuta senza applicare due volte il
+prelievo. La sincronizzazione della giacenza locale avviene subito dopo la
+risposta, in background.
+
+La verifica di conferma legge soltanto le intestazioni, le colonne SKU/LOTTO e
+la colonna del giorno interessata. Continua quindi a rilevare righe aggiunte,
+rimosse o spostate e valori modificati, evitando di rileggere descrizioni,
+totali e colonne estranee al prelievo.

@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import json
+import logging
 import re
 import threading
 import time
@@ -27,6 +28,11 @@ class PickingSheetWriteError(ValueError):
     pass
 
 
+class PickingSheetWriteTransportError(PickingSheetWriteError):
+    pass
+
+
+logger = logging.getLogger(__name__)
 _write_lock = threading.Lock()
 _DAY_KEYS = (
     "monday", "tuesday", "wednesday", "thursday", "friday",
@@ -35,7 +41,7 @@ _DAY_KEYS = (
 _WEBAPP_URL = re.compile(
     r"https://script\.google\.com/macros/s/[^/]+/exec"
 )
-_SCRIPT_PROTOCOL_VERSION = "2.0.0"
+_SCRIPT_PROTOCOL_VERSION = "2.2.0"
 
 
 def _require_script_protocol(result: dict) -> None:
@@ -188,7 +194,13 @@ def _signature(secret: str, payload: str) -> str:
     ).hexdigest()
 
 
-def _call_script(config, data, *, request_post=requests.post) -> dict:
+def _call_script(
+    config,
+    data,
+    *,
+    request_post=requests.post,
+    timeout=30,
+) -> dict:
     payload = _canonical({
         **data,
         "timestamp": int(time.time()),
@@ -201,12 +213,12 @@ def _call_script(config, data, *, request_post=requests.post) -> dict:
         response = request_post(
             config["webapp_url"],
             json=envelope,
-            timeout=45,
+            timeout=timeout,
         )
         response.raise_for_status()
         result = response.json()
     except Exception as error:
-        raise PickingSheetWriteError(
+        raise PickingSheetWriteTransportError(
             "Apps Script non è raggiungibile o ha restituito una risposta non valida."
         ) from error
     if not isinstance(result, dict) or not result.get("ok"):
@@ -215,6 +227,49 @@ def _call_script(config, data, *, request_post=requests.post) -> dict:
             detail or "Apps Script ha rifiutato la richiesta."
         )
     return result
+
+
+def _reconcile_script_operation(
+    config,
+    operation_id,
+    *,
+    request_post=requests.post,
+    sleep=time.sleep,
+) -> dict | None:
+    """Recover a receipt when the apply response was lost after the write."""
+    for delay in (0, 1, 2):
+        if delay:
+            sleep(delay)
+        try:
+            status = _call_script(
+                config,
+                {
+                    "action": "status",
+                    "operation_id": operation_id,
+                },
+                request_post=request_post,
+                timeout=10,
+            )
+            _require_script_protocol(status)
+        except PickingSheetWriteError:
+            continue
+        operation_status = status.get("operation_status")
+        if operation_status == "applied":
+            receipt = status.get("receipt") or {}
+            return {
+                "ok": True,
+                "action": "apply",
+                "script_version": _SCRIPT_PROTOCOL_VERSION,
+                "operation_id": operation_id,
+                "sheet_name": receipt.get("sheet_name"),
+                "target_header": receipt.get("target_header"),
+                "updated_cells": receipt.get("updated_cells", 0),
+                "idempotent": True,
+                "reconciled": True,
+            }
+        if operation_status == "failed":
+            return None
+    return None
 
 
 def test_write_connection(db, *, request_post=requests.post) -> dict:
@@ -314,7 +369,14 @@ def preview_sheet_write(db, payload: dict, *, request_post=requests.post) -> dic
     }
 
 
-def apply_sheet_write(db, payload: dict, *, request_post=requests.post) -> dict:
+def apply_sheet_write(
+    db,
+    payload: dict,
+    *,
+    request_post=requests.post,
+    sync_after_apply=True,
+    reconcile_sleep=time.sleep,
+) -> dict:
     config = _config(db)
     plan = payload.get("plan")
     token = str(payload.get("preview_token") or "")
@@ -391,19 +453,33 @@ def apply_sheet_write(db, payload: dict, *, request_post=requests.post) -> dict:
     try:
         if session_id:
             mark_session_recording(db, session_id, operation_id)
-        result = _call_script(
-            config,
-            {
-                "action": "apply",
-                "sku_header": config["sku_header"],
-                "lot_header": config["lot_header"],
-                "exclude_return_lots": config["exclude_return_lots"],
-                "excluded_lot_keywords": config["excluded_lot_keywords"],
-                "remaining_header": config["remaining_header"],
-                **plan,
-            },
-            request_post=request_post,
-        )
+        try:
+            result = _call_script(
+                config,
+                {
+                    "action": "apply",
+                    "sku_header": config["sku_header"],
+                    "lot_header": config["lot_header"],
+                    "exclude_return_lots": config["exclude_return_lots"],
+                    "excluded_lot_keywords": config["excluded_lot_keywords"],
+                    "remaining_header": config["remaining_header"],
+                    **plan,
+                },
+                request_post=request_post,
+            )
+        except PickingSheetWriteTransportError:
+            result = _reconcile_script_operation(
+                config,
+                operation_id,
+                request_post=request_post,
+                sleep=reconcile_sleep,
+            )
+            if result is None:
+                raise PickingSheetWriteTransportError(
+                    "La risposta di Apps Script è stata interrotta e non è "
+                    "possibile confermare l'esito. Non ripetere il prelievo: "
+                    "controlla lo storico operazioni e il foglio."
+                )
         response = {
             "status": "success",
             "operation_id": operation_id,
@@ -416,36 +492,65 @@ def apply_sheet_write(db, payload: dict, *, request_post=requests.post) -> dict:
                 for item in plan.get("items") or []
             ),
             "idempotent": bool(result.get("idempotent", False)),
+            "reconciled": bool(result.get("reconciled", False)),
         }
-        try:
-            response["stock_sync"] = sync_stock_from_google_sheets(
-                db,
-                force=True,
-            )
-        except Exception as error:
-            response["stock_sync"] = {
-                "status": "warning",
-                "message": (
-                    "Prelievo registrato, ma la giacenza locale non è stata "
-                    f"sincronizzata: {error}"
-                ),
-            }
+        response["stock_sync"] = {
+            "status": "pending",
+            "message": "Aggiornamento della giacenza locale in corso.",
+        }
         existing.status = "applied"
         existing.applied_at = datetime.now(timezone.utc).replace(tzinfo=None)
         existing.response_json = json.dumps(response, ensure_ascii=False)
         db.commit()
         if session_id:
             mark_session_recorded(db, session_id, response)
+        if sync_after_apply:
+            response["stock_sync"] = _sync_stock_after_sheet_write(db)
+            existing.response_json = json.dumps(response, ensure_ascii=False)
+            db.commit()
         return response
     except Exception as error:
-        existing.status = "failed"
-        existing.response_json = json.dumps(
-            {"error": str(error)},
-            ensure_ascii=False,
-        )
-        db.commit()
+        if existing.status != "applied":
+            existing.status = "failed"
+            existing.response_json = json.dumps(
+                {"error": str(error)},
+                ensure_ascii=False,
+            )
+            db.commit()
         if session_id:
             mark_session_verified(db, session_id)
         raise
     finally:
         _write_lock.release()
+
+
+def _sync_stock_after_sheet_write(db) -> dict:
+    try:
+        return sync_stock_from_google_sheets(db, force=True)
+    except Exception as error:
+        logger.exception(
+            "Prelievo registrato ma sincronizzazione locale non riuscita."
+        )
+        return {
+            "status": "warning",
+            "message": (
+                "Prelievo registrato, ma la giacenza locale non è stata "
+                f"sincronizzata: {error}"
+            ),
+        }
+
+
+def complete_sheet_write_stock_sync(db, operation_id: str) -> dict:
+    """Complete the slow stock refresh after the HTTP receipt was returned."""
+    operation = db.get(PickingSheetOperation, operation_id)
+    if operation is None or operation.status != "applied":
+        return {"status": "skipped", "message": "Operazione non disponibile."}
+    result = _sync_stock_after_sheet_write(db)
+    try:
+        response = json.loads(operation.response_json or "{}")
+    except (TypeError, ValueError):
+        response = {}
+    response["stock_sync"] = result
+    operation.response_json = json.dumps(response, ensure_ascii=False)
+    db.commit()
+    return result

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { apiFetch, readApiJson } from '../../api/client';
 
@@ -15,7 +15,16 @@ function todayInRome() {
 }
 
 
-export function usePickingSheetWrite({ notify, refresh, results, sourceType = 'simulation' }) {
+const AUTO_RESET_DELAY_MS = 2000;
+
+
+export function usePickingSheetWrite({
+  notify,
+  onNewOperation,
+  refresh,
+  results,
+  sourceType = 'simulation',
+}) {
   const [status, setStatus] = useState(null);
   const [open, setOpen] = useState(false);
   const [targetDate, setTargetDate] = useState(todayInRome);
@@ -27,6 +36,35 @@ export function usePickingSheetWrite({ notify, refresh, results, sourceType = 's
   const [session, setSession] = useState(null);
   const [draftItems, setDraftItems] = useState([]);
   const [sessionLoading, setSessionLoading] = useState(false);
+  const [autoResetPaused, setAutoResetPaused] = useState(false);
+  const autoResetTimerRef = useRef(null);
+
+  const clearAutoReset = useCallback(() => {
+    if (autoResetTimerRef.current === null) return;
+    window.clearTimeout(autoResetTimerRef.current);
+    autoResetTimerRef.current = null;
+  }, []);
+
+  const startNewOperation = useCallback(() => {
+    clearAutoReset();
+    setOpen(false);
+    setReceipt(null);
+    setPreview(null);
+    setSession(null);
+    setDraftItems([]);
+    setError('');
+    setAutoResetPaused(false);
+    setTargetDate(todayInRome());
+    onNewOperation?.();
+  }, [clearAutoReset, onNewOperation]);
+
+  const pauseAutoReset = useCallback(() => {
+    if (autoResetTimerRef.current === null) return;
+    clearAutoReset();
+    setAutoResetPaused(true);
+  }, [clearAutoReset]);
+
+  useEffect(() => () => clearAutoReset(), [clearAutoReset]);
 
   const items = useMemo(() => (
     (results?.sku_requirements || [])
@@ -38,11 +76,13 @@ export function usePickingSheetWrite({ notify, refresh, results, sourceType = 's
   ), [results]);
 
   useEffect(() => {
+    clearAutoReset();
     setSession(null);
     setPreview(null);
     setReceipt(null);
+    setAutoResetPaused(false);
     setDraftItems(items.map(item => ({ ...item, plannedQuantity: item.quantity })));
-  }, [items, sourceType]);
+  }, [clearAutoReset, items, sourceType]);
 
   useEffect(() => {
     if (!results) {
@@ -137,10 +177,12 @@ export function usePickingSheetWrite({ notify, refresh, results, sourceType = 's
   }, [draftItems, ensureSession, targetDate]);
 
   const show = useCallback(async () => {
+    clearAutoReset();
     setOpen(true);
     setReceipt(null);
     setPreview(null);
     setError('');
+    setAutoResetPaused(false);
     try {
       if (session?.status === 'recorded') {
         setSession(null);
@@ -151,12 +193,17 @@ export function usePickingSheetWrite({ notify, refresh, results, sourceType = 's
     } catch (requestError) {
       setError(requestError.message || 'Impossibile creare la sessione di prelievo.');
     }
-  }, [createSession, ensureSession, session?.status]);
+  }, [clearAutoReset, createSession, ensureSession, session?.status]);
 
-  const close = () => {
+  const close = useCallback(() => {
     if (applying) return;
+    if (receipt) {
+      startNewOperation();
+      return;
+    }
+    clearAutoReset();
     setOpen(false);
-  };
+  }, [applying, clearAutoReset, receipt, startNewOperation]);
 
   const changeDate = (value) => {
     setTargetDate(value);
@@ -199,12 +246,22 @@ export function usePickingSheetWrite({ notify, refresh, results, sourceType = 's
       const data = await readApiJson(response);
       setReceipt(data);
       setPreview(null);
+      setAutoResetPaused(false);
       setSession(current => current ? { ...current, status: 'recorded' } : current);
+      const stockSyncPending = data.stock_sync?.status === 'pending';
       notify(
-        `${data.total_quantity} unità registrate in ${data.target_header}.`,
+        `${data.total_quantity} unità registrate in ${data.target_header}.${stockSyncPending ? ' Giacenza in aggiornamento.' : ''}`,
         'success',
       );
       refresh?.();
+      if (stockSyncPending && refresh) {
+        window.setTimeout(refresh, 2500);
+      }
+      clearAutoReset();
+      autoResetTimerRef.current = window.setTimeout(
+        startNewOperation,
+        AUTO_RESET_DELAY_MS,
+      );
     } catch (requestError) {
       const message = requestError.message || 'Registrazione non riuscita.';
       setError(message);
@@ -219,6 +276,7 @@ export function usePickingSheetWrite({ notify, refresh, results, sourceType = 's
   return {
     apply,
     applying,
+    autoResetPaused,
     changeQuantity,
     changeDate,
     close,
@@ -229,6 +287,7 @@ export function usePickingSheetWrite({ notify, refresh, results, sourceType = 's
     itemsCount: items.length,
     loading,
     open,
+    pauseAutoReset,
     preview,
     receipt,
     session,
@@ -237,6 +296,7 @@ export function usePickingSheetWrite({ notify, refresh, results, sourceType = 's
     editDraft,
     sheetName: status?.sheet_name || '',
     show,
+    startNewOperation,
     targetDate,
   };
 }

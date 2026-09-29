@@ -117,6 +117,7 @@ export function PickingSheetWriteDialog({ sheetWrite }) {
   const currentStep = receipt ? 3 : plan ? 2 : 1;
   const copyOperationId = async () => {
     if (!receipt?.operation_id) return;
+    sheetWrite.pauseAutoReset?.();
     try {
       await navigator.clipboard.writeText(receipt.operation_id);
       setCopiedOperation(true);
@@ -126,6 +127,7 @@ export function PickingSheetWriteDialog({ sheetWrite }) {
     }
   };
   const openHistory = () => {
+    sheetWrite.pauseAutoReset?.();
     close?.();
     window.setTimeout(() => window.dispatchEvent(new CustomEvent('giac:open-picking-history')), 240);
   };
@@ -183,7 +185,10 @@ export function PickingSheetWriteDialog({ sheetWrite }) {
           </div>
         )}
 
-        <div className="picking-write-content">
+        <div
+          className="picking-write-content"
+          onPointerDown={receipt ? sheetWrite.pauseAutoReset : undefined}
+        >
           {receipt ? (
             <div className="picking-write-success" role="status">
               <span className="picking-write-success-icon"><SuccessIcon /></span>
@@ -323,7 +328,17 @@ export function PickingSheetWriteDialog({ sheetWrite }) {
 
         <footer className="picking-write-footer">
           {receipt ? (
-            <><span>Operazione salvata anche nello storico della webapp.</span><div className="picking-write-actions"><button type="button" className="btn btn-neutral" onClick={openHistory}>Apri storico</button><button type="button" className="btn btn-primary" onClick={close}>Chiudi</button></div></>
+            <>
+              <span>
+                {sheetWrite.autoResetPaused
+                  ? 'Pulizia automatica in pausa. L’operazione è disponibile nello storico.'
+                  : 'La pagina sarà pronta per una nuova operazione tra pochi istanti.'}
+              </span>
+              <div className="picking-write-actions">
+                <button type="button" className="btn btn-neutral" onClick={openHistory}>Apri storico</button>
+                <button type="button" className="btn btn-primary" onClick={sheetWrite.startNewOperation}>Nuova operazione</button>
+              </div>
+            </>
           ) : (
             <>
               <div className="picking-write-commit-summary">

@@ -279,6 +279,15 @@ function App() {
     autoPickingRemainingQuery,
     autoPickingRemainingVisibleLimit,
   } = automaticPicking;
+  const resetPickingWorkspace = () => {
+    pickingCore.resetPickingOperation();
+    automaticPicking.resetAutomaticPickingConfiguration();
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        document.getElementById(`picking-mode-tab-${pickingCore.pickingInputMode}`)?.focus();
+      });
+    });
+  };
 
   const {
     setIsAssociationModalOpen,
@@ -373,6 +382,7 @@ function App() {
   });
   const pickingSheetWrite = usePickingSheetWrite({
     notify: showActionMsg,
+    onNewOperation: resetPickingWorkspace,
     refresh: refreshAppData,
     results: pickingResults,
     sourceType: pickingCore.pickingInputMode,
@@ -382,6 +392,7 @@ function App() {
     clipboard: pickingClipboard,
     core: pickingCore,
     orders: ordersState,
+    onNewOperation: resetPickingWorkspace,
     presentation: pickingPresentation,
     sheetWrite: pickingSheetWrite,
     shared: {

@@ -2,6 +2,7 @@ export function createPickingPageModel({
   automatic,
   clipboard,
   core,
+  onNewOperation,
   orders,
   presentation,
   sheetWrite,
@@ -24,10 +25,7 @@ export function createPickingPageModel({
     onUploadFiles: core.handleUploadPickingFiles,
     setFileAnomalies: core.setPickingFilesAnomalies,
     setFileSummary: core.setPickingFilesSummary,
-    onNewOperation: () => {
-      core.resetPickingOperation();
-      automatic.resetAutomaticPickingConfiguration();
-    },
+    onNewOperation,
     stateInputProps: {
       states: core.pickingOrderStates,
       selectedStateId: core.selectedPickingStateId,

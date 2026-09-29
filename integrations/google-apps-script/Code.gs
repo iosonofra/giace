@@ -8,7 +8,7 @@
 
 const GIAC_OPERATION_HISTORY_LIMIT = 500;
 const GIAC_REQUEST_MAX_AGE_SECONDS = 300;
-const GIAC_SCRIPT_VERSION = '2.0.0';
+const GIAC_SCRIPT_VERSION = '2.2.0';
 
 function setupGiac() {
   const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
@@ -45,6 +45,7 @@ function doPost(event) {
     }
 
     if (request.action === 'health') return handleHealth(request, properties);
+    if (request.action === 'status') return handleOperationStatus(request, properties);
     if (request.action === 'preview') return handlePreview(request, properties);
     if (request.action === 'apply') return handleApply(request, properties);
     return jsonResponse({ ok: false, error: 'Azione Apps Script non riconosciuta.' });
@@ -74,6 +75,23 @@ function handlePreview(request, properties) {
   return jsonResponse({ ok: true, action: 'preview', ...result });
 }
 
+function handleOperationStatus(request, properties) {
+  const operationId = String(request.operation_id || '');
+  if (!operationId) throw new Error('ID operazione mancante.');
+  const operation = readAppliedOperations(properties)
+    .find(item => item.id === operationId);
+  return jsonResponse({
+    ok: true,
+    action: 'status',
+    script_version: GIAC_SCRIPT_VERSION,
+    operation_id: operationId,
+    operation_status: operation
+      ? String(operation.status || 'applied')
+      : 'not_found',
+    receipt: operation && operation.receipt ? operation.receipt : null,
+  });
+}
+
 function handleApply(request, properties) {
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(30000)) {
@@ -87,88 +105,77 @@ function handleApply(request, properties) {
     const operationId = String(request.operation_id || '');
     if (!operationId) throw new Error('ID operazione mancante.');
     const applied = readAppliedOperations(properties);
-    if (applied.some(item => item.id === operationId)) {
+    const existingOperation = applied.find(item => item.id === operationId);
+    if (
+      existingOperation
+      && !['processing', 'failed'].includes(String(existingOperation.status || 'applied'))
+    ) {
+      const receipt = existingOperation.receipt || {};
       return jsonResponse({
         ok: true,
         action: 'apply',
         script_version: GIAC_SCRIPT_VERSION,
         idempotent: true,
-        updated_cells: 0,
+        updated_cells: Number(receipt.updated_cells || 0),
         operation_id: operationId,
-        sheet_name: request.sheet_name,
-        target_header: request.target_header,
+        sheet_name: receipt.sheet_name || request.sheet_name,
+        target_header: receipt.target_header || request.target_header,
       });
-    }
-
-    const current = buildPreview(request, properties);
-    if (!current.can_apply) {
-      const details = [
-        ...current.errors,
-        ...current.skipped.map(item => `${item.sku}: ${item.reason}`),
-      ];
-      return jsonResponse({
-        ok: false,
-        error: `Il foglio è cambiato: ${details.join(' ')}`,
-      });
-    }
-
-    if (current.items.length !== (request.items || []).length) {
-      return jsonResponse({
-        ok: false,
-        error: 'Uno o più SKU registrabili sono cambiati. Genera una nuova anteprima.',
-      });
-    }
-
-    if (
-      String(request.script_version || '') !== GIAC_SCRIPT_VERSION
-      || !request.sheet_revision
-      || String(request.sheet_revision) !== String(current.sheet_revision)
-    ) {
-      return jsonResponse({
-        ok: false,
-        error: 'La struttura del foglio è cambiata. Genera una nuova anteprima.',
-      });
-    }
-
-    const expectedBySku = new Map(
-      (request.items || []).map(item => [normalize(item.sku), item])
-    );
-    for (const item of current.items) {
-      const expected = expectedBySku.get(normalize(item.sku));
-      if (
-        !expected
-        || Number(expected.row) !== Number(item.row)
-        || Number(expected.current_value) !== Number(item.current_value)
-      ) {
-        return jsonResponse({
-          ok: false,
-          error: `La riga o il valore di ${item.sku} è cambiato. Genera una nuova anteprima.`,
-        });
-      }
     }
 
     const sheet = resolveSheet(request.sheet_name, properties);
-    writeCurrentItems(sheet, request, current);
+    const current = validateApplyPlan(request, sheet);
+    if (!current.can_apply) {
+      return jsonResponse({
+        ok: false,
+        error: current.error,
+      });
+    }
+
+    rememberOperation(properties, applied, operationId, {
+      status: 'processing',
+    });
+    writeCurrentItems(sheet, current);
     SpreadsheetApp.flush();
-    rememberAppliedOperation(properties, applied, operationId);
+    const receipt = {
+      sheet_name: sheet.getName(),
+      target_header: current.target_header,
+      updated_cells: current.items.length,
+    };
+    rememberOperation(properties, applied, operationId, {
+      status: 'applied',
+      receipt,
+    });
 
     return jsonResponse({
       ok: true,
       action: 'apply',
       script_version: GIAC_SCRIPT_VERSION,
       operation_id: operationId,
-      sheet_name: sheet.getName(),
-      target_header: current.target_header,
-      updated_cells: current.items.length,
+      ...receipt,
       idempotent: false,
     });
+  } catch (error) {
+    const operationId = String(request.operation_id || '');
+    if (operationId) {
+      rememberOperation(
+        properties,
+        readAppliedOperations(properties),
+        operationId,
+        {
+          status: 'failed',
+          error: String(error.message || error),
+        }
+      );
+    }
+    throw error;
   } finally {
     lock.releaseLock();
   }
 }
 
-function buildPreview(request, properties) {
-  const sheet = resolveSheet(request.sheet_name, properties);
+function buildPreview(request, properties, resolvedSheet) {
+  const sheet = resolvedSheet || resolveSheet(request.sheet_name, properties);
   const headers = readHeaders(sheet);
   const skuColumn = findHeaderIndex(headers, request.sku_header, true) + 1;
   const excludeReturnLots = Boolean(request.exclude_return_lots);
@@ -179,28 +186,46 @@ function buildPreview(request, properties) {
   const remainingIndex = findHeaderIndex(headers, request.remaining_header, false);
   const target = findTargetDayHeader(headers, request.day_label, request.target_date);
   const lastRow = sheet.getLastRow();
-  const dataRange = lastRow > 1
-    ? sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn())
-    : null;
-  const rawValues = dataRange ? dataRange.getValues() : [];
-  const displayValues = dataRange ? dataRange.getDisplayValues() : [];
-  const skuRows = new Map();
-  const seenSkus = new Set();
-  const skippedRowsBySku = new Map();
-
-  displayValues.forEach((row, index) => {
-    const sku = normalize(row[skuColumn - 1]);
-    if (!sku) return;
-    seenSkus.add(sku);
-    if (
-      excludeReturnLots
-      && isExcludedLot(row[lotIndex], excludedLotKeywords)
-    ) {
-      skippedRowsBySku.set(sku, (skippedRowsBySku.get(sku) || 0) + 1);
-      return;
-    }
-    // Conserva intenzionalmente la prima riga valida nell'ordine del foglio.
-    if (!skuRows.has(sku)) skuRows.set(sku, index + 2);
+  const rowCount = Math.max(0, lastRow - 1);
+  const skuIndex = skuColumn - 1;
+  const identityStartIndex = lotIndex >= 0
+    ? Math.min(skuIndex, lotIndex)
+    : skuIndex;
+  const identityEndIndex = lotIndex >= 0
+    ? Math.max(skuIndex, lotIndex)
+    : skuIndex;
+  const identityValues = rowCount > 0
+    ? sheet.getRange(
+      2,
+      identityStartIndex + 1,
+      rowCount,
+      identityEndIndex - identityStartIndex + 1
+    ).getDisplayValues()
+    : [];
+  const skuValues = identityValues.map(
+    row => row[skuIndex - identityStartIndex]
+  );
+  const lotValues = lotIndex >= 0
+    ? identityValues.map(row => row[lotIndex - identityStartIndex])
+    : [];
+  const numericIndexes = remainingIndex >= 0
+    ? [target.index, remainingIndex]
+    : [target.index];
+  const numericStartIndex = Math.min(...numericIndexes);
+  const numericEndIndex = Math.max(...numericIndexes);
+  const numericValues = rowCount > 0
+    ? sheet.getRange(
+      2,
+      numericStartIndex + 1,
+      rowCount,
+      numericEndIndex - numericStartIndex + 1
+    ).getValues()
+    : [];
+  const skuRowIndex = buildSkuRowIndex({
+    skuValues,
+    lotValues,
+    excludeReturnLots,
+    excludedLotKeywords,
   });
 
   const errors = [];
@@ -213,21 +238,23 @@ function buildPreview(request, properties) {
       errors.push(`Riga SKU non valida: ${rawItem.sku || 'senza SKU'}.`);
       return;
     }
-    const row = skuRows.get(sku);
+    const row = skuRowIndex.skuRows.get(sku);
     if (!row) {
       skipped.push({
         sku,
         quantity,
-        reason: seenSkus.has(sku)
+        reason: skuRowIndex.seenSkus.has(sku)
           ? 'Presente solo in righe escluse dal calcolo.'
           : 'Non trovato nel foglio.',
       });
       return;
     }
     const rowIndex = row - 2;
-    const currentValue = numericValue(rawValues[rowIndex][target.index]);
+    const currentValue = numericValue(
+      numericValues[rowIndex][target.index - numericStartIndex]
+    );
     const remainingCurrent = remainingIndex >= 0
-      ? numericValue(rawValues[rowIndex][remainingIndex])
+      ? numericValue(numericValues[rowIndex][remainingIndex - numericStartIndex])
       : null;
     resultItems.push({
       sku,
@@ -237,7 +264,7 @@ function buildPreview(request, properties) {
       new_value: currentValue + quantity,
       remaining_current: remainingCurrent,
       remaining_after: remainingCurrent === null ? null : remainingCurrent - quantity,
-      excluded_rows_skipped: skippedRowsBySku.get(sku) || 0,
+      excluded_rows_skipped: skuRowIndex.skippedRowsBySku.get(sku) || 0,
     });
   });
 
@@ -245,9 +272,8 @@ function buildPreview(request, properties) {
     script_version: GIAC_SCRIPT_VERSION,
     sheet_revision: buildSheetRevision({
       headers,
-      displayValues,
-      skuIndex: skuColumn - 1,
-      lotIndex,
+      skuValues,
+      lotValues,
       target,
     }),
     sheet_name: sheet.getName(),
@@ -261,7 +287,19 @@ function buildPreview(request, properties) {
   };
 }
 
-function writeCurrentItems(sheet, request, current) {
+function validateApplyPlan(request, sheet) {
+  const requestedItems = Array.isArray(request.items) ? request.items : [];
+  if (
+    String(request.script_version || '') !== GIAC_SCRIPT_VERSION
+    || !request.sheet_revision
+    || requestedItems.length === 0
+  ) {
+    return {
+      can_apply: false,
+      error: 'L’anteprima non è aggiornata. Genera una nuova anteprima.',
+    };
+  }
+
   const headers = readHeaders(sheet);
   const skuIndex = findHeaderIndex(headers, request.sku_header, true);
   const excludeReturnLots = Boolean(request.exclude_return_lots);
@@ -269,48 +307,120 @@ function writeCurrentItems(sheet, request, current) {
     ? findHeaderIndex(headers, request.lot_header, true)
     : -1;
   const excludedLotKeywords = normalizeKeywords(request.excluded_lot_keywords);
-  const targetIndex = findHeaderIndex(headers, current.target_header, true);
-
-  if (targetIndex + 1 !== Number(current.target_column_index)) {
-    throw new Error(
-      'La colonna di destinazione è cambiata. Genera una nuova anteprima.'
-    );
+  const target = findTargetDayHeader(headers, request.day_label, request.target_date);
+  const lastRow = sheet.getLastRow();
+  const rowCount = Math.max(0, lastRow - 1);
+  const identityStartIndex = lotIndex >= 0
+    ? Math.min(skuIndex, lotIndex)
+    : skuIndex;
+  const identityEndIndex = lotIndex >= 0
+    ? Math.max(skuIndex, lotIndex)
+    : skuIndex;
+  const identityValues = rowCount > 0
+    ? sheet.getRange(
+      2,
+      identityStartIndex + 1,
+      rowCount,
+      identityEndIndex - identityStartIndex + 1
+    ).getDisplayValues()
+    : [];
+  const skuValues = identityValues.map(
+    row => row[skuIndex - identityStartIndex]
+  );
+  const lotValues = lotIndex >= 0
+    ? identityValues.map(row => row[lotIndex - identityStartIndex])
+    : [];
+  const revision = buildSheetRevision({ headers, skuValues, lotValues, target });
+  if (String(request.sheet_revision) !== String(revision)) {
+    return {
+      can_apply: false,
+      error: 'La struttura del foglio è cambiata. Genera una nuova anteprima.',
+    };
   }
 
+  const rowIndex = buildSkuRowIndex({
+    skuValues,
+    lotValues,
+    excludeReturnLots,
+    excludedLotKeywords,
+  });
+  const targetValues = rowCount > 0
+    ? sheet.getRange(2, target.index + 1, rowCount, 1).getValues()
+    : [];
+  const items = [];
+  for (const expected of requestedItems) {
+    const sku = normalize(expected.sku);
+    const quantity = Number(expected.quantity);
+    const row = rowIndex.skuRows.get(sku);
+    if (
+      !sku
+      || !Number.isFinite(quantity)
+      || quantity <= 0
+      || Number(expected.row) !== Number(row)
+    ) {
+      return {
+        can_apply: false,
+        error: `La riga dello SKU ${sku || 'non valido'} è cambiata. Genera una nuova anteprima.`,
+      };
+    }
+    const currentValue = numericValue(targetValues[row - 2][0]);
+    if (Number(expected.current_value) !== Number(currentValue)) {
+      return {
+        can_apply: false,
+        error: `Il valore di ${sku} è cambiato. Genera una nuova anteprima.`,
+      };
+    }
+    items.push({
+      sku,
+      row,
+      quantity,
+      current_value: currentValue,
+      new_value: currentValue + quantity,
+    });
+  }
+
+  return {
+    can_apply: true,
+    target_header: target.header,
+    target_column_index: target.index + 1,
+    items,
+  };
+}
+
+function buildSkuRowIndex({
+  skuValues,
+  lotValues,
+  excludeReturnLots,
+  excludedLotKeywords,
+}) {
+  const skuRows = new Map();
+  const seenSkus = new Set();
+  const skippedRowsBySku = new Map();
+  skuValues.forEach((value, index) => {
+    const sku = normalize(value);
+    if (!sku) return;
+    seenSkus.add(sku);
+    if (
+      excludeReturnLots
+      && isExcludedLot(lotValues[index], excludedLotKeywords)
+    ) {
+      skippedRowsBySku.set(sku, (skippedRowsBySku.get(sku) || 0) + 1);
+      return;
+    }
+    // Conserva intenzionalmente la prima riga valida nell'ordine del foglio.
+    if (!skuRows.has(sku)) skuRows.set(sku, index + 2);
+  });
+  return { skuRows, seenSkus, skippedRowsBySku };
+}
+
+function writeCurrentItems(sheet, current) {
   const lastRow = sheet.getLastRow();
-  const lastColumn = sheet.getLastColumn();
-  const liveRange = lastRow > 1
-    ? sheet.getRange(2, 1, lastRow - 1, lastColumn)
-    : null;
-  const liveDisplayValues = liveRange ? liveRange.getDisplayValues() : [];
-  const liveRawValues = liveRange ? liveRange.getValues() : [];
   const verifiedWrites = current.items.map(item => {
     const rowNumber = Number(item.row);
     if (!Number.isInteger(rowNumber) || rowNumber < 2 || rowNumber > lastRow) {
       throw new Error(`La riga dello SKU ${item.sku} non è più valida.`);
     }
 
-    const displayRow = liveDisplayValues[rowNumber - 2];
-    const rawRow = liveRawValues[rowNumber - 2];
-    if (normalize(displayRow[skuIndex]) !== normalize(item.sku)) {
-      throw new Error(
-        `Lo SKU ${item.sku} non si trova più alla riga prevista. Genera una nuova anteprima.`
-      );
-    }
-    if (
-      excludeReturnLots
-      && isExcludedLot(displayRow[lotIndex], excludedLotKeywords)
-    ) {
-      throw new Error(
-        `La riga dello SKU ${item.sku} è ora esclusa dal calcolo. Genera una nuova anteprima.`
-      );
-    }
-
-    if (Number(numericValue(rawRow[targetIndex])) !== Number(item.current_value)) {
-      throw new Error(
-        `Il valore di ${item.sku} è cambiato. Genera una nuova anteprima.`
-      );
-    }
     return {
       row: rowNumber,
       value: Number(item.new_value),
@@ -331,18 +441,18 @@ function writeCurrentItems(sheet, request, current) {
   groups.forEach(group => {
     sheet.getRange(
       group.startRow,
-      targetIndex + 1,
+      Number(current.target_column_index),
       group.values.length,
       1
     ).setValues(group.values);
   });
 }
 
-function buildSheetRevision({ headers, displayValues, skuIndex, lotIndex, target }) {
-  const rows = displayValues.map((row, index) => [
+function buildSheetRevision({ headers, skuValues, lotValues, target }) {
+  const rows = skuValues.map((sku, index) => [
     index + 2,
-    normalize(row[skuIndex]),
-    lotIndex >= 0 ? normalize(row[lotIndex]) : '',
+    normalize(sku),
+    lotValues.length > 0 ? normalize(lotValues[index]) : '',
   ].join('\u001f'));
   return sha256Hex([
     GIAC_SCRIPT_VERSION,
@@ -451,10 +561,14 @@ function readAppliedOperations(properties) {
   }
 }
 
-function rememberAppliedOperation(properties, operations, operationId) {
+function rememberOperation(properties, operations, operationId, details) {
   const next = [
     ...operations.filter(item => item.id !== operationId),
-    { id: operationId, applied_at: new Date().toISOString() },
+    {
+      id: operationId,
+      updated_at: new Date().toISOString(),
+      ...(details || {}),
+    },
   ].slice(-GIAC_OPERATION_HISTORY_LIMIT);
   properties.setProperty('GIAC_APPLIED_OPERATIONS', JSON.stringify(next));
 }
