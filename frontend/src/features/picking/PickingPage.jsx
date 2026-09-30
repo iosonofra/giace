@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Icons } from '../../components/ui/Icons';
 import { PickingAutomaticPlanner } from './PickingAutomaticPlanner';
 import { PickingFileInput } from './PickingFileInput';
 import { PickingHistoryDialog } from './PickingHistoryDialog';
@@ -6,6 +7,55 @@ import { PickingGaerInput } from './PickingGaerInput';
 import { PickingResultsPanel } from './PickingResultsPanel';
 import { PickingStateInput } from './PickingStateInput';
 import { PickingTextInput } from './PickingTextInput';
+import { StockVerificationWorkflow } from './StockVerificationWorkflow';
+
+
+const PICKING_SOURCE_MODES = [
+  {
+    id: 'text',
+    label: 'ID ordine',
+    summaryLabel: 'ID incollati',
+    description: 'Incolla uno o più ID ordine da elaborare.',
+    Icon: Icons.Picking,
+  },
+  {
+    id: 'file',
+    label: 'File Excel',
+    description: 'Carica uno o più file contenenti gli ordini.',
+    Icon: Icons.Upload,
+  },
+  {
+    id: 'state',
+    label: 'Stato PrestaShop',
+    summaryLabel: 'Stato ordine',
+    description: 'Seleziona gli ordini partendo dai loro stati.',
+    Icon: Icons.Orders,
+  },
+  {
+    id: 'gaer',
+    label: 'Disponibilità Gaer',
+    summaryLabel: 'Gaer',
+    description: 'Calcola il prelievo usando la disponibilità EAN del file Gaer.',
+    Icon: Icons.Stock,
+  },
+  {
+    id: 'automatic',
+    label: 'Proposta automatica',
+    description: 'Lascia che il sistema proponga gli ordini preparabili.',
+    Icon: Icons.Check,
+  },
+];
+
+const PICKING_TOOL_MODES = [
+  {
+    id: 'stock_verification',
+    label: 'Verifica giacenze',
+    description: 'Confronta un file esterno con l’ordine corrente di Google Sheets.',
+    Icon: Icons.Search,
+  },
+];
+
+const PICKING_MODES = [...PICKING_SOURCE_MODES, ...PICKING_TOOL_MODES];
 
 
 export function PickingPage({
@@ -29,6 +79,7 @@ export function PickingPage({
   stateInputProps,
   gaerInputProps,
   automaticPlannerProps,
+  stockVerificationProps,
   resultsProps,
   LoadingSkeleton,
 }) {
@@ -36,14 +87,11 @@ export function PickingPage({
   const [resultSourceMode, setResultSourceMode] = useState(inputMode);
   const inputModeRef = useRef(inputMode);
   inputModeRef.current = inputMode;
-  const inputModes = ['text', 'file', 'state', 'gaer', 'automatic'];
-  const inputModeLabels = {
-    text: 'ID incollati',
-    file: 'File Excel',
-    state: 'Stato ordine',
-    gaer: 'Gaer',
-    automatic: 'Proposta automatica',
-  };
+  const inputModes = PICKING_MODES.map(mode => mode.id);
+  const activeMode = PICKING_MODES.find(mode => mode.id === inputMode) || PICKING_MODES[0];
+  const inputModeLabels = Object.fromEntries(
+    PICKING_MODES.map(mode => [mode.id, mode.summaryLabel || mode.label]),
+  );
 
   useEffect(() => {
     setInputExpanded(!results);
@@ -124,72 +172,74 @@ export function PickingPage({
                 </button>
               </div>
             )}
-            <div
-              className="picking-mode-switch"
-              role="tablist"
-              aria-label="Modalità inserimento lista prelievo"
-              onKeyDown={handleModeKeyDown}
-            >
-          <button
-            id="picking-mode-tab-text"
-            type="button"
-            className={`picking-mode-btn ${inputMode === 'text' ? 'active' : ''}`}
-            role="tab"
-            aria-selected={inputMode === 'text'}
-            aria-controls="picking-mode-panel"
-            tabIndex={inputMode === 'text' ? 0 : -1}
-            onClick={() => selectMode('text')}
-          >
-            Incolla ID
-          </button>
-          <button
-            id="picking-mode-tab-file"
-            type="button"
-            className={`picking-mode-btn ${inputMode === 'file' ? 'active' : ''}`}
-            role="tab"
-            aria-selected={inputMode === 'file'}
-            aria-controls="picking-mode-panel"
-            tabIndex={inputMode === 'file' ? 0 : -1}
-            onClick={() => selectMode('file')}
-          >
-            Carica Excel
-          </button>
-          <button
-            id="picking-mode-tab-state"
-            type="button"
-            className={`picking-mode-btn ${inputMode === 'state' ? 'active' : ''}`}
-            role="tab"
-            aria-selected={inputMode === 'state'}
-            aria-controls="picking-mode-panel"
-            tabIndex={inputMode === 'state' ? 0 : -1}
-            onClick={() => selectMode('state')}
-          >
-            Stato ordine
-          </button>
-          <button
-            id="picking-mode-tab-gaer"
-            type="button"
-            className={`picking-mode-btn ${inputMode === 'gaer' ? 'active' : ''}`}
-            role="tab"
-            aria-selected={inputMode === 'gaer'}
-            aria-controls="picking-mode-panel"
-            tabIndex={inputMode === 'gaer' ? 0 : -1}
-            onClick={() => selectMode('gaer')}
-          >
-            Gaer
-          </button>
-          <button
-            id="picking-mode-tab-automatic"
-            type="button"
-            className={`picking-mode-btn ${inputMode === 'automatic' ? 'active' : ''}`}
-            role="tab"
-            aria-selected={inputMode === 'automatic'}
-            aria-controls="picking-mode-panel"
-            tabIndex={inputMode === 'automatic' ? 0 : -1}
-            onClick={() => selectMode('automatic')}
-          >
-            Automatica
-          </button>
+            <div className="picking-mode-selector">
+              <div
+                className="picking-mode-switch"
+                role="tablist"
+                aria-label="Origine della lista prelievo e strumenti"
+                onKeyDown={handleModeKeyDown}
+              >
+                <div className="picking-mode-source-group" role="presentation">
+                  <div className="picking-mode-selector-head">
+                    <strong>Origine della lista</strong>
+                    <span>Scegli come individuare gli ordini da preparare.</span>
+                  </div>
+                  <div className="picking-mode-source-list" role="presentation">
+                    {PICKING_SOURCE_MODES.map(mode => {
+                      const ModeIcon = mode.Icon;
+                      const selected = inputMode === mode.id;
+                      return (
+                        <button
+                          key={mode.id}
+                          id={`picking-mode-tab-${mode.id}`}
+                          type="button"
+                          className={`picking-mode-btn ${selected ? 'active' : ''}`}
+                          role="tab"
+                          aria-selected={selected}
+                          aria-controls="picking-mode-panel"
+                          aria-describedby={selected ? 'picking-mode-description' : undefined}
+                          tabIndex={selected ? 0 : -1}
+                          onClick={() => selectMode(mode.id)}
+                        >
+                          <ModeIcon />
+                          <span>{mode.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div className="picking-mode-tools" role="presentation">
+                  <div className="picking-mode-tools-head">
+                    <strong>Strumenti</strong>
+                    <span>Controlli separati dalla pianificazione.</span>
+                  </div>
+                  {PICKING_TOOL_MODES.map(mode => {
+                    const ModeIcon = mode.Icon;
+                    const selected = inputMode === mode.id;
+                    return (
+                      <button
+                        key={mode.id}
+                        id={`picking-mode-tab-${mode.id}`}
+                        type="button"
+                        className={`picking-mode-btn picking-mode-tool-btn ${selected ? 'active' : ''}`}
+                        role="tab"
+                        aria-selected={selected}
+                        aria-controls="picking-mode-panel"
+                        aria-describedby={selected ? 'picking-mode-description' : undefined}
+                        tabIndex={selected ? 0 : -1}
+                        onClick={() => selectMode(mode.id)}
+                      >
+                        <ModeIcon />
+                        <span>{mode.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <p id="picking-mode-description" className="picking-mode-description" aria-live="polite">
+                <strong>{activeMode.label}</strong>
+                <span>{activeMode.description}</span>
+              </p>
             </div>
 
             <div
@@ -234,6 +284,8 @@ export function PickingPage({
             <PickingStateInput {...stateInputProps} />
           ) : inputMode === 'gaer' ? (
             <PickingGaerInput {...gaerInputProps} />
+          ) : inputMode === 'stock_verification' ? (
+            <StockVerificationWorkflow verification={stockVerificationProps} />
           ) : (
             <PickingAutomaticPlanner {...automaticPlannerProps} />
           )}

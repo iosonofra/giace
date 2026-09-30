@@ -45,6 +45,7 @@ import { createPickingPageModel } from './features/picking/pickingPageModel';
 import { usePickingClipboard } from './features/picking/usePickingClipboard';
 import { useAutomaticPicking } from './features/picking/useAutomaticPicking';
 import { usePickingSheetWrite } from './features/picking/usePickingSheetWrite';
+import { useStockVerification } from './features/picking/useStockVerification';
 import { useBackupRestore } from './features/settings/useBackupRestore';
 import { useSettingsData } from './features/settings/useSettingsData';
 import { StockPage } from './features/stock/StockPage';
@@ -279,9 +280,11 @@ function App() {
     autoPickingRemainingQuery,
     autoPickingRemainingVisibleLimit,
   } = automaticPicking;
+  const stockVerification = useStockVerification({ notify: showActionMsg });
   const resetPickingWorkspace = () => {
     pickingCore.resetPickingOperation();
     automaticPicking.resetAutomaticPickingConfiguration();
+    stockVerification.reset();
     window.requestAnimationFrame(() => {
       window.requestAnimationFrame(() => {
         document.getElementById(`picking-mode-tab-${pickingCore.pickingInputMode}`)?.focus();
@@ -395,6 +398,7 @@ function App() {
     onNewOperation: resetPickingWorkspace,
     presentation: pickingPresentation,
     sheetWrite: pickingSheetWrite,
+    stockVerification,
     shared: {
       formatPickingQty,
       getOrderPickingMeta,

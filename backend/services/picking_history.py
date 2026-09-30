@@ -1,7 +1,7 @@
 import json
 from datetime import date
 
-from sqlalchemy import func, or_
+from sqlalchemy import case, func, or_
 
 from backend.models import PickingSession, PickingSheetOperation
 from backend.services.datetime_serialization import utc_iso
@@ -99,7 +99,24 @@ def list_picking_history(
             ),
         ))
 
-    total = statement.count()
+    aggregate = statement.with_entities(
+        func.count(PickingSheetOperation.operation_id),
+        func.coalesce(func.sum(PickingSheetOperation.total_qty), 0.0),
+        func.coalesce(func.sum(PickingSheetOperation.sku_count), 0),
+        func.coalesce(func.sum(case(
+            (PickingSheetOperation.status == "applied", 1),
+            else_=0,
+        )), 0),
+        func.coalesce(func.sum(case(
+            (PickingSheetOperation.status == "failed", 1),
+            else_=0,
+        )), 0),
+        func.coalesce(func.sum(case(
+            (PickingSheetOperation.status == "pending", 1),
+            else_=0,
+        )), 0),
+    ).one()
+    total = int(aggregate[0] or 0)
     operations = (
         statement
         .order_by(
@@ -134,6 +151,14 @@ def list_picking_history(
         "page_size": page_size,
         "total": total,
         "pages": max(1, (total + page_size - 1) // page_size),
+        "summary": {
+            "operations": total,
+            "total_quantity": float(aggregate[1] or 0),
+            "sku_count": int(aggregate[2] or 0),
+            "applied": int(aggregate[3] or 0),
+            "failed": int(aggregate[4] or 0),
+            "pending": int(aggregate[5] or 0),
+        },
     }
 
 

@@ -6,6 +6,7 @@ export function createPickingPageModel({
   orders,
   presentation,
   sheetWrite,
+  stockVerification,
   shared,
 }) {
   return {
@@ -67,6 +68,7 @@ export function createPickingPageModel({
       setQuantityColumn: core.setGaerQuantityColumn,
       onReset: core.resetPickingOperation,
     },
+    stockVerificationProps: stockVerification,
     LoadingSkeleton: shared.TableSkeleton,
     automaticPlannerProps: {
       onSubmit: automatic.handleGenerateAutomaticPicking,

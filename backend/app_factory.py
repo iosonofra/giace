@@ -26,6 +26,7 @@ from backend.api.prestashop import router as prestashop_router
 from backend.api.settings import router as settings_router
 from backend.api.stock import router as stock_router
 from backend.api.stock_products import router as stock_products_router
+from backend.api.stock_verification import router as stock_verification_router
 from backend.api.system import router as system_router
 from backend.config import AppConfig
 from backend.database import SessionLocal, engine
@@ -39,6 +40,7 @@ logger = logging.getLogger(__name__)
 API_ROUTERS = (
     stock_router,
     stock_products_router,
+    stock_verification_router,
     associations_router,
     anomalies_router,
     system_router,
