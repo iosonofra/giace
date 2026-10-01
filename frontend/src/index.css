@@ -18593,6 +18593,19 @@ body.light-theme .associated-product-stock-group-row th {
   background: color-mix(in srgb, var(--color-primary) 6%, transparent);
 }
 
+.gaer-file-picker:focus-visible,
+.stock-verification-picker:focus-visible {
+  border-color: var(--color-primary);
+  outline: 2px solid var(--focus-ring-color);
+  outline-offset: 3px;
+}
+
+.gaer-file-picker.is-dragging {
+  border-color: var(--color-primary);
+  border-style: solid;
+  background: color-mix(in srgb, var(--color-primary) 10%, var(--bg-card));
+}
+
 .gaer-file-picker input {
   position: absolute;
   width: 1px;
@@ -18806,6 +18819,12 @@ body.light-theme .associated-product-stock-group-row th {
 .stock-verification-picker.has-file {
   border-color: var(--color-primary);
   background: color-mix(in srgb, var(--color-primary) 5%, var(--bg-card));
+}
+
+.stock-verification-picker.is-dragging {
+  border-color: var(--color-primary);
+  border-style: solid;
+  background: color-mix(in srgb, var(--color-primary) 10%, var(--bg-card));
 }
 
 .stock-verification-picker input {

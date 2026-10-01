@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useSingleFileDrop } from './useSingleFileDrop';
 
 
 function quantity(value) {
@@ -13,6 +14,7 @@ function sourceLabel(source) {
 
 export function StockVerificationWorkflow({ verification }) {
   const [filter, setFilter] = useState('all');
+  const fileDrop = useSingleFileDrop(verification.selectFile);
   const result = verification.result;
   useEffect(() => {
     setFilter('all');
@@ -48,21 +50,28 @@ export function StockVerificationWorkflow({ verification }) {
           <span className="badge badge-neutral">Nessuna modifica ai dati</span>
         </div>
 
-        <label className={`stock-verification-picker ${verification.file ? 'has-file' : ''}`}>
+        <label
+          className={`stock-verification-picker ${verification.file ? 'has-file' : ''} ${fileDrop.dragOver ? 'is-dragging' : ''}`}
+          role="button"
+          tabIndex={0}
+          aria-label="Carica il file Excel delle giacenze esterne"
+          {...fileDrop.dropTargetProps}
+        >
           <input
+            ref={fileDrop.inputRef}
             type="file"
             accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            onChange={event => verification.selectFile(event.target.files?.[0] || null)}
+            onChange={fileDrop.handleInputChange}
           />
           <span className="stock-verification-picker-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4" /></svg>
           </span>
           <span>
-            <strong>{verification.file ? verification.file.name : 'Seleziona il file delle giacenze esterne'}</strong>
+            <strong aria-live="polite">{fileDrop.dragOver ? 'Rilascia il file per caricarlo' : verification.file ? verification.file.name : 'Trascina qui il file delle giacenze esterne'}</strong>
             <small>
               {verification.file
-                ? `${Math.max(1, Math.round(verification.file.size / 1024))} KB · Excel .xlsx`
-                : 'Riconoscimento automatico delle colonne SKU e quantità'}
+                ? `${Math.max(1, Math.round(verification.file.size / 1024))} KB · Trascina un altro file per sostituirlo`
+                : 'Oppure clicca per selezionarlo · Excel .xlsx'}
             </small>
           </span>
         </label>

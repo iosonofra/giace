@@ -1,3 +1,6 @@
+import { useSingleFileDrop } from './useSingleFileDrop';
+
+
 export function PickingGaerInput({
   columns,
   eanColumn,
@@ -18,6 +21,7 @@ export function PickingGaerInput({
   statesError,
   statesLoading,
 }) {
+  const fileDrop = useSingleFileDrop(onFileChange);
   const canSubmit = file && selectedStateIds.length > 0 && (
     !mappingRequired || (eanColumn && quantityColumn && eanColumn !== quantityColumn)
   );
@@ -42,14 +46,21 @@ export function PickingGaerInput({
             <span>1</span>
             <div><strong>File disponibilità</strong><small>Formato Excel .xlsx</small></div>
           </div>
-          <label className={`gaer-file-picker ${file ? 'has-file' : ''}`}>
+          <label
+            className={`gaer-file-picker ${file ? 'has-file' : ''} ${fileDrop.dragOver ? 'is-dragging' : ''}`}
+            role="button"
+            tabIndex={0}
+            aria-label="Carica il file Excel della disponibilità Gaer"
+            {...fileDrop.dropTargetProps}
+          >
             <input
+              ref={fileDrop.inputRef}
               type="file"
               accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-              onChange={event => onFileChange(event.target.files?.[0] || null)}
+              onChange={fileDrop.handleInputChange}
             />
-            <strong>{file ? file.name : 'Seleziona esportazione DDT'}</strong>
-            <span>{file ? `${Math.max(1, Math.round(file.size / 1024))} KB` : 'Cercheremo CODICE A BARRE e QUANTITA'}</span>
+            <strong aria-live="polite">{fileDrop.dragOver ? 'Rilascia il file per caricarlo' : file ? file.name : 'Trascina qui l’esportazione DDT'}</strong>
+            <span>{file ? `${Math.max(1, Math.round(file.size / 1024))} KB · Trascina un altro file per sostituirlo` : 'Oppure clicca per selezionarlo · Excel .xlsx'}</span>
           </label>
         </section>
 
